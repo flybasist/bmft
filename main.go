@@ -1,11 +1,11 @@
 package main
 
 import (
-	"fmt"
 	"log"
 
 	"github.com/flybasist/bmft/internal/logger"
 	"github.com/flybasist/bmft/internal/settings"
+	"github.com/flybasist/bmft/internal/tgbot"
 )
 
 func main() {
@@ -14,8 +14,7 @@ func main() {
 		log.Fatalf("Ошибка загрузки конфигурации: %v", err)
 	}
 
-	logger.InitLogger("bot")
-	log.Printf("ID бота из YAML: %s", cfg.Bot.ID)
+	logger.InitLogger("bmft")
 
-	fmt.Println(cfg.Bot.ID)
+	tgbot.Botstart(cfg.Bot.ID)
 }
