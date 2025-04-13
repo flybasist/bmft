@@ -1,0 +1,27 @@
+version: "3.9"
+
+services:
+  rabbitmq:
+    image: rabbitmq:3-management
+    container_name: rabbitmq
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    environment:
+      RABBITMQ_DEFAULT_USER: telegram
+      RABBITMQ_DEFAULT_PASS: secret123
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+
+  telegram-bot:
+    build:
+      context: .
+    container_name: telegram_bot
+    depends_on:
+      - rabbitmq
+    environment:
+      RABBIT_URL: amqp://telegram:secret123@rabbitmq:5672/
+      BOT_TOKEN: <здесь_будет_твой_токен_бота> # или вынеси в .env
+
+volumes:
+  rabbitmq_data:
