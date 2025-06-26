@@ -1,30 +1,55 @@
-# If you prefer the allow list template instead of the deny list, see community template:
-# https://github.com/github/gitignore/blob/main/community/Golang/Go.AllowList.gitignore
-#
-# Binaries for programs and plugins
+##############################
+# Go build artifacts
+##############################
+
 *.exe
 *.exe~
 *.dll
 *.so
 *.dylib
-
-# Test binary, built with `go test -c`
 *.test
-
-# Output of the go coverage tool, specifically when used with LiteIDE
 *.out
+bin/
 
-# Dependency directories (remove the comment below to include it)
-# vendor/
+##############################
+# Go workspace files
+##############################
 
-# Go workspace file
 go.work
 go.work.sum
 
-# env file
-.env
+##############################
+# Dependency directories
+##############################
+
+# Убери комментарий, если используешь vendor
+# vendor/
+
+##############################
+# IDE/editor settings
+##############################
+
+.vscode/
+.idea/
+
+##############################
+# System files
+##############################
 
 **/.DS_Store
-settings.yaml
+
+##############################
+# Logs and config files
+##############################
+
+.env
 *.log
 /log
+settings.yaml
+
+##############################
+# Go module files (опционально)
+##############################
+
+# Если хочешь исключить go.sum из git, раскомментируй следующую строку
+# go.sum
