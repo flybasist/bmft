@@ -15,11 +15,18 @@ import (
 	"github.com/segmentio/kafka-go"
 )
 
-// OutgoingMessage — структура для сообщений, которые мы получаем из Kafka
+// SendMessage — структура для сообщений, которые мы получаем из Kafka
 // и затем отправляем в Telegram. Содержит chat_id и текст сообщения.
-type OutgoingMessage struct {
-	ChatID int64  `json:"chat_id"`
-	Text   string `json:"text"`
+type SendMessage struct {
+	ChatID  int64  `json:"chat_id"`
+	Text    string `json:"text,omitempty"`
+	Sticker string `json:"sticker,omitempty"`
+	TypeMsg string `json:"type_msg"`
+}
+
+type DeleteMessage struct {
+	ChatID    int64 `json:"chat_id"`
+	MessageID int   `json:"message_id"`
 }
 
 // Run — основная точка запуска бота.
@@ -40,10 +47,11 @@ func Run() {
 	}
 
 	// Названия топиков в Kafka:
-	// incomingTopic — для сообщений из Telegram
-	// outgoingTopic — для сообщений, которые надо отправить в Telegram
-	incomingTopic := "telegram-updates"
-	outgoingTopic := "telegram-send"
+	// listenerTopic — для сообщений из Telegram
+	// senderTopic — для сообщений, которые надо отправить в Telegram
+	listenerTopic := "telegram-listener"
+	senderTopic := "telegram-send"
+	deleteTopic := "telegram-delete"
 
 	// Создаём экземпляр Telegram-бота
 	bot, err := tgbotapi.NewBotAPI(botToken)
@@ -55,7 +63,7 @@ func Run() {
 	// Создаём Kafka writer — объект, через который будем отправлять сообщения в Kafka
 	writer := kafka.NewWriter(kafka.WriterConfig{
 		Brokers:  []string{kafkaAddr}, // Список брокеров Kafka
-		Topic:    incomingTopic,       // Топик, в который будем писать
+		Topic:    listenerTopic,       // Топик, в который будем писать
 		Balancer: &kafka.LeastBytes{}, // Балансировщик — сообщения будут направляться на партицию с наименьшим объёмом данных
 	})
 	defer writer.Close() // Гарантируем закрытие writer при выходе из функции
@@ -63,68 +71,64 @@ func Run() {
 	// Создаём Kafka reader — объект, через который будем читать сообщения из Kafka
 	reader := kafka.NewReader(kafka.ReaderConfig{
 		Brokers: []string{kafkaAddr},  // Список брокеров Kafka
-		Topic:   outgoingTopic,        // Топик, из которого будем читать
+		Topic:   senderTopic,          // Топик, из которого будем читать
 		GroupID: "telegram-bot-group", // Идентификатор группы — для балансировки нагрузки при нескольких экземплярах бота
 	})
 	defer reader.Close() // Закрываем reader при завершении
+
+	deleter := kafka.NewReader(kafka.ReaderConfig{
+		Brokers: []string{kafkaAddr},  // Список брокеров Kafka
+		Topic:   deleteTopic,          // Топик, из которого будем читать
+		GroupID: "telegram-bot-group", // Идентификатор группы — для балансировки нагрузки при нескольких экземплярах бота
+	})
+	defer deleter.Close() // Закрываем reader при завершении
 
 	// Создаём контекст для управления жизненным циклом потоков
 	ctx := context.Background()
 
 	// Запускаем первый поток: читает обновления из Telegram и отправляет их в Kafka
-	go handleIncomingUpdates(bot, writer, ctx)
+	go listenerFromTelegram(bot, writer, ctx)
 
 	// Запускаем второй поток: читает из Kafka и отправляет сообщения в Telegram
-	go handleOutgoingMessages(bot, reader, ctx)
+	go senderToTelegram(bot, reader, ctx)
+
+	go deleteFromTelegram(bot, deleter, ctx)
 
 	// Блокируем главный поток, чтобы программа не завершалась
 	select {}
 }
 
-// handleIncomingUpdates — функция, которая постоянно слушает входящие сообщения от Telegram,
-// сериализует их и отправляет в Kafka
-func handleIncomingUpdates(bot *tgbotapi.BotAPI, writer *kafka.Writer, ctx context.Context) {
-	// Конфигурация получения обновлений от Telegram
+// listenerFromTelegram — функция, которая постоянно слушает входящие сообщения от Telegram,
+// и отправляет в Kafka
+func listenerFromTelegram(bot *tgbotapi.BotAPI, writer *kafka.Writer, ctx context.Context) {
 	updateConfig := tgbotapi.NewUpdate(0)
-	updateConfig.Timeout = 60 // Долгий запрос (long polling)
+	updateConfig.Timeout = 60
 
-	// Получаем канал, по которому приходят обновления
 	updates := bot.GetUpdatesChan(updateConfig)
 
-	// Обрабатываем каждое обновление
 	for update := range updates {
-		// Нас интересуют только сообщения
-		if update.Message != nil {
-			// Создаём упрощённую структуру для отправки в Kafka
-			msgData, err := json.Marshal(struct {
-				ChatID int64  `json:"chat_id"`
-				Text   string `json:"text"`
-			}{
-				ChatID: update.Message.Chat.ID,
-				Text:   update.Message.Text,
-			})
-			if err != nil {
-				log.Printf("Failed to marshal message: %v", err)
-				continue // Пропускаем сообщение, если возникла ошибка сериализации
-			}
+		// Сохраняем весь update, даже если это не сообщение
+		msgData, err := json.Marshal(update)
+		if err != nil {
+			log.Printf("Failed to marshal full update: %v", err)
+			continue
+		}
 
-			// Пытаемся отправить сообщение в Kafka
-			err = writer.WriteMessages(ctx, kafka.Message{
-				Key:   []byte(fmt.Sprint(update.Message.Chat.ID)), // Ключ сообщения — ID чата (необязательно, но может помочь для балансировки)
-				Value: msgData,                                    // Само сообщение
-			})
-			if err != nil {
-				log.Printf("Failed to write to Kafka: %v", err)
-			} else {
-				log.Printf("Sent message from chat %d to Kafka", update.Message.Chat.ID)
-			}
+		err = writer.WriteMessages(ctx, kafka.Message{
+			Key:   []byte(fmt.Sprint(update.UpdateID)), // Ключ можно взять по UpdateID
+			Value: msgData,
+		})
+		if err != nil {
+			log.Printf("Failed to write to Kafka: %v", err)
+		} else {
+			log.Printf("Saved full update ID %d to Kafka", update.UpdateID)
 		}
 	}
 }
 
-// handleOutgoingMessages — функция, которая постоянно читает сообщения из Kafka
+// senderToTelegram — функция, которая постоянно читает сообщения из Kafka
 // и отправляет их в соответствующие чаты Telegram
-func handleOutgoingMessages(bot *tgbotapi.BotAPI, reader *kafka.Reader, ctx context.Context) {
+func senderToTelegram(bot *tgbotapi.BotAPI, reader *kafka.Reader, ctx context.Context) {
 	for {
 		// Читаем следующее сообщение из Kafka
 		msg, err := reader.ReadMessage(ctx)
@@ -134,19 +138,51 @@ func handleOutgoingMessages(bot *tgbotapi.BotAPI, reader *kafka.Reader, ctx cont
 			continue
 		}
 
-		// Десериализуем сообщение в структуру OutgoingMessage
-		var outMsg OutgoingMessage
+		// Десериализуем сообщение в структуру SendMessage
+		var outMsg SendMessage
 		if err := json.Unmarshal(msg.Value, &outMsg); err != nil {
 			log.Printf("Failed to parse outgoing message: %v", err)
 			continue // Если данные некорректны — пропускаем
 		}
 
 		// Формируем и отправляем сообщение в Telegram
-		tgMsg := tgbotapi.NewMessage(outMsg.ChatID, outMsg.Text)
-		if _, err := bot.Send(tgMsg); err != nil {
-			log.Printf("Failed to send message to chat %d: %v", outMsg.ChatID, err)
+		switch outMsg.TypeMsg {
+		case "text":
+			tgMsg := tgbotapi.NewMessage(outMsg.ChatID, outMsg.Text)
+			if _, err := bot.Send(tgMsg); err != nil {
+				log.Printf("Failed to send message to chat %d: %v", outMsg.ChatID, err)
+			} else {
+				log.Printf("Sent message to chat %d", outMsg.ChatID)
+			}
+		case "sticker":
+			tgSticker := tgbotapi.NewSticker(outMsg.ChatID, tgbotapi.FileID(outMsg.Sticker))
+			if _, err := bot.Send(tgSticker); err != nil {
+				log.Printf("Failed to send message to chat %d: %v", outMsg.ChatID, err)
+			} else {
+				log.Printf("Sent message to chat %d", outMsg.ChatID)
+			}
+		}
+	}
+}
+
+func deleteFromTelegram(bot *tgbotapi.BotAPI, deleter *kafka.Reader, ctx context.Context) {
+	for {
+		msg, err := deleter.ReadMessage(ctx)
+		if err != nil {
+			log.Printf("Failed to read from Kafka: %v", err)
+			time.Sleep(time.Second) // Если ошибка — небольшая пауза и пробуем снова
+			continue
+		}
+		var delMsg DeleteMessage
+		if err := json.Unmarshal(msg.Value, &delMsg); err != nil {
+			log.Printf("Failed to parse outgoing message: %v", err)
+			continue // Если данные некорректны — пропускаем
+		}
+		tgMsg := tgbotapi.NewDeleteMessage(delMsg.ChatID, delMsg.MessageID)
+		if _, err := bot.Request(tgMsg); err != nil {
+			log.Printf("Failed to send message to chat %d: %v", delMsg.ChatID, err)
 		} else {
-			log.Printf("Sent message to chat %d", outMsg.ChatID)
+			log.Printf("Sent message to chat %d", delMsg.ChatID)
 		}
 	}
 }
