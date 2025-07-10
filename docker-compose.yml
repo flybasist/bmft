@@ -31,8 +31,9 @@ services:
     ports:
       - "5432:5432"
     volumes:
-      - pgdata:/var/lib/postgresql/data
+      - ./pgdata:/var/lib/postgresql/data
     restart: unless-stopped
+    stop_grace_period: 10s
 
   kafka-init:
     image: confluentinc/cp-kafka:7.6.0
