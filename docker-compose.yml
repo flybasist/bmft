@@ -1,9 +1,12 @@
+version: "3.9"
+
 services:
   zookeeper:
     image: confluentinc/cp-zookeeper:7.6.0
     environment:
       ZOOKEEPER_CLIENT_PORT: 2181
       ZOOKEEPER_TICK_TIME: 2000
+    restart: unless-stopped
 
   kafka:
     image: confluentinc/cp-kafka:7.6.0
@@ -17,6 +20,43 @@ services:
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
     depends_on:
       - zookeeper
+    restart: unless-stopped
+
+  postgresql:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: bmft
+      POSTGRES_USER: bmft
+      POSTGRES_PASSWORD: bmft
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    restart: unless-stopped
+
+  kafka-init:
+    image: confluentinc/cp-kafka:7.6.0
+    depends_on:
+      - kafka
+    entrypoint: ["/bin/sh", "-c"]
+    command: >
+      echo 'Waiting for Kafka to be ready...';
+      sleep 10;
+      kafka-topics --create --if-not-exists --bootstrap-server kafka:9092 --replication-factor 1 --partitions 1 --topic telegram-listener;
+      kafka-topics --create --if-not-exists --bootstrap-server kafka:9092 --replication-factor 1 --partitions 1 --topic telegram-send;
+      kafka-topics --create --if-not-exists --bootstrap-server kafka:9092 --replication-factor 1 --partitions 1 --topic telegram-delete;
+      echo 'Kafka topics created';
+    restart: "no"
+
+  kafdrop:
+    image: obsidiandynamics/kafdrop
+    ports:
+      - "9000:9000"
+    environment:
+      KAFKA_BROKERCONNECT: "kafka:9092"
+    depends_on:
+      - kafka
+    restart: unless-stopped
 
   telegram_bot:
     build:
@@ -27,27 +67,31 @@ services:
     depends_on:
       - kafka
       - kafka-init
+    restart: unless-stopped
 
-  kafdrop:
-    image: obsidiandynamics/kafdrop
-    ports:
-      - "9000:9000"
-    environment:
-      KAFKA_BROKERCONNECT: "kafka:9092"
+  kafka_logger:
+    build:
+      context: .
+      dockerfile: Dockerfile.kafka_logger
+    env_file:
+      - .env
+    volumes:
+      - ./logs:/app/logs
     depends_on:
       - kafka
+    restart: unless-stopped
 
-  kafka-init:
-    image: confluentinc/cp-kafka:7.6.0
+  sql:
+    build:
+      context: .
+      dockerfile: Dockerfile.sql
+    env_file:
+      - .env
     depends_on:
       - kafka
-    entrypoint: ["/bin/sh", "-c"]
-    command: |
-      "
-      echo 'Waiting for Kafka to be ready...';
-      sleep 10;
-      kafka-topics --create --if-not-exists --bootstrap-server kafka:9092 --replication-factor 1 --partitions 1 --topic telegram-listener;
-      kafka-topics --create --if-not-exists --bootstrap-server kafka:9092 --replication-factor 1 --partitions 1 --topic telegram-send;
-      kafka-topics --create --if-not-exists --bootstrap-server kafka:9092 --replication-factor 1 --partitions 1 --topic telegram-delete;
-      echo 'Kafka topics created';
-      "
+      - kafka-init
+      - postgresql
+    restart: unless-stopped
+
+volumes:
+  pgdata:

@@ -70,16 +70,16 @@ func Run() {
 
 	// Создаём Kafka reader — объект, через который будем читать сообщения из Kafka
 	reader := kafka.NewReader(kafka.ReaderConfig{
-		Brokers: []string{kafkaAddr},  // Список брокеров Kafka
-		Topic:   senderTopic,          // Топик, из которого будем читать
-		GroupID: "telegram-bot-group", // Идентификатор группы — для балансировки нагрузки при нескольких экземплярах бота
+		Brokers: []string{kafkaAddr},     // Список брокеров Kafka
+		Topic:   senderTopic,             // Топик, из которого будем читать
+		GroupID: "telegram-sender-group", // Идентификатор группы — для балансировки нагрузки при нескольких экземплярах бота
 	})
 	defer reader.Close() // Закрываем reader при завершении
 
 	deleter := kafka.NewReader(kafka.ReaderConfig{
-		Brokers: []string{kafkaAddr},  // Список брокеров Kafka
-		Topic:   deleteTopic,          // Топик, из которого будем читать
-		GroupID: "telegram-bot-group", // Идентификатор группы — для балансировки нагрузки при нескольких экземплярах бота
+		Brokers: []string{kafkaAddr},      // Список брокеров Kafka
+		Topic:   deleteTopic,              // Топик, из которого будем читать
+		GroupID: "telegram-deleter-group", // Идентификатор группы — для балансировки нагрузки при нескольких экземплярах бота
 	})
 	defer deleter.Close() // Закрываем reader при завершении
 
