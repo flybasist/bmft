@@ -6,12 +6,32 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"os"
 	"strings"
 	"time"
 
 	_ "github.com/lib/pq"
 	"github.com/segmentio/kafka-go"
 )
+
+func Run() {
+	pgURL := os.Getenv("POSTGRES_DSN")
+	kafkaAddr := os.Getenv("KAFKA_BROKERS")
+	if pgURL == "" || kafkaAddr == "" {
+		log.Fatal("POSTGRES_DSN or KAFKA_BROKERS not set")
+	}
+
+	ctx := context.Background()
+	EnsureDatabaseExists(pgURL)
+
+	db, err := sql.Open("postgres", pgURL)
+	if err != nil {
+		log.Fatalf("Failed to connect to Postgres: %v", err)
+	}
+	defer db.Close()
+
+	StartKafkaToPostgres(ctx, kafkaAddr, db)
+}
 
 func EnsureDatabaseExists(dsn string) {
 	adminDB, err := sql.Open("postgres", dsn)
@@ -65,7 +85,7 @@ func StartKafkaToPostgres(ctx context.Context, kafkaAddr string, db *sql.DB) {
 func extractChatID(update map[string]any) string {
 	if msg, ok := update["message"].(map[string]any); ok {
 		if chat, ok := msg["chat"].(map[string]any); ok {
-			return intToStr(chat["id"]) // исправлено здесь
+			return intToStr(chat["id"])
 		}
 	}
 	return ""

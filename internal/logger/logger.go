@@ -14,8 +14,24 @@ import (
 
 const (
 	logDir       = "./logs"
-	logRetention = 30 * 24 * time.Hour // 30 дней
+	logRetention = 7 * 24 * time.Hour // 7 дней
 )
+
+func Run() {
+	kafkaAddr := os.Getenv("KAFKA_BROKERS")
+	if kafkaAddr == "" {
+		log.Fatal("KAFKA_BROKERS not set")
+	}
+
+	ctx := context.Background()
+
+	go RunKafkaLogger(ctx, kafkaAddr, "telegram-listener")
+	go RunKafkaLogger(ctx, kafkaAddr, "telegram-send")
+	go RunKafkaLogger(ctx, kafkaAddr, "telegram-delete")
+
+	// Блокируем основной поток, чтобы программа не завершалась
+	select {}
+}
 
 // Читает сообщения из Kafka и пишет в ежедневные лог-файлы
 func RunKafkaLogger(ctx context.Context, kafkaAddr, topic string) {
