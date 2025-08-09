@@ -1,4 +1,4 @@
-package bot
+package telegram_bot
 
 import (
 	"context"
@@ -8,10 +8,7 @@ import (
 	"os"
 	"time"
 
-	// Импорт библиотеки для работы с Telegram Bot API
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
-
-	// Импорт библиотеки Kafka для работы с брокером сообщений
 	"github.com/segmentio/kafka-go"
 )
 
@@ -29,26 +26,20 @@ type DeleteMessage struct {
 	MessageID int   `json:"message_id"`
 }
 
-// Run — основная точка запуска бота.
-// Здесь создаётся бот, настраиваются подключения к Kafka и запускаются два потока:
-// один отправляет сообщения из Telegram в Kafka,
-// второй читает из Kafka и отправляет сообщения в Telegram.
 func Run() {
-	// Считываем токен Telegram из переменных окружения
 	botToken := os.Getenv("TELEGRAM_BOT_TOKEN")
 	if botToken == "" {
-		log.Fatal("TELEGRAM_BOT_TOKEN not set") // Если токена нет — аварийное завершение
+		log.Fatal("TELEGRAM_BOT_TOKEN not set")
 	}
 
-	// Адрес брокера Kafka
 	kafkaAddr := os.Getenv("KAFKA_BROKERS")
 	if kafkaAddr == "" {
 		log.Fatal("KAFKA_BROKERS not set")
 	}
 
-	// Названия топиков в Kafka:
 	// listenerTopic — для сообщений из Telegram
 	// senderTopic — для сообщений, которые надо отправить в Telegram
+	// deleteTopic - для сообщений, которые мы удаляем в telegram
 	listenerTopic := "telegram-listener"
 	senderTopic := "telegram-send"
 	deleteTopic := "telegram-delete"
@@ -66,35 +57,28 @@ func Run() {
 		Topic:    listenerTopic,       // Топик, в который будем писать
 		Balancer: &kafka.LeastBytes{}, // Балансировщик — сообщения будут направляться на партицию с наименьшим объёмом данных
 	})
-	defer writer.Close() // Гарантируем закрытие writer при выходе из функции
+	defer writer.Close()
 
-	// Создаём Kafka reader — объект, через который будем читать сообщения из Kafka
 	reader := kafka.NewReader(kafka.ReaderConfig{
-		Brokers: []string{kafkaAddr},     // Список брокеров Kafka
-		Topic:   senderTopic,             // Топик, из которого будем читать
-		GroupID: "telegram-sender-group", // Идентификатор группы — для балансировки нагрузки при нескольких экземплярах бота
+		Brokers: []string{kafkaAddr},
+		Topic:   senderTopic,
+		GroupID: "telegram-sender-group",
 	})
-	defer reader.Close() // Закрываем reader при завершении
+	defer reader.Close()
 
 	deleter := kafka.NewReader(kafka.ReaderConfig{
-		Brokers: []string{kafkaAddr},      // Список брокеров Kafka
-		Topic:   deleteTopic,              // Топик, из которого будем читать
-		GroupID: "telegram-deleter-group", // Идентификатор группы — для балансировки нагрузки при нескольких экземплярах бота
+		Brokers: []string{kafkaAddr},
+		Topic:   deleteTopic,
+		GroupID: "telegram-deleter-group",
 	})
-	defer deleter.Close() // Закрываем reader при завершении
+	defer deleter.Close()
 
-	// Создаём контекст для управления жизненным циклом потоков
 	ctx := context.Background()
 
-	// Запускаем первый поток: читает обновления из Telegram и отправляет их в Kafka
 	go listenerFromTelegram(bot, writer, ctx)
-
-	// Запускаем второй поток: читает из Kafka и отправляет сообщения в Telegram
 	go senderToTelegram(bot, reader, ctx)
-
 	go deleteFromTelegram(bot, deleter, ctx)
 
-	// Блокируем главный поток, чтобы программа не завершалась
 	select {}
 }
 
@@ -115,7 +99,7 @@ func listenerFromTelegram(bot *tgbotapi.BotAPI, writer *kafka.Writer, ctx contex
 		}
 
 		err = writer.WriteMessages(ctx, kafka.Message{
-			Key:   []byte(fmt.Sprint(update.UpdateID)), // Ключ можно взять по UpdateID
+			Key:   []byte(fmt.Sprint(update.UpdateID)),
 			Value: msgData,
 		})
 		if err != nil {
@@ -170,13 +154,13 @@ func deleteFromTelegram(bot *tgbotapi.BotAPI, deleter *kafka.Reader, ctx context
 		msg, err := deleter.ReadMessage(ctx)
 		if err != nil {
 			log.Printf("Failed to read from Kafka: %v", err)
-			time.Sleep(time.Second) // Если ошибка — небольшая пауза и пробуем снова
+			time.Sleep(time.Second)
 			continue
 		}
 		var delMsg DeleteMessage
 		if err := json.Unmarshal(msg.Value, &delMsg); err != nil {
 			log.Printf("Failed to parse outgoing message: %v", err)
-			continue // Если данные некорректны — пропускаем
+			continue
 		}
 		tgMsg := tgbotapi.NewDeleteMessage(delMsg.ChatID, delMsg.MessageID)
 		if _, err := bot.Request(tgMsg); err != nil {

@@ -14,7 +14,7 @@ import (
 
 const (
 	logDir       = "./logs"
-	logRetention = 7 * 24 * time.Hour // 7 дней
+	logRetention = 7 * 24 * time.Hour
 )
 
 func Run() {
@@ -79,7 +79,6 @@ func RunKafkaLogger(ctx context.Context, kafkaAddr, topic string) {
 	}
 }
 
-// Удаляет лог-файлы старше 30 дней
 func cleanOldLogs() {
 	files, err := os.ReadDir(logDir)
 	if err != nil {

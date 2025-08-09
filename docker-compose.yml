@@ -66,29 +66,8 @@ services:
       dockerfile: Dockerfile.telegram_bot
     env_file:
       - .env
-    depends_on:
-      - kafka
-      - kafka-init
-    restart: unless-stopped
-
-  kafka_logger:
-    build:
-      context: .
-      dockerfile: Dockerfile.kafka_logger
-    env_file:
-      - .env
     volumes:
       - ./logs:/app/logs
-    depends_on:
-      - kafka
-    restart: unless-stopped
-
-  sql:
-    build:
-      context: .
-      dockerfile: Dockerfile.sql
-    env_file:
-      - .env
     depends_on:
       - kafka
       - kafka-init

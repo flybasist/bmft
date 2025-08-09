@@ -33,6 +33,7 @@ func Run() {
 	StartKafkaToPostgres(ctx, kafkaAddr, db)
 }
 
+// EnsureDatabaseExists — проверяет или создаёт базу (если DSN это позволяет)
 func EnsureDatabaseExists(dsn string) {
 	adminDB, err := sql.Open("postgres", dsn)
 	if err != nil {
@@ -47,6 +48,7 @@ func EnsureDatabaseExists(dsn string) {
 	log.Println("Database bmft is ready")
 }
 
+// StartKafkaToPostgres — слушает Kafka и передаёт сообщения в бизнес-логику
 func StartKafkaToPostgres(ctx context.Context, kafkaAddr string, db *sql.DB) {
 	reader := kafka.NewReader(kafka.ReaderConfig{
 		Brokers: []string{kafkaAddr},
@@ -69,19 +71,30 @@ func StartKafkaToPostgres(ctx context.Context, kafkaAddr string, db *sql.DB) {
 			continue
 		}
 
-		chatID := extractChatID(update)
-		if chatID == "" {
-			log.Printf("Could not extract chat_id")
-			continue
+		// Вызов заглушки бизнес-логики
+		if err := ProcessUpdate(db, update, msg.Value); err != nil {
+			log.Printf("Failed to process update: %v", err)
 		}
-
-		tableName := fmt.Sprintf("chat_%s", chatID)
-		createIfNotExists(db, tableName)
-		saveToTable(db, tableName, update)
-		saveJSON(db, chatID, msg.Value)
 	}
 }
 
+// ProcessUpdate — точка входа в бизнес-логику
+func ProcessUpdate(db *sql.DB, update map[string]any, raw []byte) error {
+	chatID := extractChatID(update)
+	if chatID == "" {
+		return fmt.Errorf("could not extract chat_id")
+	}
+
+	tableName := fmt.Sprintf("chat_%s", chatID)
+
+	createIfNotExists(db, tableName)
+	saveToTable(db, tableName, update)
+	saveJSON(db, chatID, raw)
+
+	return nil
+}
+
+// extractChatID — извлекает chat_id из структуры Telegram update
 func extractChatID(update map[string]any) string {
 	if msg, ok := update["message"].(map[string]any); ok {
 		if chat, ok := msg["chat"].(map[string]any); ok {
@@ -91,6 +104,7 @@ func extractChatID(update map[string]any) string {
 	return ""
 }
 
+// createIfNotExists — создаёт таблицу под чат, если её ещё нет
 func createIfNotExists(db *sql.DB, table string) {
 	query := fmt.Sprintf(`CREATE TABLE IF NOT EXISTS "%s" (
 		id SERIAL PRIMARY KEY,
@@ -113,6 +127,7 @@ func createIfNotExists(db *sql.DB, table string) {
 	}
 }
 
+// saveToTable — сохраняет извлечённые поля в таблицу конкретного чата
 func saveToTable(db *sql.DB, table string, update map[string]any) {
 	msg, ok1 := update["message"].(map[string]any)
 	chat, ok2 := msg["chat"].(map[string]any)
@@ -122,7 +137,6 @@ func saveToTable(db *sql.DB, table string, update map[string]any) {
 		return
 	}
 
-	// Конвертация даты из UNIX в time.Time
 	var dateTime time.Time
 	switch v := msg["date"].(type) {
 	case float64:
@@ -150,29 +164,14 @@ func saveToTable(db *sql.DB, table string, update map[string]any) {
 		msg["type"],
 		msg["text"],
 		msg["caption"],
-		dateTime, // ← правильный TIMESTAMP
+		dateTime,
 	)
 	if err != nil {
 		log.Printf("Failed to insert message into %s: %v", table, err)
 	}
 }
 
-// intToStr безопасно конвертирует числовое значение в строку без экспоненты
-func intToStr(v any) string {
-	switch val := v.(type) {
-	case float64:
-		return fmt.Sprintf("%.0f", val) // Без дробной части, без e+07
-	case int:
-		return fmt.Sprint(val)
-	case int64:
-		return fmt.Sprint(val)
-	case json.Number:
-		return val.String()
-	default:
-		return fmt.Sprint(v)
-	}
-}
-
+// saveJSON — сохраняет необработанный update в отдельную таблицу
 func saveJSON(db *sql.DB, chatID string, raw []byte) {
 	query := `CREATE TABLE IF NOT EXISTS raw_updates (
 		id SERIAL PRIMARY KEY,
@@ -188,5 +187,21 @@ func saveJSON(db *sql.DB, chatID string, raw []byte) {
 	_, err := db.Exec(`INSERT INTO raw_updates (chat_id, payload) VALUES ($1, $2)`, chatID, raw)
 	if err != nil {
 		log.Printf("Failed to save raw update: %v", err)
+	}
+}
+
+// intToStr — безопасно преобразует числовое значение в строку
+func intToStr(v any) string {
+	switch val := v.(type) {
+	case float64:
+		return fmt.Sprintf("%.0f", val)
+	case int:
+		return fmt.Sprint(val)
+	case int64:
+		return fmt.Sprint(val)
+	case json.Number:
+		return val.String()
+	default:
+		return fmt.Sprint(v)
 	}
 }
