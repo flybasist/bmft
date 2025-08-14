@@ -7,6 +7,8 @@ import (
 )
 
 func main() {
+	logger.InitServiceLogDuplication()
+
 	go telegram_bot.Run()
 	go logger.Run()
 	go postgresql.Run()

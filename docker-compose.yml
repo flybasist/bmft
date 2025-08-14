@@ -73,6 +73,3 @@ services:
       - kafka-init
       - postgresql
     restart: unless-stopped
-
-volumes:
-  pgdata:

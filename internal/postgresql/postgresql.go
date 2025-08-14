@@ -11,14 +11,21 @@ import (
 	"time"
 
 	_ "github.com/lib/pq"
-	"github.com/segmentio/kafka-go"
+
+	"github.com/flybasist/bmft/internal/kafkabot"
 )
+
+func truncate(b []byte, n int) string {
+	if len(b) <= n {
+		return string(b)
+	}
+	return string(b[:n]) + "...(truncated)"
+}
 
 func Run() {
 	pgURL := os.Getenv("POSTGRES_DSN")
-	kafkaAddr := os.Getenv("KAFKA_BROKERS")
-	if pgURL == "" || kafkaAddr == "" {
-		log.Fatal("POSTGRES_DSN or KAFKA_BROKERS not set")
+	if pgURL == "" {
+		log.Fatal("POSTGRES_DSN not set")
 	}
 
 	ctx := context.Background()
@@ -30,50 +37,83 @@ func Run() {
 	}
 	defer db.Close()
 
-	StartKafkaToPostgres(ctx, kafkaAddr, db)
+	StartKafkaToPostgres(ctx, db)
 }
 
 // EnsureDatabaseExists — проверяет или создаёт базу (если DSN это позволяет)
 func EnsureDatabaseExists(dsn string) {
-	adminDB, err := sql.Open("postgres", dsn)
+	var adminDB *sql.DB
+	var err error
+
+	// Попытаемся подключиться N раз с интервалом
+	for i := 0; i < 30; i++ {
+		adminDB, err = sql.Open("postgres", dsn)
+		if err == nil {
+			if pingErr := adminDB.Ping(); pingErr == nil {
+				break
+			} else {
+				err = pingErr
+			}
+		}
+		log.Printf("postgresql: waiting for postgres to be available, attempt %d/30: %v", i+1, err)
+		time.Sleep(2 * time.Second)
+	}
+
 	if err != nil {
-		log.Fatalf("Failed to connect to postgres: %v", err)
+		log.Fatalf("Failed to connect to postgres after retries: %v", err)
 	}
 	defer adminDB.Close()
 
-	_, err = adminDB.Exec("CREATE DATABASE bmft")
-	if err != nil && !strings.Contains(err.Error(), "already exists") {
+	if _, err := adminDB.Exec("CREATE DATABASE bmft"); err != nil && !strings.Contains(err.Error(), "already exists") {
 		log.Fatalf("Failed to create database: %v", err)
 	}
 	log.Println("Database bmft is ready")
 }
 
 // StartKafkaToPostgres — слушает Kafka и передаёт сообщения в бизнес-логику
-func StartKafkaToPostgres(ctx context.Context, kafkaAddr string, db *sql.DB) {
-	reader := kafka.NewReader(kafka.ReaderConfig{
-		Brokers: []string{kafkaAddr},
-		Topic:   "telegram-listener",
-		GroupID: "bmft-saver",
-	})
+func StartKafkaToPostgres(ctx context.Context, db *sql.DB) {
+	// Русский комментарий: используем kafkabot.NewReader чтобы не дублировать логику подключения.
+	reader := kafkabot.NewReader("telegram-listener", "bmft-saver")
 	defer reader.Close()
+
+	log.Println("postgresql: Kafka reader started for topic 'telegram-listener', group 'bmft-saver'")
+
+	// Проверим соединение с БД один раз для раннего фэйлера и логируем результат.
+	if err := db.Ping(); err != nil {
+		log.Printf("postgresql: DB ping failed: %v", err)
+	} else {
+		log.Println("postgresql: DB ping OK")
+	}
 
 	for {
 		msg, err := reader.ReadMessage(ctx)
 		if err != nil {
-			log.Printf("Kafka read error: %v", err)
+			// Если контекст отменён — корректно выходим
+			if ctx.Err() != nil {
+				log.Println("postgresql: reader context cancelled, exiting")
+				return
+			}
+			log.Printf("postgresql: Kafka read error: %v", err)
 			time.Sleep(time.Second)
 			continue
 		}
 
+		// Диагностический лог: читаем сырой payload и метаданные
+		log.Printf("postgresql: read msg key=%s partition=%d offset=%d len=%d",
+			string(msg.Key), msg.Partition, msg.Offset, len(msg.Value))
+		log.Printf("postgresql: raw payload: %s", truncate(msg.Value, 400))
+
 		var update map[string]any
 		if err := json.Unmarshal(msg.Value, &update); err != nil {
-			log.Printf("Invalid JSON from Kafka: %v", err)
+			log.Printf("postgresql: Invalid JSON from Kafka: %v — raw: %s", err, truncate(msg.Value, 400))
 			continue
 		}
 
-		// Вызов заглушки бизнес-логики
+		// Вызов текущей бизнес-логики — если упадёт, логируем с raw payload
 		if err := ProcessUpdate(db, update, msg.Value); err != nil {
-			log.Printf("Failed to process update: %v", err)
+			log.Printf("postgresql: Failed to process update: %v — raw: %s", err, truncate(msg.Value, 400))
+		} else {
+			log.Printf("postgresql: Processed message key=%s offset=%d", string(msg.Key), msg.Offset)
 		}
 	}
 }

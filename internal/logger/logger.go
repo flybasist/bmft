@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"io"
 	"log"
 	"os"
 	"os/signal"
@@ -16,11 +17,32 @@ import (
 )
 
 const (
-	logDir       = "./logs"            // Папка для логов
-	logRetention = 30 * 24 * time.Hour // Храним 30 дней
+	logDir       = "./logs"           // Папка для логов
+	logRetention = 7 * 24 * time.Hour // Храним 7 дней
 )
 
 var prettyPrint bool
+
+func InitServiceLogDuplication() {
+	// Русский комментарий: создаём каталог логов и подключаем дублирование стандартного логгера.
+	const logDir = "./logs"
+	if err := os.MkdirAll(logDir, 0755); err != nil {
+		// Здесь нельзя использовать log.Fatalf, потому что ещё не настроили вывод.
+		panic("failed to create logs dir: " + err.Error())
+	}
+
+	serviceLogPath := filepath.Join(logDir, time.Now().Format("2006-01-02")+"_service.log")
+	f, err := os.OpenFile(serviceLogPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		panic("failed to open service log file: " + err.Error())
+	}
+
+	// Дублируем весь вывод стандартного логгера и в stdout, и в файл.
+	mw := io.MultiWriter(os.Stdout, f)
+	log.SetOutput(mw)
+	log.SetFlags(log.LstdFlags | log.Lmicroseconds)
+	log.Printf("Service log duplication enabled -> %s", serviceLogPath)
+}
 
 func Run() {
 	if err := os.MkdirAll(logDir, 0755); err != nil {

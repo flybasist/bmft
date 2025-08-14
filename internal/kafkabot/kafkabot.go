@@ -4,6 +4,7 @@ import (
 	"context"
 	"log"
 	"os"
+	"time"
 
 	"github.com/segmentio/kafka-go"
 )
@@ -33,10 +34,9 @@ func init() {
 	// Создаём writer — для сообщений из Telegram в Kafka
 	Writer = NewWriter(listenerTopic)
 
-	// Reader — для отправки сообщений в Telegram
+	// Удобные глобальные reader'ы (оставляем — это вспомогательные переменные).
+	// Но теперь telegram_bot создаёт свои dedicated reader'ы в рантайме.
 	Reader = NewReader(senderTopic, "telegram-sender-group")
-
-	// Deleter — для удаления сообщений в Telegram
 	Deleter = NewReader(deleteTopic, "telegram-deleter-group")
 
 	log.Println("Kafka connections initialized")
@@ -71,10 +71,15 @@ func WriteKafka(key string, msgData []byte) {
 
 // NewReader — фабрика для создания ридера Kafka
 func NewReader(topic, groupID string) *kafka.Reader {
+	// StartOffset: kafka.FirstOffset — полезно при ПЕРВОМ старте новой consumer-group.
 	return kafka.NewReader(kafka.ReaderConfig{
-		Brokers: []string{KafkaAddr},
-		Topic:   topic,
-		GroupID: groupID,
+		Brokers:        []string{KafkaAddr},
+		Topic:          topic,
+		GroupID:        groupID,
+		StartOffset:    kafka.FirstOffset,
+		MinBytes:       1,
+		MaxBytes:       10e6,
+		CommitInterval: time.Second, // используем явный time.Duration
 	})
 }
 
