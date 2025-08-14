@@ -15,6 +15,10 @@ import (
 	"github.com/flybasist/bmft/internal/kafkabot"
 )
 
+// ====================
+// Общие константы/утилиты
+// ====================
+
 func truncate(b []byte, n int) string {
 	if len(b) <= n {
 		return string(b)
@@ -22,6 +26,27 @@ func truncate(b []byte, n int) string {
 	return string(b[:n]) + "...(truncated)"
 }
 
+// intToStr — безопасно преобразует числовое значение в строку
+func intToStr(v any) string {
+	switch val := v.(type) {
+	case float64:
+		return fmt.Sprintf("%.0f", val)
+	case int:
+		return fmt.Sprint(val)
+	case int64:
+		return fmt.Sprint(val)
+	case json.Number:
+		return val.String()
+	default:
+		return fmt.Sprint(v)
+	}
+}
+
+// ====================
+// Бизнес-логика (Core Layer)
+// ====================
+
+// Run — точка входа сервиса PostgreSQL
 func Run() {
 	pgURL := os.Getenv("POSTGRES_DSN")
 	if pgURL == "" {
@@ -72,13 +97,11 @@ func EnsureDatabaseExists(dsn string) {
 
 // StartKafkaToPostgres — слушает Kafka и передаёт сообщения в бизнес-логику
 func StartKafkaToPostgres(ctx context.Context, db *sql.DB) {
-	// Русский комментарий: используем kafkabot.NewReader чтобы не дублировать логику подключения.
 	reader := kafkabot.NewReader("telegram-listener", "bmft-saver")
 	defer reader.Close()
 
 	log.Println("postgresql: Kafka reader started for topic 'telegram-listener', group 'bmft-saver'")
 
-	// Проверим соединение с БД один раз для раннего фэйлера и логируем результат.
 	if err := db.Ping(); err != nil {
 		log.Printf("postgresql: DB ping failed: %v", err)
 	} else {
@@ -88,7 +111,6 @@ func StartKafkaToPostgres(ctx context.Context, db *sql.DB) {
 	for {
 		msg, err := reader.ReadMessage(ctx)
 		if err != nil {
-			// Если контекст отменён — корректно выходим
 			if ctx.Err() != nil {
 				log.Println("postgresql: reader context cancelled, exiting")
 				return
@@ -98,7 +120,6 @@ func StartKafkaToPostgres(ctx context.Context, db *sql.DB) {
 			continue
 		}
 
-		// Диагностический лог: читаем сырой payload и метаданные
 		log.Printf("postgresql: read msg key=%s partition=%d offset=%d len=%d",
 			string(msg.Key), msg.Partition, msg.Offset, len(msg.Value))
 		log.Printf("postgresql: raw payload: %s", truncate(msg.Value, 400))
@@ -109,7 +130,6 @@ func StartKafkaToPostgres(ctx context.Context, db *sql.DB) {
 			continue
 		}
 
-		// Вызов текущей бизнес-логики — если упадёт, логируем с raw payload
 		if err := ProcessUpdate(db, update, msg.Value); err != nil {
 			log.Printf("postgresql: Failed to process update: %v — raw: %s", err, truncate(msg.Value, 400))
 		} else {
@@ -118,7 +138,7 @@ func StartKafkaToPostgres(ctx context.Context, db *sql.DB) {
 	}
 }
 
-// ProcessUpdate — точка входа в бизнес-логику
+// ProcessUpdate — бизнес-логика обработки апдейта
 func ProcessUpdate(db *sql.DB, update map[string]any, raw []byte) error {
 	chatID := extractChatID(update)
 	if chatID == "" {
@@ -143,6 +163,10 @@ func extractChatID(update map[string]any) string {
 	}
 	return ""
 }
+
+// ====================
+// CRUD-функции (Data Access Layer)
+// ====================
 
 // createIfNotExists — создаёт таблицу под чат, если её ещё нет
 func createIfNotExists(db *sql.DB, table string) {
@@ -227,21 +251,5 @@ func saveJSON(db *sql.DB, chatID string, raw []byte) {
 	_, err := db.Exec(`INSERT INTO raw_updates (chat_id, payload) VALUES ($1, $2)`, chatID, raw)
 	if err != nil {
 		log.Printf("Failed to save raw update: %v", err)
-	}
-}
-
-// intToStr — безопасно преобразует числовое значение в строку
-func intToStr(v any) string {
-	switch val := v.(type) {
-	case float64:
-		return fmt.Sprintf("%.0f", val)
-	case int:
-		return fmt.Sprint(val)
-	case int64:
-		return fmt.Sprint(val)
-	case json.Number:
-		return val.String()
-	default:
-		return fmt.Sprint(v)
 	}
 }
