@@ -13,34 +13,8 @@ import (
 	_ "github.com/lib/pq"
 
 	"github.com/flybasist/bmft/internal/kafkabot"
+	"github.com/flybasist/bmft/internal/utils"
 )
-
-// ====================
-// Общие константы/утилиты
-// ====================
-
-func truncate(b []byte, n int) string {
-	if len(b) <= n {
-		return string(b)
-	}
-	return string(b[:n]) + "...(truncated)"
-}
-
-// intToStr — безопасно преобразует числовое значение в строку
-func intToStr(v any) string {
-	switch val := v.(type) {
-	case float64:
-		return fmt.Sprintf("%.0f", val)
-	case int:
-		return fmt.Sprint(val)
-	case int64:
-		return fmt.Sprint(val)
-	case json.Number:
-		return val.String()
-	default:
-		return fmt.Sprint(v)
-	}
-}
 
 // ====================
 // Бизнес-логика (Core Layer)
@@ -122,16 +96,16 @@ func StartKafkaToPostgres(ctx context.Context, db *sql.DB) {
 
 		log.Printf("postgresql: read msg key=%s partition=%d offset=%d len=%d",
 			string(msg.Key), msg.Partition, msg.Offset, len(msg.Value))
-		log.Printf("postgresql: raw payload: %s", truncate(msg.Value, 400))
+		log.Printf("postgresql: raw payload: %s", utils.Truncate(msg.Value, 400))
 
 		var update map[string]any
 		if err := json.Unmarshal(msg.Value, &update); err != nil {
-			log.Printf("postgresql: Invalid JSON from Kafka: %v — raw: %s", err, truncate(msg.Value, 400))
+			log.Printf("postgresql: Invalid JSON from Kafka: %v — raw: %s", err, utils.Truncate(msg.Value, 400))
 			continue
 		}
 
 		if err := ProcessUpdate(db, update, msg.Value); err != nil {
-			log.Printf("postgresql: Failed to process update: %v — raw: %s", err, truncate(msg.Value, 400))
+			log.Printf("postgresql: Failed to process update: %v — raw: %s", err, utils.Truncate(msg.Value, 400))
 		} else {
 			log.Printf("postgresql: Processed message key=%s offset=%d", string(msg.Key), msg.Offset)
 		}
@@ -158,7 +132,7 @@ func ProcessUpdate(db *sql.DB, update map[string]any, raw []byte) error {
 func extractChatID(update map[string]any) string {
 	if msg, ok := update["message"].(map[string]any); ok {
 		if chat, ok := msg["chat"].(map[string]any); ok {
-			return intToStr(chat["id"])
+			return utils.IntToStr(chat["id"])
 		}
 	}
 	return ""
@@ -219,12 +193,12 @@ func saveToTable(db *sql.DB, table string, update map[string]any) {
 	) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`, table)
 
 	_, err := db.Exec(query,
-		intToStr(chat["id"]),
-		intToStr(from["id"]),
+		utils.IntToStr(chat["id"]),
+		utils.IntToStr(from["id"]),
 		chat["username"],
 		chat["title"],
 		from["username"],
-		intToStr(msg["message_id"]),
+		utils.IntToStr(msg["message_id"]),
 		msg["type"],
 		msg["text"],
 		msg["caption"],

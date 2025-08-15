@@ -8,31 +8,10 @@ import (
 	"time"
 
 	"github.com/flybasist/bmft/internal/kafkabot"
+	"github.com/flybasist/bmft/internal/utils"
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 	"github.com/segmentio/kafka-go"
 )
-
-// SendMessage — структура для сообщений, которые мы получаем из Kafka
-// и затем отправляем в Telegram.
-type SendMessage struct {
-	ChatID  int64  `json:"chat_id"`
-	Text    string `json:"text,omitempty"`
-	Sticker string `json:"sticker,omitempty"`
-	TypeMsg string `json:"type_msg"`
-}
-
-// DeleteMessage — структура для удаления сообщений в Telegram
-type DeleteMessage struct {
-	ChatID    int64 `json:"chat_id"`
-	MessageID int   `json:"message_id"`
-}
-
-func truncate(b []byte, n int) string {
-	if len(b) <= n {
-		return string(b)
-	}
-	return string(b[:n]) + "...(truncated)"
-}
 
 func Run() {
 	botToken := os.Getenv("TELEGRAM_BOT_TOKEN")
@@ -96,11 +75,11 @@ func senderToTelegram(bot *tgbotapi.BotAPI, reader *kafka.Reader) {
 		// Диагностический лог — показывает, что бот прочитал сообщение из Kafka
 		log.Printf("telegram_bot: read send msg key=%s partition=%d offset=%d len=%d",
 			string(msg.Key), msg.Partition, msg.Offset, len(msg.Value))
-		log.Printf("telegram_bot: raw send payload: %s", truncate(msg.Value, 400))
+		log.Printf("telegram_bot: raw send payload: %s", utils.Truncate(msg.Value, 400))
 
 		var outMsg SendMessage
 		if err := json.Unmarshal(msg.Value, &outMsg); err != nil {
-			log.Printf("telegram_bot: Failed to parse outgoing message: %v — raw: %s", err, truncate(msg.Value, 400))
+			log.Printf("telegram_bot: Failed to parse outgoing message: %v — raw: %s", err, utils.Truncate(msg.Value, 400))
 			continue
 		}
 
@@ -122,7 +101,7 @@ func senderToTelegram(bot *tgbotapi.BotAPI, reader *kafka.Reader) {
 				log.Printf("telegram_bot: Sent sticker to chat %d", outMsg.ChatID)
 			}
 		default:
-			log.Printf("telegram_bot: unknown TypeMsg: %s — raw: %s", outMsg.TypeMsg, truncate(msg.Value, 200))
+			log.Printf("telegram_bot: unknown TypeMsg: %s — raw: %s", outMsg.TypeMsg, utils.Truncate(msg.Value, 200))
 		}
 	}
 }
@@ -140,11 +119,11 @@ func deleteFromTelegram(bot *tgbotapi.BotAPI, reader *kafka.Reader) {
 		// Диагностический лог
 		log.Printf("telegram_bot: read delete msg key=%s partition=%d offset=%d len=%d",
 			string(msg.Key), msg.Partition, msg.Offset, len(msg.Value))
-		log.Printf("telegram_bot: raw delete payload: %s", truncate(msg.Value, 400))
+		log.Printf("telegram_bot: raw delete payload: %s", utils.Truncate(msg.Value, 400))
 
 		var delMsg DeleteMessage
 		if err := json.Unmarshal(msg.Value, &delMsg); err != nil {
-			log.Printf("telegram_bot: Failed to parse delete message: %v — raw: %s", err, truncate(msg.Value, 400))
+			log.Printf("telegram_bot: Failed to parse delete message: %v — raw: %s", err, utils.Truncate(msg.Value, 400))
 			continue
 		}
 
