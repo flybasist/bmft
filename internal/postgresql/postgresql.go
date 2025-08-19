@@ -1,149 +1,37 @@
 package postgresql
 
 import (
-	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	"log"
 	"os"
-	"strings"
 	"time"
 
-	_ "github.com/lib/pq"
-
-	"github.com/flybasist/bmft/internal/kafkabot"
 	"github.com/flybasist/bmft/internal/utils"
+
+	_ "github.com/lib/pq"
 )
 
-// ====================
-// Бизнес-логика (Core Layer)
-// ====================
-
-// Run — точка входа сервиса PostgreSQL
-func Run() {
+// ConnectToBase — подключение к базе
+func ConnectToBase() (*sql.DB, error) {
 	pgURL := os.Getenv("POSTGRES_DSN")
 	if pgURL == "" {
-		log.Fatal("POSTGRES_DSN not set")
+		return nil, fmt.Errorf("POSTGRES_DSN not set")
 	}
-
-	ctx := context.Background()
-	EnsureDatabaseExists(pgURL)
 
 	db, err := sql.Open("postgres", pgURL)
 	if err != nil {
-		log.Fatalf("Failed to connect to Postgres: %v", err)
+		return nil, fmt.Errorf("failed to connect to Postgres: %w", err)
 	}
-	defer db.Close()
-
-	StartKafkaToPostgres(ctx, db)
-}
-
-// EnsureDatabaseExists — проверяет или создаёт базу (если DSN это позволяет)
-func EnsureDatabaseExists(dsn string) {
-	var adminDB *sql.DB
-	var err error
-
-	// Попытаемся подключиться N раз с интервалом
-	for i := 0; i < 30; i++ {
-		adminDB, err = sql.Open("postgres", dsn)
-		if err == nil {
-			if pingErr := adminDB.Ping(); pingErr == nil {
-				break
-			} else {
-				err = pingErr
-			}
-		}
-		log.Printf("postgresql: waiting for postgres to be available, attempt %d/30: %v", i+1, err)
-		time.Sleep(2 * time.Second)
-	}
-
-	if err != nil {
-		log.Fatalf("Failed to connect to postgres after retries: %v", err)
-	}
-	defer adminDB.Close()
-
-	if _, err := adminDB.Exec("CREATE DATABASE bmft"); err != nil && !strings.Contains(err.Error(), "already exists") {
-		log.Fatalf("Failed to create database: %v", err)
-	}
-	log.Println("Database bmft is ready")
-}
-
-// StartKafkaToPostgres — слушает Kafka и передаёт сообщения в бизнес-логику
-func StartKafkaToPostgres(ctx context.Context, db *sql.DB) {
-	reader := kafkabot.NewReader("telegram-listener", "bmft-saver")
-	defer reader.Close()
-
-	log.Println("postgresql: Kafka reader started for topic 'telegram-listener', group 'bmft-saver'")
-
 	if err := db.Ping(); err != nil {
-		log.Printf("postgresql: DB ping failed: %v", err)
-	} else {
-		log.Println("postgresql: DB ping OK")
+		return nil, fmt.Errorf("failed to ping Postgres: %w", err)
 	}
 
-	for {
-		msg, err := reader.ReadMessage(ctx)
-		if err != nil {
-			if ctx.Err() != nil {
-				log.Println("postgresql: reader context cancelled, exiting")
-				return
-			}
-			log.Printf("postgresql: Kafka read error: %v", err)
-			time.Sleep(time.Second)
-			continue
-		}
-
-		log.Printf("postgresql: read msg key=%s partition=%d offset=%d len=%d",
-			string(msg.Key), msg.Partition, msg.Offset, len(msg.Value))
-		log.Printf("postgresql: raw payload: %s", utils.Truncate(msg.Value, 400))
-
-		var update map[string]any
-		if err := json.Unmarshal(msg.Value, &update); err != nil {
-			log.Printf("postgresql: Invalid JSON from Kafka: %v — raw: %s", err, utils.Truncate(msg.Value, 400))
-			continue
-		}
-
-		if err := ProcessUpdate(db, update, msg.Value); err != nil {
-			log.Printf("postgresql: Failed to process update: %v — raw: %s", err, utils.Truncate(msg.Value, 400))
-		} else {
-			log.Printf("postgresql: Processed message key=%s offset=%d", string(msg.Key), msg.Offset)
-		}
-	}
+	return db, nil
 }
 
-// ProcessUpdate — бизнес-логика обработки апдейта
-func ProcessUpdate(db *sql.DB, update map[string]any, raw []byte) error {
-	chatID := extractChatID(update)
-	if chatID == "" {
-		return fmt.Errorf("could not extract chat_id")
-	}
-
-	tableName := fmt.Sprintf("chat_%s", chatID)
-
-	createIfNotExists(db, tableName)
-	saveToTable(db, tableName, update)
-	saveJSON(db, chatID, raw)
-
-	return nil
-}
-
-// extractChatID — извлекает chat_id из структуры Telegram update
-func extractChatID(update map[string]any) string {
-	if msg, ok := update["message"].(map[string]any); ok {
-		if chat, ok := msg["chat"].(map[string]any); ok {
-			return utils.IntToStr(chat["id"])
-		}
-	}
-	return ""
-}
-
-// ====================
-// CRUD-функции (Data Access Layer)
-// ====================
-
-// createIfNotExists — создаёт таблицу под чат, если её ещё нет
-func createIfNotExists(db *sql.DB, table string) {
+// CreateIfNotExists — создаёт таблицу под чат
+func CreateIfNotExists(db *sql.DB, table string) error {
 	query := fmt.Sprintf(`CREATE TABLE IF NOT EXISTS "%s" (
 		id SERIAL PRIMARY KEY,
 		chat_id TEXT,
@@ -160,19 +48,17 @@ func createIfNotExists(db *sql.DB, table string) {
 		date_message TIMESTAMP
 	);`, table)
 
-	if _, err := db.Exec(query); err != nil {
-		log.Printf("Failed to create table %s: %v", table, err)
-	}
+	_, err := db.Exec(query)
+	return err
 }
 
-// saveToTable — сохраняет извлечённые поля в таблицу конкретного чата
-func saveToTable(db *sql.DB, table string, update map[string]any) {
+// SaveToTable — сохраняет извлечённые поля в таблицу конкретного чата
+func SaveToTable(db *sql.DB, table string, update map[string]any) error {
 	msg, ok1 := update["message"].(map[string]any)
 	chat, ok2 := msg["chat"].(map[string]any)
 	from, ok3 := msg["from"].(map[string]any)
 	if !ok1 || !ok2 || !ok3 {
-		log.Printf("Failed to extract fields for table save")
-		return
+		return fmt.Errorf("failed to extract fields for table save")
 	}
 
 	var dateTime time.Time
@@ -183,7 +69,6 @@ func saveToTable(db *sql.DB, table string, update map[string]any) {
 		sec, _ := v.Int64()
 		dateTime = time.Unix(sec, 0).UTC()
 	default:
-		log.Printf("Invalid date field in message")
 		dateTime = time.Now().UTC()
 	}
 
@@ -204,13 +89,11 @@ func saveToTable(db *sql.DB, table string, update map[string]any) {
 		msg["caption"],
 		dateTime,
 	)
-	if err != nil {
-		log.Printf("Failed to insert message into %s: %v", table, err)
-	}
+	return err
 }
 
-// saveJSON — сохраняет необработанный update в отдельную таблицу
-func saveJSON(db *sql.DB, chatID string, raw []byte) {
+// SaveJSON — сохраняет необработанный update в отдельную таблицу
+func SaveJSON(db *sql.DB, chatID string, raw []byte) error {
 	query := `CREATE TABLE IF NOT EXISTS raw_updates (
 		id SERIAL PRIMARY KEY,
 		chat_id TEXT,
@@ -218,12 +101,9 @@ func saveJSON(db *sql.DB, chatID string, raw []byte) {
 		created_at TIMESTAMP DEFAULT now()
 	)`
 	if _, err := db.Exec(query); err != nil {
-		log.Printf("Failed to ensure raw_updates table: %v", err)
-		return
+		return err
 	}
 
 	_, err := db.Exec(`INSERT INTO raw_updates (chat_id, payload) VALUES ($1, $2)`, chatID, raw)
-	if err != nil {
-		log.Printf("Failed to save raw update: %v", err)
-	}
+	return err
 }
