@@ -2,9 +2,7 @@ package core
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
-	"fmt"
 	"log"
 	"time"
 
@@ -20,11 +18,6 @@ func Run() {
 
 // StartKafkaConsumer слушает Kafka и передаёт сообщения в бизнес-логику
 func StartKafkaConsumer(ctx context.Context) {
-	db, err := postgresql.ConnectToBase()
-	if err != nil {
-		log.Fatalf("DB connect failed: %v", err)
-	}
-	defer db.Close()
 
 	reader := kafkabot.NewReader("telegram-listener", "bmft-saver")
 	defer reader.Close()
@@ -61,7 +54,7 @@ func StartKafkaConsumer(ctx context.Context) {
 		}
 
 		// Сохраняем в БД через CRUD слой
-		if err := saveToDatabase(db, processedUpdate, msg.Value); err != nil {
+		if err := saveToDatabase(processedUpdate); err != nil {
 			log.Printf("core: Failed to save update: %v", err)
 		} else {
 			log.Printf("core: Processed message key=%s offset=%d", string(msg.Key), msg.Offset)
@@ -76,33 +69,17 @@ func processBusinessLogic(update map[string]any) (map[string]any, error) {
 }
 
 // saveToDatabase — подготовка данных и вызов CRUD
-func saveToDatabase(db *sql.DB, update map[string]any, raw []byte) error {
-	chatID := extractChatID(update)
-	if chatID == "" {
-		return fmt.Errorf("could not extract chat_id")
-	}
+func saveToDatabase(update map[string]any) error {
 
-	tableName := fmt.Sprintf("chat_%s", chatID)
+	db, err := postgresql.ConnectToBase()
+	if err != nil {
+		log.Fatalf("DB connect failed: %v", err)
+	}
+	defer db.Close()
 
-	if err := postgresql.CreateIfNotExists(db, tableName); err != nil {
-		return err
-	}
-	if err := postgresql.SaveToTable(db, tableName, update); err != nil {
-		return err
-	}
-	if err := postgresql.SaveJSON(db, chatID, raw); err != nil {
+	if err := postgresql.SaveToTable(db, update); err != nil {
 		return err
 	}
 
 	return nil
-}
-
-// extractChatID — извлекает chat_id из структуры Telegram update
-func extractChatID(update map[string]any) string {
-	if msg, ok := update["message"].(map[string]any); ok {
-		if chat, ok := msg["chat"].(map[string]any); ok {
-			return utils.IntToStr(chat["id"])
-		}
-	}
-	return ""
 }
