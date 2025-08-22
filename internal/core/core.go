@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"log"
 	"time"
@@ -13,11 +14,21 @@ import (
 
 func Run() {
 	ctx := context.Background()
-	StartKafkaConsumer(ctx)
+
+	db, err := postgresql.ConnectToBase()
+
+	if err != nil {
+		log.Fatalf("DB connect failed: %v", err)
+	}
+	defer db.Close()
+
+	postgresql.CreateTables(db)
+
+	StartKafkaConsumer(ctx, db)
 }
 
 // StartKafkaConsumer слушает Kafka и передаёт сообщения в бизнес-логику
-func StartKafkaConsumer(ctx context.Context) {
+func StartKafkaConsumer(ctx context.Context, db *sql.DB) {
 
 	reader := kafkabot.NewReader("telegram-listener", "bmft-saver")
 	defer reader.Close()
@@ -54,7 +65,7 @@ func StartKafkaConsumer(ctx context.Context) {
 		}
 
 		// Сохраняем в БД через CRUD слой
-		if err := saveToDatabase(processedUpdate); err != nil {
+		if err := postgresql.SaveToTable(db, processedUpdate); err != nil {
 			log.Printf("core: Failed to save update: %v", err)
 		} else {
 			log.Printf("core: Processed message key=%s offset=%d", string(msg.Key), msg.Offset)
@@ -64,22 +75,6 @@ func StartKafkaConsumer(ctx context.Context) {
 
 // processBusinessLogic — заглушка для твоей бизнес-логики
 func processBusinessLogic(update map[string]any) (map[string]any, error) {
-	// Например, фильтрация, валидация, enrich
+
 	return update, nil
-}
-
-// saveToDatabase — подготовка данных и вызов CRUD
-func saveToDatabase(update map[string]any) error {
-
-	db, err := postgresql.ConnectToBase()
-	if err != nil {
-		log.Fatalf("DB connect failed: %v", err)
-	}
-	defer db.Close()
-
-	if err := postgresql.SaveToTable(db, update); err != nil {
-		return err
-	}
-
-	return nil
 }
