@@ -30,7 +30,6 @@ func ConnectToBase() (*sql.DB, error) {
 	return db, nil
 }
 
-// SaveToTable — сохраняет извлечённые поля в таблицу конкретного чата
 func SaveToTable(db *sql.DB, update map[string]any) error {
 	msg, ok1 := update["message"].(map[string]any)
 	chat, ok2 := msg["chat"].(map[string]any)

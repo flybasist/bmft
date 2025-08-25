@@ -57,8 +57,13 @@ func StartKafkaConsumer(ctx context.Context, db *sql.DB) {
 			continue
 		}
 
-		// 👉 Заглушка: здесь будет твоя бизнес-логика перед записью
-		processedUpdate, err := processBusinessLogic(update)
+		contentType, err := utils.СheckContentType(update)
+		if err != nil {
+			log.Printf("utils: error check type message: %v", err)
+			continue
+		}
+
+		processedUpdate, err := processBusinessLogic(update, contentType)
 		if err != nil {
 			log.Printf("core: business logic error: %v", err)
 			continue
@@ -73,8 +78,7 @@ func StartKafkaConsumer(ctx context.Context, db *sql.DB) {
 	}
 }
 
-// processBusinessLogic — заглушка для твоей бизнес-логики
-func processBusinessLogic(update map[string]any) (map[string]any, error) {
-
+func processBusinessLogic(update map[string]any, contentType string) (map[string]any, error) {
+	log.Printf("core: content type: %v", string(contentType))
 	return update, nil
 }
