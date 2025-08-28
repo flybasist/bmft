@@ -34,7 +34,8 @@ func SaveToTable(db *sql.DB, update map[string]any) error {
 	msg, ok1 := update["message"].(map[string]any)
 	chat, ok2 := msg["chat"].(map[string]any)
 	from, ok3 := msg["from"].(map[string]any)
-	if !ok1 || !ok2 || !ok3 {
+	typemessage, ok4 := update["contenttype"].(string)
+	if !ok1 || !ok2 || !ok3 || !ok4 {
 		return fmt.Errorf("failed to extract fields for table save")
 	}
 
@@ -61,7 +62,7 @@ func SaveToTable(db *sql.DB, update map[string]any) error {
 		chat["title"],
 		from["username"],
 		utils.IntToStr(msg["message_id"]),
-		msg["type"],
+		typemessage,
 		msg["text"],
 		msg["caption"],
 		dateTime,

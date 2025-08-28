@@ -63,7 +63,9 @@ func StartKafkaConsumer(ctx context.Context, db *sql.DB) {
 			continue
 		}
 
-		processedUpdate, err := processBusinessLogic(update, contentType)
+		update["contenttype"] = contentType
+
+		processedUpdate, err := processBusinessLogic(update)
 		if err != nil {
 			log.Printf("core: business logic error: %v", err)
 			continue
@@ -78,7 +80,7 @@ func StartKafkaConsumer(ctx context.Context, db *sql.DB) {
 	}
 }
 
-func processBusinessLogic(update map[string]any, contentType string) (map[string]any, error) {
-	log.Printf("core: content type: %v", string(contentType))
+func processBusinessLogic(update map[string]any) (map[string]any, error) {
+	log.Printf("core: content type: %v", update["contenttype"])
 	return update, nil
 }
