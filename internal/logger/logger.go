@@ -29,8 +29,7 @@ func Run(ctx context.Context, cfg *config.Config) {
 		return
 	}
 
-	topics := []string{"telegram-listener", "telegram-send", "telegram-delete"}
-	for _, t := range topics {
+	for _, t := range cfg.LogTopics {
 		go runTopicLogger(ctx, t, cfg)
 	}
 	go cleaner(ctx)

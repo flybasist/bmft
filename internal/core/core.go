@@ -6,12 +6,14 @@ import (
 	"encoding/json"
 	"errors"
 	"time"
+	"strconv"
 
 	"github.com/flybasist/bmft/internal/config"
 	"github.com/flybasist/bmft/internal/kafkabot"
 	"github.com/flybasist/bmft/internal/logx"
 	"github.com/flybasist/bmft/internal/postgresql"
 	"github.com/flybasist/bmft/internal/utils"
+	"github.com/segmentio/kafka-go"
 	"go.uber.org/zap"
 )
 
@@ -45,10 +47,12 @@ func consume(ctx context.Context, db *sql.DB, cfg *config.Config) {
 	log := logx.L().Named("core.consumer")
 	reader := kafkabot.NewReader("telegram-listener", cfg.KafkaBrokers, cfg.KafkaGroupCore)
 	defer reader.Close()
+	// Writer для DLQ (ленивая инициализация при первом использовании)
+	var dlqWriterInit bool
+	var dlqWriter = (*kafkaWriterWrapper)(nil)
 	log.Info("Kafka reader started", zap.String("topic", "telegram-listener"), zap.String("group", cfg.KafkaGroupCore))
 
 	for {
-		// FetchMessage — без автокоммита, чтобы контролировать идемпотентность.
 		msg, err := reader.FetchMessage(ctx)
 		if err != nil {
 			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
@@ -61,10 +65,34 @@ func consume(ctx context.Context, db *sql.DB, cfg *config.Config) {
 		}
 
 		start := time.Now()
+		// Извлекаем счётчик попыток из заголовков (если есть)
+		attempt := 0
+		for _, h := range msg.Headers {
+			if h.Key == "x-attempt" {
+				if v, err := strconv.Atoi(string(h.Value)); err == nil { attempt = v }
+			}
+		}
+
 		if err := handleMessage(ctx, db, msg.Value); err != nil {
-			log.Error("failed to handle message", zap.Error(err), zap.Int64("offset", msg.Offset))
-			// Русский комментарий: решение — не коммитить offset, чтобы сообщение было перечитано (простой retry).
-			// В будущем: добавить DLQ после N неудачных попыток.
+			attempt++
+			if attempt > cfg.MaxProcessRetries {
+				// Отправляем в DLQ
+				if !dlqWriterInit {
+					dlqWriter = newKafkaWriterWrapper(cfg.DLQTopic, cfg.KafkaBrokers)
+					dlqWriterInit = true
+				}
+				if dlqWriter != nil && dlqWriter.write(ctx, msg.Key, msg.Value, attempt, err) == nil {
+					log.Error("moved to DLQ", zap.Int64("offset", msg.Offset), zap.Int("attempt", attempt))
+					// Коммитим оригинал, чтобы не зацикливаться
+					_ = reader.CommitMessages(ctx, msg)
+				} else {
+					log.Error("failed to write to DLQ", zap.Error(err))
+				}
+			} else {
+				log.Warn("processing failed, will retry", zap.Error(err), zap.Int("attempt", attempt))
+				// Не коммитим — сообщение будет прочитано снова (крайне простой retry без backoff per message)
+				time.Sleep(200 * time.Millisecond)
+			}
 			continue
 		}
 
@@ -75,6 +103,28 @@ func consume(ctx context.Context, db *sql.DB, cfg *config.Config) {
 		log.Info("message processed", zap.Int64("offset", msg.Offset), zap.Duration("latency", time.Since(start)))
 	}
 }
+
+// kafkaWriterWrapper — небольшая обёртка для записи в DLQ с добавлением заголовков.
+type kafkaWriterWrapper struct {
+	w *kafka.Writer
+}
+
+func newKafkaWriterWrapper(topic string, brokers []string) *kafkaWriterWrapper {
+	return &kafkaWriterWrapper{w: kafkabot.NewWriter(topic, brokers)}
+}
+
+func (kw *kafkaWriterWrapper) write(ctx context.Context, key, value []byte, attempt int, origErr error) error {
+	if kw == nil || kw.w == nil { return errors.New("dlq writer not initialized") }
+	hdr := kafka.Header{Key: "x-attempt", Value: []byte(strconv.Itoa(attempt))}
+	hdr2 := kafka.Header{Key: "x-error", Value: []byte(truncateErr(origErr, 200))}
+	return kw.w.WriteMessages(ctx, kafka.Message{Key: key, Value: value, Headers: []kafka.Header{hdr, hdr2}})
+}
+
+func truncateErr(err error, n int) string {
+	if err == nil { return "" }
+	s := err.Error()
+	if len(s) <= n { return s }
+	return s[:n] + "..." }
 
 // handleMessage обрабатывает одно сырое сообщение Kafka (JSON апдейт Telegram).
 func handleMessage(ctx context.Context, db *sql.DB, data []byte) error {
