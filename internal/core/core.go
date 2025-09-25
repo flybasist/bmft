@@ -9,9 +9,9 @@ import (
 
 	"github.com/flybasist/bmft/internal/config"
 	"github.com/flybasist/bmft/internal/kafkabot"
+	"github.com/flybasist/bmft/internal/logx"
 	"github.com/flybasist/bmft/internal/postgresql"
 	"github.com/flybasist/bmft/internal/utils"
-	"github.com/flybasist/bmft/internal/logx"
 	"go.uber.org/zap"
 )
 

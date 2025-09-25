@@ -23,7 +23,7 @@ func TestCheckContentType(t *testing.T) {
 			continue
 		}
 		if got != c.want {
-				t.Fatalf("%s: want %s got %s", c.name, c.want, got)
+			t.Fatalf("%s: want %s got %s", c.name, c.want, got)
 		}
 	}
 }

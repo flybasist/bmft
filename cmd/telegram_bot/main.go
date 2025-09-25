@@ -9,8 +9,8 @@ import (
 
 	"github.com/flybasist/bmft/internal/config"
 	"github.com/flybasist/bmft/internal/core"
-	"github.com/flybasist/bmft/internal/logx"
 	"github.com/flybasist/bmft/internal/logger"
+	"github.com/flybasist/bmft/internal/logx"
 	"github.com/flybasist/bmft/internal/telegram_bot"
 	"go.uber.org/zap"
 )
