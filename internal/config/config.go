@@ -26,12 +26,12 @@ type Config struct {
 	KafkaGroupDelete string        // Consumer group для удаления
 	KafkaGroupLogger string        // Префикс consumer group для logger
 
-	LogTopics            []string      // Список топиков Kafka для файлового логгера
-	MetricsAddr          string        // Адрес HTTP сервера метрик /healthz /readyz
-	DLQTopic             string        // Топик для безнадёжных сообщений (dead-letter queue)
-	MaxProcessRetries    int           // Сколько попыток обработки прежде чем отправить в DLQ
-	BatchInsertSize      int           // Размер батча для вставки в БД (>1 включает batching)
-	BatchInsertInterval  time.Duration // Максимальный интервал ожидания добора батча
+	LogTopics           []string      // Список топиков Kafka для файлового логгера
+	MetricsAddr         string        // Адрес HTTP сервера метрик /healthz /readyz
+	DLQTopic            string        // Топик для безнадёжных сообщений (dead-letter queue)
+	MaxProcessRetries   int           // Сколько попыток обработки прежде чем отправить в DLQ
+	BatchInsertSize     int           // Размер батча для вставки в БД (>1 включает batching)
+	BatchInsertInterval time.Duration // Максимальный интервал ожидания добора батча
 }
 
 // Load загружает и валидирует конфигурацию из окружения.
@@ -50,7 +50,9 @@ func Load() (*Config, error) {
 
 	cfg.LogPretty = strings.ToLower(os.Getenv("LOGGER_PRETTY")) == "true"
 	cfg.LogLevel = normalizeLevel(strings.TrimSpace(os.Getenv("LOG_LEVEL")))
-    if cfg.LogLevel == "" { cfg.LogLevel = "info" }
+	if cfg.LogLevel == "" {
+		cfg.LogLevel = "info"
+	}
 
 	shutdownTimeoutStr := strings.TrimSpace(os.Getenv("SHUTDOWN_TIMEOUT"))
 	if shutdownTimeoutStr == "" {
@@ -170,8 +172,12 @@ func splitAndClean(s string) []string {
 	seen := map[string]struct{}{}
 	for _, p := range parts {
 		p = strings.TrimSpace(p)
-		if p == "" { continue }
-		if _, ok := seen[p]; ok { continue }
+		if p == "" {
+			continue
+		}
+		if _, ok := seen[p]; ok {
+			continue
+		}
 		seen[p] = struct{}{}
 		res = append(res, p)
 	}

@@ -5,8 +5,8 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
-	"time"
 	"strconv"
+	"time"
 
 	"github.com/flybasist/bmft/internal/config"
 	"github.com/flybasist/bmft/internal/kafkabot"
@@ -69,7 +69,9 @@ func consume(ctx context.Context, db *sql.DB, cfg *config.Config) {
 		attempt := 0
 		for _, h := range msg.Headers {
 			if h.Key == "x-attempt" {
-				if v, err := strconv.Atoi(string(h.Value)); err == nil { attempt = v }
+				if v, err := strconv.Atoi(string(h.Value)); err == nil {
+					attempt = v
+				}
 			}
 		}
 
@@ -114,17 +116,24 @@ func newKafkaWriterWrapper(topic string, brokers []string) *kafkaWriterWrapper {
 }
 
 func (kw *kafkaWriterWrapper) write(ctx context.Context, key, value []byte, attempt int, origErr error) error {
-	if kw == nil || kw.w == nil { return errors.New("dlq writer not initialized") }
+	if kw == nil || kw.w == nil {
+		return errors.New("dlq writer not initialized")
+	}
 	hdr := kafka.Header{Key: "x-attempt", Value: []byte(strconv.Itoa(attempt))}
 	hdr2 := kafka.Header{Key: "x-error", Value: []byte(truncateErr(origErr, 200))}
 	return kw.w.WriteMessages(ctx, kafka.Message{Key: key, Value: value, Headers: []kafka.Header{hdr, hdr2}})
 }
 
 func truncateErr(err error, n int) string {
-	if err == nil { return "" }
+	if err == nil {
+		return ""
+	}
 	s := err.Error()
-	if len(s) <= n { return s }
-	return s[:n] + "..." }
+	if len(s) <= n {
+		return s
+	}
+	return s[:n] + "..."
+}
 
 // handleMessage обрабатывает одно сырое сообщение Kafka (JSON апдейт Telegram).
 func handleMessage(ctx context.Context, db *sql.DB, data []byte) error {
