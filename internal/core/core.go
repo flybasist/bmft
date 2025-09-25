@@ -4,83 +4,102 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
-	"log"
+	"errors"
 	"time"
 
+	"github.com/flybasist/bmft/internal/config"
 	"github.com/flybasist/bmft/internal/kafkabot"
 	"github.com/flybasist/bmft/internal/postgresql"
 	"github.com/flybasist/bmft/internal/utils"
+	"github.com/flybasist/bmft/internal/logx"
+	"go.uber.org/zap"
 )
 
-func Run() {
-	ctx := context.Background()
+// Русский комментарий: Пакет core отвечает за приём исходящих обновлений из Kafka (topic telegram-listener),
+// применение базовой бизнес-логики и сохранение результата в PostgreSQL.
+// Теперь он:
+// 1. Работает под управлением контекста.
+// 2. Делает явный commit offset только после успешной обработки.
+// 3. Логирует структурированно на английском.
 
-	db, err := postgresql.ConnectToBase()
-
+// Run запускает основной цикл потребления для core.
+func Run(ctx context.Context, cfg *config.Config) {
+	log := logx.L().Named("core")
+	db, err := postgresql.ConnectToBase(ctx, cfg.PostgresDSN)
 	if err != nil {
-		log.Fatalf("DB connect failed: %v", err)
+		log.Fatal("DB connect failed", zap.Error(err))
 	}
 	defer db.Close()
 
-	postgresql.CreateTables(db)
+	// Русский комментарий: для упрощения dev-среды оставляем создание таблиц.
+	// В продакшене рекомендуется использовать миграции отдельно.
+	if err := postgresql.CreateTables(ctx, db); err != nil {
+		log.Fatal("failed to create tables", zap.Error(err))
+	}
 
-	StartKafkaConsumer(ctx, db)
+	consume(ctx, db, cfg)
 }
 
-// StartKafkaConsumer слушает Kafka и передаёт сообщения в бизнес-логику
-func StartKafkaConsumer(ctx context.Context, db *sql.DB) {
-
-	reader := kafkabot.NewReader("telegram-listener", "bmft-saver")
+// consume читает сообщения из Kafka и обрабатывает их.
+func consume(ctx context.Context, db *sql.DB, cfg *config.Config) {
+	log := logx.L().Named("core.consumer")
+	reader := kafkabot.NewReader("telegram-listener", cfg.KafkaBrokers, cfg.KafkaGroupCore)
 	defer reader.Close()
-
-	log.Println("core: Kafka reader started for topic 'telegram-listener', group 'bmft-saver'")
+	log.Info("Kafka reader started", zap.String("topic", "telegram-listener"), zap.String("group", cfg.KafkaGroupCore))
 
 	for {
-		msg, err := reader.ReadMessage(ctx)
+		// FetchMessage — без автокоммита, чтобы контролировать идемпотентность.
+		msg, err := reader.FetchMessage(ctx)
 		if err != nil {
-			if ctx.Err() != nil {
-				log.Println("core: reader context cancelled, exiting")
+			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+				log.Info("context canceled, stopping consumer")
 				return
 			}
-			log.Printf("core: Kafka read error: %v", err)
+			log.Warn("failed to fetch message", zap.Error(err))
 			time.Sleep(time.Second)
 			continue
 		}
 
-		log.Printf("core: read msg key=%s partition=%d offset=%d len=%d",
-			string(msg.Key), msg.Partition, msg.Offset, len(msg.Value))
-		log.Printf("core: raw payload: %s", utils.Truncate(msg.Value, 400))
-
-		var update map[string]any
-		if err := json.Unmarshal(msg.Value, &update); err != nil {
-			log.Printf("core: Invalid JSON from Kafka: %v — raw: %s", err, utils.Truncate(msg.Value, 400))
+		start := time.Now()
+		if err := handleMessage(ctx, db, msg.Value); err != nil {
+			log.Error("failed to handle message", zap.Error(err), zap.Int64("offset", msg.Offset))
+			// Русский комментарий: решение — не коммитить offset, чтобы сообщение было перечитано (простой retry).
+			// В будущем: добавить DLQ после N неудачных попыток.
 			continue
 		}
 
-		contentType, err := utils.СheckContentType(update)
-		if err != nil {
-			log.Printf("utils: error check type message: %v", err)
+		if err := reader.CommitMessages(ctx, msg); err != nil {
+			log.Error("commit failed", zap.Error(err), zap.Int64("offset", msg.Offset))
 			continue
 		}
-
-		update["contenttype"] = contentType
-
-		processedUpdate, err := processBusinessLogic(update)
-		if err != nil {
-			log.Printf("core: business logic error: %v", err)
-			continue
-		}
-
-		// Сохраняем в БД через CRUD слой
-		if err := postgresql.SaveToTable(db, processedUpdate); err != nil {
-			log.Printf("core: Failed to save update: %v", err)
-		} else {
-			log.Printf("core: Processed message key=%s offset=%d", string(msg.Key), msg.Offset)
-		}
+		log.Info("message processed", zap.Int64("offset", msg.Offset), zap.Duration("latency", time.Since(start)))
 	}
 }
 
+// handleMessage обрабатывает одно сырое сообщение Kafka (JSON апдейт Telegram).
+func handleMessage(ctx context.Context, db *sql.DB, data []byte) error {
+	// Парсим JSON в карту (гибкость для ранней стадии развития модели данных).
+	var update map[string]any
+	if err := json.Unmarshal(data, &update); err != nil {
+		return err
+	}
+	// Определяем тип контента
+	ctype, err := utils.CheckContentType(update) // переименовано в ASCII
+	if err != nil {
+		return err
+	}
+	update["contenttype"] = ctype
+
+	// Бизнес-логика (пока заглушка; можно расширить реакциями)
+	processed, err := processBusinessLogic(update)
+	if err != nil {
+		return err
+	}
+	return postgresql.SaveToTable(ctx, db, processed, data)
+}
+
+// processBusinessLogic — точка расширения; возвращает модифицированную карту.
 func processBusinessLogic(update map[string]any) (map[string]any, error) {
-	log.Printf("core: content type: %v", update["contenttype"])
+	// Русский комментарий: здесь можно реализовать цепочку фильтров, начисление лимитов и пр.
 	return update, nil
 }

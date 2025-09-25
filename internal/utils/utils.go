@@ -29,7 +29,7 @@ func IntToStr(v any) string {
 	}
 }
 
-func СheckContentType(update map[string]any) (string, error) {
+func CheckContentType(update map[string]any) (string, error) {
 	msgRaw, ok := update["message"]
 	if !ok {
 		return "", errors.New("no message field in update")
