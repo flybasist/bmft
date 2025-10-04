@@ -27,7 +27,7 @@ go run cmd/bot/main.go
 
 - **Limiter** — лимиты на запросы пользователей (daily/monthly per user) ✅
   - ⚠️ *Примечание:* Content type limiter (photo/video/sticker из Python бота) планируется отдельно
-- **Reactions** — автоматические реакции на ключевые слова (regex) 🔜
+- **Reactions** — автоматические реакции на ключевые слова (regex/exact/contains) ✅
 - **Statistics** — статистика сообщений и активности 🔜
 - **Scheduler** — задачи по расписанию (cron-like) 🔜
 - **AntiSpam** — антиспам фильтры (в будущем) 🔮
@@ -561,13 +561,14 @@ VALUES (YOUR_CHAT_ID, 'group', 'My Chat');
 
 ⚠️ **Важно:** Phase 2 реализует user request limiter (daily/monthly per user). Content type limiter (photo/video/sticker из Python бота) будет добавлен позже.
 
-### Phase 3 (Следующая) — Reactions Module
-- [ ] Миграция regex паттернов из Python бота (rts_bot)
-- [ ] Cooldown система (10 минут между реакциями)
-- [ ] Типы реакций: sticker, text, delete, mute
-- [ ] Команды: /addreaction, /listreactions, /delreaction, /testreaction
-- [ ] Антифлуд через reactions_log
-- [ ] Подсчёт текстовых нарушений (violation_code=21)
+### Phase 3 (✅ Завершена) — Reactions Module
+- [x] Миграция regex паттернов из Python бота (rts_bot)
+- [x] Cooldown система (10 минут между реакциями, настраиваемый)
+- [x] Типы реакций: text, sticker, delete (mute планируется отдельно)
+- [x] Команды: /addreaction, /listreactions, /delreaction, /testreaction
+- [x] Антифлуд через reactions_log (проверка последней реакции)
+- [x] Триггеры: regex, exact, contains
+- [x] VIP bypass для cooldown (is_vip флаг)
 
 ### Phase 4 — Statistics Module
 - [ ] Агрегация данных из messages → statistics_daily
