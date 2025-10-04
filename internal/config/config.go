@@ -141,20 +141,6 @@ func firstNonEmpty(values ...string) string {
 	return ""
 }
 
-// OptionalBool читает переменную окружения и пытается интерпретировать её как bool.
-// Возвращает значение и признак было ли оно установлено.
-func OptionalBool(name string) (bool, bool) {
-	val := strings.TrimSpace(os.Getenv(name))
-	if val == "" {
-		return false, false
-	}
-	b, err := strconv.ParseBool(val)
-	if err != nil {
-		return false, false
-	}
-	return b, true
-}
-
 // normalizeLevel приводит уровень логирования к одному из допустимых значений.
 func normalizeLevel(l string) string {
 	switch strings.ToLower(l) {

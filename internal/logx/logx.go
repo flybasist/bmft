@@ -1,12 +1,8 @@
 package logx
 
 import (
-	"context"
 	"fmt"
-	"os"
-	"path/filepath"
 	"sync"
-	"time"
 
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
@@ -53,54 +49,3 @@ func L() *zap.Logger { return logger }
 
 // Sync безопасно синхронизирует буферы.
 func Sync() { _ = logger.Sync() }
-
-// DailyFileWriter — вспомогательный writer для файлов (используется в file duplicator).
-// В нашем случае основное структурированное логирование идёт в stdout для контейнеров,
-// а файловое логирование — опционально.
-
-type DailyFileWriter struct {
-	mu   sync.Mutex
-	base string
-	f    *os.File
-	day  string
-}
-
-// NewDailyFileWriter создаёт новый файловый writer.
-func NewDailyFileWriter(dir, base string) (*DailyFileWriter, error) {
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return nil, err
-	}
-	w := &DailyFileWriter{base: base}
-	return w, w.rotateLocked(dir)
-}
-
-func (w *DailyFileWriter) rotateLocked(dir string) error {
-	w.day = time.Now().Format("2006-01-02")
-	path := filepath.Join(dir, fmt.Sprintf("%s_%s.log", w.base, w.day))
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
-	if err != nil {
-		return err
-	}
-	w.f = f
-	return nil
-}
-
-// Write реализует io.Writer.
-func (w *DailyFileWriter) Write(p []byte) (int, error) {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-	cur := time.Now().Format("2006-01-02")
-	if cur != w.day {
-		_ = w.f.Close()
-		if err := w.rotateLocked(filepath.Dir(w.f.Name())); err != nil {
-			return 0, err
-		}
-	}
-	return w.f.Write(p)
-}
-
-// WithContext добавляет в логгер trace поля из контекста (расширяемо при наличии tracer'а).
-func WithContext(ctx context.Context) *zap.Logger {
-	// Пока нет trace-id — возвращаем базовый логгер.
-	return logger
-}
