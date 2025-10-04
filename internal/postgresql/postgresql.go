@@ -37,6 +37,43 @@ func ConnectToBase(ctx context.Context, dsn string) (*sql.DB, error) {
 	return db, nil
 }
 
+// PingWithRetry пингует базу с ретраями.
+// Русский комментарий: Полезная функция для проверки подключения с повторными попытками.
+// Используется при старте бота для гарантии что PostgreSQL доступен.
+func PingWithRetry(db *sql.DB, maxRetries int, delay time.Duration, logger interface{}) error {
+	type zapLogger interface {
+		Info(msg string, fields ...interface{})
+		Warn(msg string, fields ...interface{})
+	}
+
+	var log zapLogger
+	if logger != nil {
+		if zl, ok := logger.(zapLogger); ok {
+			log = zl
+		}
+	}
+
+	for i := 0; i < maxRetries; i++ {
+		err := db.Ping()
+		if err == nil {
+			if log != nil {
+				log.Info("postgres connection established")
+			}
+			return nil
+		}
+
+		if log != nil {
+			log.Warn("failed to ping postgres, retrying...")
+		}
+
+		if i < maxRetries-1 {
+			time.Sleep(delay)
+		}
+	}
+
+	return fmt.Errorf("failed to ping postgres after %d retries", maxRetries)
+}
+
 // SaveToTable сохраняет распарсенный апдейт + сырой JSON.
 func SaveToTable(ctx context.Context, db *sql.DB, update map[string]any, raw []byte) error {
 	msg, ok1 := update["message"].(map[string]any)

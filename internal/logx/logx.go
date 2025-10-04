@@ -47,5 +47,31 @@ func Init(pretty bool, service string) error {
 // L возвращает активный логгер.
 func L() *zap.Logger { return logger }
 
+// NewLogger создаёт новый логгер с заданным уровнем и режимом.
+// Русский комментарий: Удобная функция для создания нового логгера без глобального состояния.
+func NewLogger(level string, pretty bool) (*zap.Logger, error) {
+	var cfg zap.Config
+	if pretty {
+		cfg = zap.NewDevelopmentConfig()
+		cfg.Development = false
+	} else {
+		cfg = zap.NewProductionConfig()
+	}
+
+	// Парсим уровень логирования
+	zapLevel, err := zapcore.ParseLevel(level)
+	if err != nil {
+		zapLevel = zapcore.InfoLevel // fallback to info
+	}
+	cfg.Level = zap.NewAtomicLevelAt(zapLevel)
+
+	cfg.EncoderConfig.TimeKey = "ts"
+	cfg.EncoderConfig.EncodeTime = zapcore.ISO8601TimeEncoder
+	cfg.OutputPaths = []string{"stdout"}
+	cfg.ErrorOutputPaths = []string{"stdout"}
+
+	return cfg.Build(zap.AddCaller(), zap.AddCallerSkip(1))
+}
+
 // Sync безопасно синхронизирует буферы.
 func Sync() { _ = logger.Sync() }
