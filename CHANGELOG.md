@@ -7,28 +7,61 @@
 
 ## [Unreleased]
 
+## [0.2.1] - 2025-01-04 (Phase 1 Implementation - 75% Complete)
+
 ### Changed (Breaking Changes)
 - **Полная переработка архитектуры:** удален Kafka, реализована plugin-based модульная система
-- **Изменение библиотеки:** tgbotapi заменен на telebot.v3
-- **Изменение схемы БД:** unified PostgreSQL schema вместо per-chat tables
-- **Deployment:** переход на Long Polling вместо webhook
+- **Изменение библиотеки:** tgbotapi v5 заменен на telebot.v3 v3.3.8
+- **Изменение entry point:** cmd/telegram_bot → cmd/bot
+- **Deployment:** переход на Long Polling вместо webhook (60s timeout)
+- **Config:** удалены все Kafka-related переменные (KAFKA_BROKERS, KAFKA_GROUP_*, DLQ_TOPIC, etc.)
+- **Binary size:** ~10M (включает все зависимости)
 
-### Added
-- ✅ Модульная plugin-based архитектура с Module Registry
-- ✅ Unified PostgreSQL schema с партиционированием messages по месяцам
-- ✅ Module interface (Init, OnMessage, Commands, Enabled, Shutdown)
-- ✅ Per-chat module configuration в таблице `chat_modules`
-- ✅ Event audit log для всех действий модулей
-- ✅ Comprehensive documentation (README, ARCHITECTURE, MIGRATION_PLAN, ANSWERS, QUICKSTART)
-- ✅ SQL migrations (`migrations/001_initial_schema.sql`)
-- ✅ `.env.example` с подробными комментариями
+### Removed
+- ❌ **Kafka infrastructure:** internal/kafkabot/, internal/logger/
+- ❌ **Old bot:** internal/telegram_bot/, cmd/telegram_bot/
+- ❌ **Docker:** docker-compose.env.yaml, docker-compose.bot.yaml, Dockerfile.telegram_bot
+- ❌ **Dependencies:** segmentio/kafka-go v0.4.48 (библиотека полностью удалена)
 
-### Planned (Phase 1)
-- [ ] Core framework: Module Registry implementation
-- [ ] telebot.v3 integration с Long Polling
-- [ ] Middleware layer (rate limiting, logging, panic recovery)
-- [ ] Basic commands: /start, /help, /modules, /enable, /disable
-- [ ] Config management для module-specific settings
+### Added (Phase 1 Complete - Steps 1-7)
+- ✅ **Core framework** (728 lines):
+  - `internal/core/interface.go` — Module interface (5 methods) + ModuleDependencies (DI)
+  - `internal/core/registry.go` — ModuleRegistry с lifecycle management
+  - `internal/core/middleware.go` — LoggerMiddleware, PanicRecoveryMiddleware, RateLimitMiddleware
+- ✅ **Bot implementation** (462 lines):
+  - `cmd/bot/main.go` — telebot.v3 с Long Polling, graceful shutdown
+  - Commands: `/start`, `/help`, `/modules`, `/enable <module>`, `/disable <module>`
+  - Admin permission checks через `bot.AdminsOf(chat)`
+  - Event logging для audit trail
+- ✅ **Repository layer** (265 lines):
+  - `internal/postgresql/repositories/chat_repository.go` — Chat CRUD
+  - `internal/postgresql/repositories/module_repository.go` — Module state + JSONB config
+  - `internal/postgresql/repositories/event_repository.go` — Event logging
+- ✅ **Dependencies:**
+  - gopkg.in/telebot.v3 v3.3.8 (Telegram bot framework)
+  - github.com/robfig/cron/v3 v3.0.1 (для будущего scheduler module)
+- ✅ **Config updates:**
+  - Removed: 9 Kafka-related fields
+  - Added: `POLLING_TIMEOUT` (default: 60 seconds)
+  - Defaults: `SHUTDOWN_TIMEOUT=15s`, `METRICS_ADDR=:9090`
+- ✅ **Utility functions:**
+  - `internal/logx/logx.go`: NewLogger() — инициализация zap logger
+  - `internal/postgresql/postgresql.go`: PingWithRetry() — проверка подключения к БД
+- ✅ **Testing:**
+  - `internal/config/config_test.go` — 5 unit tests (все проходят ✅)
+  - Tests: Load(), validate(), defaults, error handling, polling timeout parsing
+- ✅ **Documentation:**
+  - `PHASE1_CHECKLIST.md` — детальный чеклист (811 lines, 75% выполнено)
+  - All previous docs remain accurate (README, ARCHITECTURE, MIGRATION_PLAN)
+
+### Fixed
+- 🔧 Duplicate package declarations в generated files (автоматически исправлено)
+- 🔧 Config default values (ShutdownTimeout 15s, MetricsAddr :9090)
+
+### In Progress (Phase 1 - Steps 8-10 Remaining)
+- [ ] **Step 8:** Documentation updates (README quick start, CHANGELOG)
+- [ ] **Step 9:** Docker setup (Dockerfile multi-stage, docker-compose.yaml)
+- [ ] **Step 10:** Final verification (go vet, go fmt, functional testing)
 
 ### Planned (Phase 2-7)
 - [ ] **Phase 2:** Limiter module (content type limits, daily counters)
