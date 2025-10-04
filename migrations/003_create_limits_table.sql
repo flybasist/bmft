@@ -32,7 +32,7 @@ CREATE INDEX IF NOT EXISTS idx_user_limits_monthly_reset
     ON user_limits(last_reset_monthly);
 
 -- Комментарии к таблице
-COMMENT ON TABLE user_limits IS 'Лимиты пользователей на запросы к AI';
+COMMENT ON TABLE user_limits IS 'Лимиты пользователей на запросы к боту';
 COMMENT ON COLUMN user_limits.user_id IS 'Telegram User ID';
 COMMENT ON COLUMN user_limits.username IS 'Telegram username для логирования';
 COMMENT ON COLUMN user_limits.daily_limit IS 'Максимальное количество запросов в день';

@@ -57,7 +57,7 @@ func (m *LimiterModule) Enabled(chatID int64) (bool, error) {
 func (m *LimiterModule) OnMessage(ctx *core.MessageContext) error {
 	msg := ctx.Message
 
-	// Проверяем лимиты только для личных сообщений или команд AI
+	// Проверяем лимиты только для личных сообщений
 	if !m.shouldCheckLimit(msg) {
 		return nil
 	}
@@ -97,7 +97,7 @@ func (m *LimiterModule) Shutdown() error {
 // shouldCheckLimit определяет, нужно ли проверять лимит для сообщения
 func (m *LimiterModule) shouldCheckLimit(msg *telebot.Message) bool {
 	// Проверяем только личные сообщения
-	// В будущем можно добавить проверку для команд AI (GPT:)
+	// В будущем можно расширить для групповых чатов или специфичных команд
 	return msg.Private()
 }
 

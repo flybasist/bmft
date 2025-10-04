@@ -319,29 +319,61 @@ LOG_LEVEL=debug   # debug, info, warn, error
 
 ---
 
-## 🚫 Что бот НЕ умеет (будет в Phase 2-6):
+## ✅ Что бот УЖЕ умеет (Phase 1-2 завершены):
 
-### ❌ Limiter Module (Phase 2)
-- Лимиты на типы контента (фото, видео, стикеры)
-- Команды: `/setlimit`, `/showlimits`, `/mystats`
-- Daily counters с автосбросом
+### ✅ Core Framework (Phase 1) — 100% Complete
+- Модульная plugin-based архитектура
+- Module Registry с lifecycle management
+- Команды: `/start`, `/help`, `/modules`, `/enable`, `/disable`
+- PostgreSQL интеграция с migrations
+- Repository Layer (ChatRepository, ModuleRepository, EventRepository)
+- Graceful shutdown с таймаутом
+- Structured logging (zap)
+- Middleware: Logger, PanicRecovery, RateLimit
+- Docker готовность (Dockerfile + docker-compose)
 
-### ❌ Reactions Module (Phase 3)
+### ✅ Limiter Module (Phase 2) — 100% Complete
+- Лимиты на запросы к боту (daily/monthly per user)
+- Команды: `/limits`, `/setlimit <user_id> daily|monthly <limit>`, `/getlimit <user_id>`
+- Автосброс счётчиков (daily в 00:00 UTC, monthly каждый месяц)
+- Unit-тесты (10 тестов, 485 строк)
+- Интеграция с main.go
+
+**⚠️ Важно:** Текущая Phase 2 реализует user request limiter. Content type limiter (photo/video/sticker из Python бота) будет добавлен позже как отдельный модуль.
+
+---
+
+## 🚫 Что бот НЕ умеет (будет в Phase 3-5, Phase AI):
+
+### ❌ Reactions Module (Phase 3 — Следующая)
 - Автоматические реакции на ключевые слова (regex)
-- Команды: `/addreaction`, `/listreactions`, `/delreaction`
-- Cooldown система (10 минут)
+- Миграция паттернов из Python бота (rts_bot)
+- Команды: `/addreaction`, `/listreactions`, `/delreaction`, `/testreaction`
+- Cooldown система (10 минут между реакциями)
+- Антифлуд через reactions_log
+- Подсчёт текстовых нарушений (violation_code=21)
 
 ### ❌ Statistics Module (Phase 4)
 - Статистика сообщений и активности
-- Команда: `/statistics` с графиками
+- Команды: `/mystats` (личная), `/chatstats` (админ)
+- Агрегация из messages → statistics_daily
 - Top users, most active hours
+- Форматированный вывод по типам контента
 
 ### ❌ Scheduler Module (Phase 5)
-- Задачи по расписанию (cron-like)
-- Scheduled stickers, announcements
-- Команды: `/schedule`, `/listjobs`
+- Задачи по расписанию (cron-like планировщик)
+- Миграция задач из Python scheduletask.py
+- Scheduled stickers, announcements, reminders
+- Команды: `/addtask`, `/listtasks`, `/deltask`, `/runtask`
 
-### ❌ AntiSpam Module (Phase 6)
+### ❌ AI Module (Phase AI — В будущем)
+- OpenAI/Anthropic API интеграция
+- Context Management (история диалогов)
+- Команды: `/gpt`, `/reset`, `/context`
+- Система промптов и модерация контента
+- Интеграция с Limiter Module для проверки лимитов перед AI запросами
+
+### ❌ AntiSpam Module (Опционально)
 - Flood protection
 - Link filtering
 - User reputation system

@@ -109,13 +109,16 @@
 - [ ] **Step 9:** Docker setup (Dockerfile multi-stage, docker-compose.yaml)
 - [ ] **Step 10:** Final verification (go vet, go fmt, functional testing)
 
-### Planned (Phase 2-7)
-- [ ] **Phase 2:** Limiter module (content type limits, daily counters)
-- [ ] **Phase 3:** Reactions module (regex patterns, cooldowns)
-- [ ] **Phase 4:** Statistics module (daily/weekly stats)
-- [ ] **Phase 5:** Scheduler module (cron-like tasks)
-- [ ] **Phase 6:** AntiSpam module (flood protection, link filtering)
-- [ ] **Phase 7:** Admin panel (web interface, analytics dashboard)
+### Completed
+- [x] **Phase 1:** Core Framework (100% ✅)
+- [x] **Phase 2:** Limiter module (user request limits, daily/monthly counters) (100% ✅)
+
+### Planned (Phase 3-5, Phase AI)
+- [ ] **Phase 3:** Reactions module (regex patterns, cooldowns, Python migration) ← СЛЕДУЮЩАЯ
+- [ ] **Phase 4:** Statistics module (daily/weekly stats, /mystats, /chatstats)
+- [ ] **Phase 5:** Scheduler module (cron-like tasks, scheduled stickers)
+- [ ] **Phase AI:** AI Module (OpenAI/Anthropic, context management, /gpt) ← В БУДУЩЕМ
+- [ ] **Phase AntiSpam:** AntiSpam module (flood protection, link filtering) ← ОПЦИОНАЛЬНО
 
 ### Removed
 - ❌ Apache Kafka и Zookeeper (overkill для RPS ~0.004)
