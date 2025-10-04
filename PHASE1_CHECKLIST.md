@@ -18,7 +18,7 @@
 [✓] Шаг 6.1: Сборка проекта - COMPLETED (bin/bot, 10M)
 [✓] Шаг 7: Тестирование - COMPLETED (config tests: 100% pass)
 [✓] Шаг 8: Обновление документации - COMPLETED
-[ ] Шаг 9: Docker setup (1 час)
+[✓] Шаг 9: Docker setup - COMPLETED
 [ ] Шаг 10: Финальная проверка (30 мин)
 ```
 
