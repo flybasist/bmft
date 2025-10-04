@@ -45,7 +45,7 @@ func PanicRecoveryMiddleware(logger *zap.Logger) tele.MiddlewareFunc {
 						zap.Any("panic", r),
 						zap.String("stack", string(debug.Stack())),
 					)
-					
+
 					// Пытаемся сообщить пользователю об ошибке
 					msg := c.Message()
 					if msg != nil {

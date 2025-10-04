@@ -14,7 +14,7 @@ type ModuleRegistry struct {
 	modules map[string]Module  // Имя модуля -> инстанс модуля
 	deps    ModuleDependencies // Зависимости, передаваемые всем модулям
 	logger  *zap.Logger
-	mu      sync.RWMutex       // Защита от concurrent access
+	mu      sync.RWMutex // Защита от concurrent access
 }
 
 // NewRegistry создаёт новый реестр модулей.

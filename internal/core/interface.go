@@ -34,10 +34,10 @@ type Module interface {
 // Русский комментарий: DI (Dependency Injection) контейнер.
 // Все модули получают доступ к одним и тем же ресурсам: БД, бот, логгер, конфиг.
 type ModuleDependencies struct {
-	DB     *sql.DB         // Подключение к PostgreSQL
-	Bot    *tele.Bot       // Инстанс Telegram бота (telebot.v3)
-	Logger *zap.Logger     // Структурированный логгер
-	Config *config.Config  // Конфигурация приложения
+	DB     *sql.DB        // Подключение к PostgreSQL
+	Bot    *tele.Bot      // Инстанс Telegram бота (telebot.v3)
+	Logger *zap.Logger    // Структурированный логгер
+	Config *config.Config // Конфигурация приложения
 }
 
 // BotCommand описывает команду бота для регистрации в Telegram.
@@ -50,12 +50,12 @@ type BotCommand struct {
 // Русский комментарий: Обёртка над tele.Message с дополнительными helper-методами.
 // Модули могут отправлять ответы, удалять сообщения, логировать события.
 type MessageContext struct {
-	Message *tele.Message   // Оригинальное сообщение от telebot.v3
-	Bot     *tele.Bot       // Инстанс бота
-	DB      *sql.DB         // Подключение к БД
-	Logger  *zap.Logger     // Логгер
-	Chat    *tele.Chat      // Чат из которого пришло сообщение
-	Sender  *tele.User      // Пользователь, отправивший сообщение
+	Message *tele.Message // Оригинальное сообщение от telebot.v3
+	Bot     *tele.Bot     // Инстанс бота
+	DB      *sql.DB       // Подключение к БД
+	Logger  *zap.Logger   // Логгер
+	Chat    *tele.Chat    // Чат из которого пришло сообщение
+	Sender  *tele.User    // Пользователь, отправивший сообщение
 }
 
 // SendReply отправляет ответ на сообщение.
