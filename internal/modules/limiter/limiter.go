@@ -21,8 +21,8 @@ type LimiterModule struct {
 // New создаёт новый экземпляр модуля лимитов
 func New(limitRepo *repositories.LimitRepository, logger *zap.Logger) *LimiterModule {
 	return &LimiterModule{
-		limitRepo: limitRepo,
-		logger:    logger,
+		limitRepo:  limitRepo,
+		logger:     logger,
 		adminUsers: []int64{
 			// TODO: Заполнить список админов из конфига
 		},

@@ -14,7 +14,7 @@ func setupTestDB(t *testing.T) *sql.DB {
 	// Используем тестовую БД или in-memory SQLite для CI/CD
 	// Для локального тестирования используем PostgreSQL из docker-compose
 	dsn := "postgres://bmft:bmft@localhost:5432/bmft?sslmode=disable"
-	
+
 	db, err := sql.Open("postgres", dsn)
 	if err != nil {
 		t.Skipf("skipping test: cannot connect to test db: %v", err)
