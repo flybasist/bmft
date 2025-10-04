@@ -32,6 +32,7 @@ func (r *EventRepository) Log(chatID, userID int64, moduleName, eventType, detai
 }
 
 // GetRecentEvents получает последние N событий для чата.
+// FUTURE(Phase4): Statistics Module будет использовать для команды /events и анализа
 func (r *EventRepository) GetRecentEvents(chatID int64, limit int) ([]Event, error) {
 	query := `
 		SELECT id, chat_id, user_id, module_name, event_type, details, created_at
