@@ -2,6 +2,7 @@ package config
 
 import (
 	"os"
+	"strings"
 	"testing"
 	"time"
 )
@@ -146,7 +147,7 @@ func TestValidateConfig(t *testing.T) {
 			if tt.expectError {
 				if err == nil {
 					t.Error("Expected error, got nil")
-				} else if tt.errorContains != "" && !contains(err.Error(), tt.errorContains) {
+				} else if tt.errorContains != "" && !strings.Contains(err.Error(), tt.errorContains) {
 					t.Errorf("Expected error containing '%s', got '%v'", tt.errorContains, err)
 				}
 			} else {
@@ -201,19 +202,4 @@ func TestPollingTimeoutParsing(t *testing.T) {
 			os.Unsetenv("POLLING_TIMEOUT")
 		})
 	}
-}
-
-// contains проверяет, содержит ли строка подстроку
-func contains(s, substr string) bool {
-	return len(s) >= len(substr) && (s == substr || len(substr) == 0 ||
-		(len(s) > 0 && len(substr) > 0 && findSubstring(s, substr)))
-}
-
-func findSubstring(s, substr string) bool {
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return true
-		}
-	}
-	return false
 }
