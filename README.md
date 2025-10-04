@@ -568,7 +568,7 @@ VALUES (YOUR_CHAT_ID, 'group', 'My Chat');
 
 - **Вопросы/баги:** [GitHub Issues](https://github.com/your-repo/bmft/issues)
 - **Telegram:** @FlyBasist
-- **Email:** your-email@example.com
+- **Email:** flybasist92@gmail.com
 
 ---
 
