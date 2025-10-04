@@ -45,6 +45,7 @@ go.work.sum
 .env
 *.log
 /log
+/logs
 settings.yaml
 
 ##############################
