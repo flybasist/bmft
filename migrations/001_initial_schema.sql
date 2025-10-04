@@ -1,6 +1,23 @@
--- Миграция 001: Базовая оптимизированная схема для модульного бота
+-- ============================================================
+-- BMFT Database Schema - Full Schema (All Phases)
+-- ============================================================
+-- Миграция 001: Полная схема базы данных
+-- Версия: v0.3.0+
 -- Дата: 2025-10-04
 -- Автор: FlyBasist
+-- 
+-- Содержит:
+-- - Phase 1: Core Framework (chats, users, modules, event_log)
+-- - Phase 2: Limiter Module (user_limits)
+-- - Phase 3: Reactions Module (reactions_config, reactions_log)
+-- - Phase 4-5: Statistics & Scheduler (готовые таблицы)
+-- 
+-- При первом запуске приложение:
+-- 1. Проверит наличие таблиц
+-- 2. Выполнит эту миграцию если БД пустая
+-- 3. Валидирует схему
+-- 4. Остановится с ошибкой если схема неполная
+-- ============================================================
 
 -- ============================================================
 -- CORE TABLES (общие для всех модулей)
@@ -315,6 +332,50 @@ SELECT
 FROM statistics_daily
 GROUP BY chat_id, stat_date, content_type
 ORDER BY stat_date DESC, chat_id;
+
+-- ============================================================
+-- LIMITER MODULE (Phase 2)
+-- ============================================================
+
+-- Таблица лимитов пользователей
+CREATE TABLE IF NOT EXISTS user_limits (
+    user_id BIGINT PRIMARY KEY,
+    username VARCHAR(255),
+    
+    -- Лимиты
+    daily_limit INT NOT NULL DEFAULT 10,
+    monthly_limit INT NOT NULL DEFAULT 300,
+    
+    -- Использование
+    daily_used INT NOT NULL DEFAULT 0,
+    monthly_used INT NOT NULL DEFAULT 0,
+    
+    -- Время последнего сброса
+    last_reset_daily TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    last_reset_monthly TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    
+    -- Метаданные
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- Индексы для оптимизации запросов сброса
+CREATE INDEX IF NOT EXISTS idx_user_limits_daily_reset 
+    ON user_limits(last_reset_daily);
+
+CREATE INDEX IF NOT EXISTS idx_user_limits_monthly_reset 
+    ON user_limits(last_reset_monthly);
+
+-- Комментарии к таблице
+COMMENT ON TABLE user_limits IS 'Лимиты пользователей на запросы к боту (Phase 2: Limiter Module)';
+COMMENT ON COLUMN user_limits.user_id IS 'Telegram User ID';
+COMMENT ON COLUMN user_limits.username IS 'Telegram username для логирования';
+COMMENT ON COLUMN user_limits.daily_limit IS 'Максимальное количество запросов в день';
+COMMENT ON COLUMN user_limits.monthly_limit IS 'Максимальное количество запросов в месяц';
+COMMENT ON COLUMN user_limits.daily_used IS 'Использовано запросов сегодня';
+COMMENT ON COLUMN user_limits.monthly_used IS 'Использовано запросов в этом месяце';
+COMMENT ON COLUMN user_limits.last_reset_daily IS 'Время последнего дневного сброса';
+COMMENT ON COLUMN user_limits.last_reset_monthly IS 'Время последнего месячного сброса';
 
 -- ============================================================
 -- SEED DATA (начальные данные)
