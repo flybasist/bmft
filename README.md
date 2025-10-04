@@ -527,27 +527,48 @@ VALUES (YOUR_CHAT_ID, 'group', 'My Chat');
 
 **📦 Phase 1 Summary:** См. `PHASE1_SUMMARY.md` и `PRE_MERGE_CHECKLIST.md`
 
-### Phase 2 (Сейчас) — Limiter Module
-- [ ] Миграция лимитов из Python
-- [ ] Команды: /setlimit, /showlimits, /mystats
-- [ ] Daily counters с автосбросом
+### Phase 2 — Limiter Module ✅ 100% Complete
+- [x] Создана таблица user_limits (миграция 003)
+- [x] LimitRepository (8 методов) — работа с лимитами пользователей
+- [x] LimiterModule (17 методов) — модуль контроля лимитов
+- [x] Команды: /limits, /setlimit, /getlimit
+- [x] Daily counters с автосбросом (24 часа)
+- [x] Monthly counters с автосбросом (30 дней)
+- [x] Unit-тесты (10 тестов, 485 строк)
+- [x] Интеграция с main.go
+- [x] Документация обновлена
 
-### Phase 3 — Reactions Module
+**📦 Phase 2 Summary:** См. `docs/development/PHASE2_SUMMARY.md` и `docs/development/PHASE2_FINAL_REPORT.md`
+
+### Phase 3 (Сейчас) — AI Module
+- [ ] OpenAI API интеграция (GPT-4)
+- [ ] Context Management (история диалогов)
+- [ ] Интеграция с Limiter Module (проверка лимитов перед AI запросами)
+- [ ] Команды: /gpt, /reset, /context
+- [ ] Система промптов
+- [ ] Модерация контента
+
+### Phase 4 — Reactions Module
 - [ ] Миграция regex паттернов
 - [ ] Cooldown система (10 минут)
 - [ ] Типы реакций: sticker, text, delete, mute
 
-### Phase 4-5 — Statistics + Scheduler
+### Phase 5 — Statistics Module
 - [ ] Команда /statistics с графиками
+- [ ] Статистика по пользователям
+- [ ] Статистика по типам контента
+
+### Phase 6 — Scheduler Module
 - [ ] Cron-like планировщик для задач
 - [ ] Scheduled stickers
+- [ ] Напоминания
 
-### Phase 6 — AntiSpam (Будущее)
+### Phase 7 — AntiSpam (Будущее)
 - [ ] Flood protection
 - [ ] Link filtering
 - [ ] User reputation system
 
-### Phase 7 — Admin Panel
+### Phase 8 — Admin Panel
 - [ ] Web интерфейс для управления
 - [ ] Графики и аналитика
 - [ ] Bulk configuration
