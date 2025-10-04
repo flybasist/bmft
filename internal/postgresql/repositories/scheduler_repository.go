@@ -177,13 +177,3 @@ func (r *SchedulerRepository) DeleteTask(taskID int64) error {
 	r.logger.Info("deleted scheduled task", zap.Int64("task_id", taskID))
 	return nil
 }
-
-// SetActive включает/выключает задачу.
-func (r *SchedulerRepository) SetActive(taskID int64, isActive bool) error {
-	query := `UPDATE scheduler_tasks SET is_active = $1, updated_at = NOW() WHERE id = $2`
-	_, err := r.db.Exec(query, isActive, taskID)
-	if err != nil {
-		return fmt.Errorf("failed to set task active status: %w", err)
-	}
-	return nil
-}

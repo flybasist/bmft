@@ -23,9 +23,7 @@ func New(limitRepo *repositories.LimitRepository, logger *zap.Logger) *LimiterMo
 	return &LimiterModule{
 		limitRepo:  limitRepo,
 		logger:     logger,
-		adminUsers: []int64{
-			// TODO: Заполнить список админов из конфига
-		},
+		adminUsers: []int64{},
 	}
 }
 

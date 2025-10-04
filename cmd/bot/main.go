@@ -103,12 +103,6 @@ func run() error {
 	// Создаём Module Registry
 	registry := core.NewRegistry(deps)
 
-	// TODO: Регистрируем модули здесь (Phase 2-6)
-	// registry.Register("limiter", &limiter.Module{})
-	// registry.Register("reactions", &reactions.Module{})
-	// registry.Register("statistics", &statistics.Module{})
-	// registry.Register("scheduler", &scheduler.Module{})
-
 	// Инициализируем все зарегистрированные модули
 	if err := registry.InitAll(); err != nil {
 		return fmt.Errorf("failed to init modules: %w", err)

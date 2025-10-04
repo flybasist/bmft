@@ -1,9 +1,7 @@
 package postgresql
 
 import (
-	"context"
 	"database/sql"
-	"errors"
 	"fmt"
 	"time"
 
@@ -11,29 +9,6 @@ import (
 )
 
 // Русский комментарий: этот пакет инкапсулирует работу с PostgreSQL. Добавлен контекст для отмены и поле raw_update.
-
-// ConnectToBase — подключение к базе по DSN.
-func ConnectToBase(ctx context.Context, dsn string) (*sql.DB, error) {
-	if dsn == "" {
-		return nil, errors.New("empty postgres dsn")
-	}
-	db, err := sql.Open("postgres", dsn)
-	if err != nil {
-		return nil, fmt.Errorf("open: %w", err)
-	}
-	// Проверяем соединение с учётом контекста.
-	pingCh := make(chan error, 1)
-	go func() { pingCh <- db.Ping() }()
-	select {
-	case <-ctx.Done():
-		return nil, ctx.Err()
-	case err := <-pingCh:
-		if err != nil {
-			return nil, fmt.Errorf("ping: %w", err)
-		}
-	}
-	return db, nil
-}
 
 // PingWithRetry пингует базу с ретраями.
 // Русский комментарий: Полезная функция для проверки подключения с повторными попытками.

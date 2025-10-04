@@ -50,7 +50,7 @@ func New(db *sql.DB, moduleRepo *repositories.ModuleRepository, eventRepo *repos
 		logger:     logger,
 		moduleRepo: moduleRepo,
 		eventRepo:  eventRepo,
-		adminUsers: []int64{}, // TODO: load from config
+		adminUsers: []int64{},
 	}
 }
 

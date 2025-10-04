@@ -2,7 +2,6 @@ package repositories
 
 import (
 	"database/sql"
-	"encoding/json"
 	"fmt"
 )
 
@@ -55,67 +54,4 @@ func (r *ModuleRepository) Disable(chatID int64, moduleName string) error {
 		return fmt.Errorf("failed to disable module: %w", err)
 	}
 	return nil
-}
-
-// GetConfig читает JSONB конфигурацию модуля для чата.
-// Русский комментарий: Каждый модуль может хранить свою конфигурацию в JSONB колонке.
-// FUTURE(Phase3): Reactions Module будет использовать для хранения regex паттернов в JSONB
-func (r *ModuleRepository) GetConfig(chatID int64, moduleName string) (map[string]interface{}, error) {
-	var configJSON []byte
-	query := `SELECT config FROM chat_modules WHERE chat_id = $1 AND module_name = $2`
-	err := r.db.QueryRow(query, chatID, moduleName).Scan(&configJSON)
-	if err == sql.ErrNoRows {
-		return make(map[string]interface{}), nil // Нет записи = пустой конфиг
-	}
-	if err != nil {
-		return nil, fmt.Errorf("failed to get module config: %w", err)
-	}
-
-	var config map[string]interface{}
-	if err := json.Unmarshal(configJSON, &config); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal module config: %w", err)
-	}
-	return config, nil
-}
-
-// UpdateConfig обновляет JSONB конфигурацию модуля.
-// FUTURE(Phase3): Reactions Module будет использовать для обновления regex паттернов
-func (r *ModuleRepository) UpdateConfig(chatID int64, moduleName string, config map[string]interface{}) error {
-	configJSON, err := json.Marshal(config)
-	if err != nil {
-		return fmt.Errorf("failed to marshal module config: %w", err)
-	}
-
-	query := `
-		INSERT INTO chat_modules (chat_id, module_name, config)
-		VALUES ($1, $2, $3)
-		ON CONFLICT (chat_id, module_name) DO UPDATE
-		SET config = EXCLUDED.config, updated_at = NOW()
-	`
-	_, err = r.db.Exec(query, chatID, moduleName, configJSON)
-	if err != nil {
-		return fmt.Errorf("failed to update module config: %w", err)
-	}
-	return nil
-}
-
-// GetEnabledModules возвращает список включенных модулей для чата.
-// FUTURE(Phase3): Можно использовать в /modules для улучшенного отображения активных модулей
-func (r *ModuleRepository) GetEnabledModules(chatID int64) ([]string, error) {
-	query := `SELECT module_name FROM chat_modules WHERE chat_id = $1 AND is_enabled = true`
-	rows, err := r.db.Query(query, chatID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get enabled modules: %w", err)
-	}
-	defer rows.Close()
-
-	var modules []string
-	for rows.Next() {
-		var moduleName string
-		if err := rows.Scan(&moduleName); err != nil {
-			return nil, fmt.Errorf("failed to scan module name: %w", err)
-		}
-		modules = append(modules, moduleName)
-	}
-	return modules, rows.Err()
 }
