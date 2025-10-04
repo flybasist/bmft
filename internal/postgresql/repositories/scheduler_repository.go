@@ -26,16 +26,16 @@ func NewSchedulerRepository(db *sql.DB, logger *zap.Logger) *SchedulerRepository
 
 // ScheduledTask представляет задачу планировщика.
 type ScheduledTask struct {
-	ID          int64
-	ChatID      int64
-	TaskName    string
-	CronExpr    string
-	TaskType    string // sticker, text, photo
-	TaskData    string // file_id для sticker, текст для text, file_id для photo
-	IsActive    bool
-	LastRun     *time.Time
-	CreatedAt   time.Time
-	UpdatedAt   time.Time
+	ID        int64
+	ChatID    int64
+	TaskName  string
+	CronExpr  string
+	TaskType  string // sticker, text, photo
+	TaskData  string // file_id для sticker, текст для text, file_id для photo
+	IsActive  bool
+	LastRun   *time.Time
+	CreatedAt time.Time
+	UpdatedAt time.Time
 }
 
 // CreateTask создаёт новую задачу планировщика.
