@@ -53,3 +53,7 @@ docker-compose*.yaml
 coverage.txt
 *.out
 *.test
+
+# data
+
+data/
