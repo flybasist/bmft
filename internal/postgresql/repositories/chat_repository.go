@@ -39,6 +39,7 @@ func (r *ChatRepository) GetOrCreate(chatID int64, chatType, title, username str
 }
 
 // IsActive проверяет активен ли чат.
+// FUTURE(Phase3): Будет использоваться в Reactions Module для проверки заблокированных чатов
 func (r *ChatRepository) IsActive(chatID int64) (bool, error) {
 	var isActive bool
 	query := `SELECT is_active FROM chats WHERE chat_id = $1`
@@ -53,7 +54,8 @@ func (r *ChatRepository) IsActive(chatID int64) (bool, error) {
 }
 
 // Deactivate деактивирует чат (помечает is_active = false).
-// Русский комментарий: Используется когда бот удаляют из группы или блокируют.
+// Русский комментарий: Используется когда бота удаляют из группы или блокируют.
+// FUTURE(Phase4): Будет использоваться в Statistics Module для обработки удаления бота
 func (r *ChatRepository) Deactivate(chatID int64) error {
 	query := `UPDATE chats SET is_active = false, updated_at = NOW() WHERE chat_id = $1`
 	_, err := r.db.Exec(query, chatID)
@@ -64,6 +66,7 @@ func (r *ChatRepository) Deactivate(chatID int64) error {
 }
 
 // GetChatInfo получает информацию о чате.
+// FUTURE(Phase4): Будет использоваться в админ-командах для получения информации о чате
 func (r *ChatRepository) GetChatInfo(chatID int64) (chatType, title, username string, isActive bool, err error) {
 	query := `SELECT chat_type, title, username, is_active FROM chats WHERE chat_id = $1`
 	err = r.db.QueryRow(query, chatID).Scan(&chatType, &title, &username, &isActive)

@@ -59,6 +59,7 @@ func (r *ModuleRepository) Disable(chatID int64, moduleName string) error {
 
 // GetConfig читает JSONB конфигурацию модуля для чата.
 // Русский комментарий: Каждый модуль может хранить свою конфигурацию в JSONB колонке.
+// FUTURE(Phase3): Reactions Module будет использовать для хранения regex паттернов в JSONB
 func (r *ModuleRepository) GetConfig(chatID int64, moduleName string) (map[string]interface{}, error) {
 	var configJSON []byte
 	query := `SELECT config FROM chat_modules WHERE chat_id = $1 AND module_name = $2`
@@ -78,6 +79,7 @@ func (r *ModuleRepository) GetConfig(chatID int64, moduleName string) (map[strin
 }
 
 // UpdateConfig обновляет JSONB конфигурацию модуля.
+// FUTURE(Phase3): Reactions Module будет использовать для обновления regex паттернов
 func (r *ModuleRepository) UpdateConfig(chatID int64, moduleName string, config map[string]interface{}) error {
 	configJSON, err := json.Marshal(config)
 	if err != nil {
@@ -98,6 +100,7 @@ func (r *ModuleRepository) UpdateConfig(chatID int64, moduleName string, config 
 }
 
 // GetEnabledModules возвращает список включенных модулей для чата.
+// FUTURE(Phase3): Можно использовать в /modules для улучшенного отображения активных модулей
 func (r *ModuleRepository) GetEnabledModules(chatID int64) ([]string, error) {
 	query := `SELECT module_name FROM chat_modules WHERE chat_id = $1 AND is_enabled = true`
 	rows, err := r.db.Query(query, chatID)
