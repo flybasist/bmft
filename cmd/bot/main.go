@@ -18,6 +18,7 @@ import (
 	"github.com/flybasist/bmft/internal/logx"
 	"github.com/flybasist/bmft/internal/modules/limiter"
 	"github.com/flybasist/bmft/internal/modules/reactions"
+	"github.com/flybasist/bmft/internal/modules/statistics"
 	"github.com/flybasist/bmft/internal/postgresql"
 	"github.com/flybasist/bmft/internal/postgresql/repositories"
 )
@@ -138,6 +139,17 @@ func run() error {
 
 	// Регистрируем команды модуля реакций
 	reactionsModule.RegisterAdminCommands(bot)
+
+	// Создаём и регистрируем модуль статистики (Phase 4)
+	statsRepo := repositories.NewStatisticsRepository(db, logger)
+	statisticsModule := statistics.New(db, statsRepo, moduleRepo, eventRepo, logger)
+	statisticsModule.SetAdminUsers(adminUsers)
+
+	registry.Register("statistics", statisticsModule)
+
+	// Регистрируем команды модуля статистики
+	statisticsModule.RegisterCommands(bot)
+	statisticsModule.RegisterAdminCommands(bot)
 
 	// Регистрируем middleware
 	bot.Use(core.LoggerMiddleware(logger))
