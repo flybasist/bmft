@@ -3,12 +3,10 @@ package postgresql
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
 
-	"github.com/flybasist/bmft/internal/utils"
 	_ "github.com/lib/pq"
 )
 
@@ -72,47 +70,4 @@ func PingWithRetry(db *sql.DB, maxRetries int, delay time.Duration, logger inter
 	}
 
 	return fmt.Errorf("failed to ping postgres after %d retries", maxRetries)
-}
-
-// SaveToTable сохраняет распарсенный апдейт + сырой JSON.
-func SaveToTable(ctx context.Context, db *sql.DB, update map[string]any, raw []byte) error {
-	msg, ok1 := update["message"].(map[string]any)
-	chat, ok2 := msg["chat"].(map[string]any)
-	from, ok3 := msg["from"].(map[string]any)
-	typemessage, ok4 := update["contenttype"].(string)
-	if !ok1 || !ok2 || !ok3 || !ok4 {
-		return fmt.Errorf("failed to extract fields for table save")
-	}
-
-	var dateTime time.Time
-	switch v := msg["date"].(type) {
-	case float64:
-		dateTime = time.Unix(int64(v), 0).UTC()
-	case json.Number:
-		sec, _ := v.Int64()
-		dateTime = time.Unix(sec, 0).UTC()
-	default:
-		dateTime = time.Now().UTC()
-	}
-
-	query := `INSERT INTO messages (
-		chat_id, user_id, chatname, chattitle, username, message_id,
-		contenttype, text, caption, date_message, raw_update
-	) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
-	ON CONFLICT (chat_id, message_id) DO NOTHING /* идемпотентность сохранения */`
-
-	_, err := db.ExecContext(ctx, query,
-		utils.IntToStr(chat["id"]),
-		utils.IntToStr(from["id"]),
-		chat["username"],
-		chat["title"],
-		from["username"],
-		utils.IntToStr(msg["message_id"]),
-		typemessage,
-		msg["text"],
-		msg["caption"],
-		dateTime,
-		string(raw),
-	)
-	return err
 }
