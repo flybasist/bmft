@@ -1,0 +1,55 @@
+# Git
+.git/
+.gitignore
+.gitattributes
+
+# Документация
+*.md
+docs/
+*.txt
+
+# Бинарники
+bin/
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Тесты
+*_test.go
+testdata/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+
+# Environment files
+.env
+.env.local
+.env.*
+
+# CI/CD
+.github/
+.gitlab-ci.yml
+
+# Docker
+Dockerfile*
+docker-compose*.yaml
+.dockerignore
+
+# Build artifacts
+coverage.txt
+*.out
+*.test

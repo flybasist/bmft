@@ -500,11 +500,15 @@ VALUES (YOUR_CHAT_ID, 'group', 'My Chat');
 
 ## 📝 Roadmap
 
-### Phase 1 (Сейчас) — Core Framework ✅ В разработке
-- [x] Удалить Kafka инфраструктуру
-- [x] Интегрировать telebot.v3
-- [ ] Создать Module Registry
-- [ ] Реализовать базовые команды (/start, /help, /modules)
+### Phase 1 (Сейчас) — Core Framework ✅ 75% Complete
+- [x] Удалить Kafka инфраструктуру (Step 1)
+- [x] Интегрировать telebot.v3 (Steps 2-5)
+- [x] Создать Module Registry (Step 3)
+- [x] Реализовать базовые команды (/start, /help, /modules, /enable, /disable) (Step 5)
+- [x] Repository layer (ChatRepository, ModuleRepository, EventRepository) (Step 6)
+- [x] Unit tests для config (Step 7)
+- [ ] Docker setup (Step 9)
+- [ ] Final verification (Step 10)
 
 ### Phase 2 — Limiter Module
 - [ ] Миграция лимитов из Python
