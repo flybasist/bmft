@@ -18,6 +18,7 @@ import (
 	"github.com/flybasist/bmft/internal/logx"
 	"github.com/flybasist/bmft/internal/modules/limiter"
 	"github.com/flybasist/bmft/internal/modules/reactions"
+	"github.com/flybasist/bmft/internal/modules/scheduler"
 	"github.com/flybasist/bmft/internal/modules/statistics"
 	"github.com/flybasist/bmft/internal/postgresql"
 	"github.com/flybasist/bmft/internal/postgresql/repositories"
@@ -150,6 +151,17 @@ func run() error {
 	// Регистрируем команды модуля статистики
 	statisticsModule.RegisterCommands(bot)
 	statisticsModule.RegisterAdminCommands(bot)
+
+	// Создаём и регистрируем модуль планировщика (Phase 5)
+	schedulerRepo := repositories.NewSchedulerRepository(db, logger)
+	schedulerModule := scheduler.New(db, schedulerRepo, moduleRepo, eventRepo, logger)
+	schedulerModule.SetAdminUsers(adminUsers)
+
+	registry.Register("scheduler", schedulerModule)
+
+	// Регистрируем команды модуля планировщика
+	schedulerModule.RegisterCommands(bot)
+	schedulerModule.RegisterAdminCommands(bot)
 
 	// Регистрируем middleware
 	bot.Use(core.LoggerMiddleware(logger))

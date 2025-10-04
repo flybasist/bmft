@@ -370,13 +370,13 @@ GROUP BY chat_id, content_type;
 /chatstats                   # Статистика чата за сегодня (админ)
 /topchat                     # Топ-10 активных пользователей (админ)
 
-# Будущие команды (Phase 5, Phase AI)
-
-# Phase 5 - Scheduler:
-/addtask <name> <cron> <type> <data>  # Добавить задачу (админ)
-/listtasks                   # Список задач
+# Phase 5 - Scheduler Module:
+/addtask <name> "<cron>" <type> <data>  # Добавить задачу (админ)
+/listtasks                   # Список задач планировщика
 /deltask <id>                # Удалить задачу (админ)
 /runtask <id>                # Запустить задачу вручную (админ)
+
+# Будущие команды (Phase AI)
 
 # Phase AI - AI Module:
 /gpt <question>              # Задать вопрос AI
@@ -625,11 +625,15 @@ VALUES (YOUR_CHAT_ID, 'group', 'My Chat');
 - [x] Топ-10 активных пользователей за день
 - [x] Недельная статистика (last 7 days)
 
-### Phase 5 — Scheduler Module
-- [ ] Cron-планировщик (robfig/cron)
-- [ ] Миграция задач из Python scheduletask.py
-- [ ] Задачи по расписанию (отправка стикеров, напоминания)
-- [ ] Команды: /addtask, /listtasks, /deltask, /runtask
+### Phase 5 (✅ Завершена) — Scheduler Module
+- [x] SchedulerRepository (7 методов для CRUD операций с задачами)
+- [x] Cron-планировщик (robfig/cron/v3)
+- [x] Миграция функционала из Python scheduletask.py
+- [x] Задачи по расписанию: sticker, text, photo
+- [x] Загрузка активных задач при старте бота
+- [x] Команды: /addtask, /listtasks, /deltask, /runtask
+- [x] Admin-only управление задачами
+- [x] Graceful shutdown с остановкой cron
 
 ### Phase AI (В будущем) — AI Module
 - [ ] OpenAI/Anthropic API интеграция

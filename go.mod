@@ -8,4 +8,7 @@ require (
 	gopkg.in/telebot.v3 v3.3.8
 )
 
-require go.uber.org/multierr v1.11.0 // indirect
+require (
+	github.com/robfig/cron/v3 v3.0.1 // indirect
+	go.uber.org/multierr v1.11.0 // indirect
+)
