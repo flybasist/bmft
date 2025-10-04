@@ -1,0 +1,108 @@
+# ============================================================================
+# docker-compose.yaml для BMFT бота
+# ============================================================================
+# Сервисы:
+# - postgres: База данных PostgreSQL 16
+# - bot: Telegram бот с модульной архитектурой
+# ============================================================================
+
+services:
+  # ============================================================================
+  # PostgreSQL Database
+  # ============================================================================
+  postgres:
+    image: postgres:16-alpine
+    container_name: bmft_postgres
+    restart: unless-stopped
+    
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-bmft}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-secret}
+      POSTGRES_DB: ${POSTGRES_DB:-bmft}
+      PGDATA: /var/lib/postgresql/data/pgdata
+    
+    volumes:
+      # Persistent volume для данных БД
+      - postgres_data:/var/lib/postgresql/data
+      # Скрипт инициализации (если нужно)
+      # - ./migrations:/docker-entrypoint-initdb.d:ro
+    
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-bmft}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    
+    networks:
+      - bmft_network
+
+  # ============================================================================
+  # BMFT Bot
+  # ============================================================================
+  bot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: bmft_bot
+    restart: unless-stopped
+    
+    depends_on:
+      postgres:
+        condition: service_healthy
+    
+    environment:
+      # Telegram Bot Token (ОБЯЗАТЕЛЬНО задать в .env файле!)
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
+      
+      # PostgreSQL Connection
+      POSTGRES_DSN: postgres://${POSTGRES_USER:-bmft}:${POSTGRES_PASSWORD:-secret}@postgres:5432/${POSTGRES_DB:-bmft}?sslmode=disable
+      
+      # Logging
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      LOGGER_PRETTY: ${LOGGER_PRETTY:-false}
+      
+      # Bot Configuration
+      POLLING_TIMEOUT: ${POLLING_TIMEOUT:-60}
+      SHUTDOWN_TIMEOUT: ${SHUTDOWN_TIMEOUT:-15s}
+      
+      # Metrics / Health
+      METRICS_ADDR: :9090
+    
+    ports:
+      # Metrics / Health endpoint
+      - "9090:9090"
+    
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:9090/healthz"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    
+    networks:
+      - bmft_network
+    
+    # Логирование (ограничиваем размер)
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+# ============================================================================
+# Volumes
+# ============================================================================
+volumes:
+  postgres_data:
+    driver: local
+
+# ============================================================================
+# Networks
+# ============================================================================
+networks:
+  bmft_network:
+    driver: bridge

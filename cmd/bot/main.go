@@ -17,6 +17,7 @@ import (
 	"github.com/flybasist/bmft/internal/core"
 	"github.com/flybasist/bmft/internal/logx"
 	"github.com/flybasist/bmft/internal/modules/limiter"
+	"github.com/flybasist/bmft/internal/modules/reactions"
 	"github.com/flybasist/bmft/internal/postgresql"
 	"github.com/flybasist/bmft/internal/postgresql/repositories"
 )
@@ -120,13 +121,23 @@ func run() error {
 	// Создаём и регистрируем модуль лимитов
 	limiterModule := limiter.New(limitRepo, logger)
 	// TODO: Загружать список админов из конфига
-	limiterModule.SetAdminUsers([]int64{}) // Пока пустой список, заполнить потом
+	adminUsers := []int64{} // Пока пустой список, заполнить потом
+	limiterModule.SetAdminUsers(adminUsers)
 
 	registry.Register("limiter", limiterModule)
 
 	// Регистрируем команды модуля лимитов
 	limiterModule.RegisterCommands(bot)
 	limiterModule.RegisterAdminCommands(bot)
+
+	// Создаём и регистрируем модуль реакций (Phase 3)
+	reactionsModule := reactions.New(db, moduleRepo, eventRepo, logger)
+	reactionsModule.SetAdminUsers(adminUsers)
+
+	registry.Register("reactions", reactionsModule)
+
+	// Регистрируем команды модуля реакций
+	reactionsModule.RegisterAdminCommands(bot)
 
 	// Регистрируем middleware
 	bot.Use(core.LoggerMiddleware(logger))

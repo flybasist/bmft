@@ -49,10 +49,12 @@ go.work.sum
 settings.yaml
 
 ##############################
-# PostgreSQL Folder
+# PostgreSQL & Data Folders
 ##############################
 
 /pgdata
+/data/postgres
+/data/logs
 
 ##############################
 # Go module files (опционально)

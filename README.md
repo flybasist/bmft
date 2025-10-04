@@ -8,26 +8,70 @@
 
 ## 📖 Описание проекта
 
-**BMFT** (Bot Moderator For Telegram) — это модульная система для управления Telegram-чатами. Каждая фи## 🗄️ База данных
+**BMFT** (Bot Moderator For Telegram) — это модульная система для управления Telegram-чатами. Каждая фича реализована как отдельный модуль, который можно включать/выключать для каждого чата индивидуально.
 
-- **Схема:** [`migrations/001_initial_schema.sql`](migrations/001_initial_schema.sql) — полная PostgreSQL схема
-- **Миграции:** Используем [golang-migrate](https://github.com/golang-migrate/migrate)
-- **Таблицы:** chats, chat_modules, messages, event_log, user_stats и др.тдельный модуль, который можно включать/выключать для каждого чата индивидуально.
+**⚙️ Технологии:**
+- Go 1.21+ с [telebot.v3](https://github.com/tucnak/telebot)
+- PostgreSQL 12+ для хранения данных
+- Docker Compose для развёртывания
+- Long Polling (без webhook)
 
 **⚡ Quick Start:**
+
+### 🐳 Вариант 1: Docker Compose (рекомендуется)
+
 ```bash
 git clone <repo> && cd bmft
 cp .env.example .env  # Укажите TELEGRAM_BOT_TOKEN
-docker run -d --name postgres -e POSTGRES_PASSWORD=secret -p 5432:5432 postgres:16
-migrate -path migrations -database "postgres://postgres:secret@localhost/postgres?sslmode=disable" up
+
+# Запуск окружения (PostgreSQL)
+docker-compose -f docker-compose.env.yaml up -d
+
+# Применение миграций
+migrate -path migrations -database "postgres://bmft:secret@localhost:5432/bmft?sslmode=disable" up
+
+# Запуск бота в Docker
+docker-compose -f docker-compose.bot.yaml up -d
+
+# Просмотр логов
+docker logs -f bmft_bot
+```
+
+### 💻 Вариант 2: Локальная отладка (Go run)
+
+```bash
+git clone <repo> && cd bmft
+cp .env.example .env  # Укажите TELEGRAM_BOT_TOKEN
+
+# Запуск только окружения (PostgreSQL)
+docker-compose -f docker-compose.env.yaml up -d
+
+# Применение миграций
+migrate -path migrations -database "postgres://bmft:secret@localhost:5432/bmft?sslmode=disable" up
+
+# Запуск бота локально (для отладки в IDE)
+# Измени POSTGRES_DSN в .env: postgres://bmft:secret@localhost:5432/bmft?sslmode=disable
 go run cmd/bot/main.go
+```
+
+### 🌐 Вариант 3: Внешняя БД (production)
+
+```bash
+# В .env укажи POSTGRES_DSN внешней БД
+POSTGRES_DSN=postgres://user:pass@remote-host:5432/bmft?sslmode=require
+
+# Применение миграций
+migrate -path migrations -database "$POSTGRES_DSN" up
+
+# Запуск только бота (БД уже работает)
+docker-compose -f docker-compose.bot.yaml up -d
 ```
 
 ### 🔌 Доступные модули:
 
 - **Limiter** — лимиты на запросы пользователей (daily/monthly per user) ✅
   - ⚠️ *Примечание:* Content type limiter (photo/video/sticker из Python бота) планируется отдельно
-- **Reactions** — автоматические реакции на ключевые слова (regex) 🔜
+- **Reactions** — автоматические реакции на ключевые слова (regex/exact/contains) ✅
 - **Statistics** — статистика сообщений и активности 🔜
 - **Scheduler** — задачи по расписанию (cron-like) 🔜
 - **AntiSpam** — антиспам фильтры (в будущем) 🔮
@@ -557,17 +601,18 @@ VALUES (YOUR_CHAT_ID, 'group', 'My Chat');
 - [x] Интеграция с main.go
 - [x] Документация обновлена
 
-**📦 Phase 2 Summary:** См. `docs/development/PHASE2_SUMMARY.md`, `docs/development/PHASE2_FINAL_REPORT.md` и `docs/development/PHASE2_AUDIT_REPORT.md`
+**📦 Phase 2 Summary:** См. [`CHANGELOG.md`](CHANGELOG.md) → v0.2.0
 
 ⚠️ **Важно:** Phase 2 реализует user request limiter (daily/monthly per user). Content type limiter (photo/video/sticker из Python бота) будет добавлен позже.
 
-### Phase 3 (Следующая) — Reactions Module
-- [ ] Миграция regex паттернов из Python бота (rts_bot)
-- [ ] Cooldown система (10 минут между реакциями)
-- [ ] Типы реакций: sticker, text, delete, mute
-- [ ] Команды: /addreaction, /listreactions, /delreaction, /testreaction
-- [ ] Антифлуд через reactions_log
-- [ ] Подсчёт текстовых нарушений (violation_code=21)
+### Phase 3 (✅ Завершена) — Reactions Module
+- [x] Миграция regex паттернов из Python бота (rts_bot)
+- [x] Cooldown система (10 минут между реакциями, настраиваемый)
+- [x] Типы реакций: text, sticker, delete (mute планируется отдельно)
+- [x] Команды: /addreaction, /listreactions, /delreaction, /testreaction
+- [x] Антифлуд через reactions_log (проверка последней реакции)
+- [x] Триггеры: regex, exact, contains
+- [x] VIP bypass для cooldown (is_vip флаг)
 
 ### Phase 4 — Statistics Module
 - [ ] Агрегация данных из messages → statistics_daily
@@ -598,26 +643,7 @@ VALUES (YOUR_CHAT_ID, 'group', 'My Chat');
 - [ ] Графики и аналитика
 - [ ] Bulk configuration
 
-**Полный план:** См. [`docs/architecture/MIGRATION_PLAN.md`](docs/architecture/MIGRATION_PLAN.md)
-
----
-
-## 📚 Документация
-
-### Для пользователей:
-- 📘 [**Быстрый старт**](docs/guides/QUICKSTART.md) — Запуск за 5 минут
-- 🤖 [**Что умеет бот сейчас**](docs/guides/CURRENT_BOT_FUNCTIONALITY.md) — Текущая функциональность
-- 🔧 [**Troubleshooting**](docs/guides/VSCODE_CACHE_FIX.md) — Решение проблем
-
-### Для разработчиков:
-- 🏗️ [**Архитектура**](docs/architecture/ARCHITECTURE.md) — Дизайн системы
-- 🗺️ [**План миграции**](docs/architecture/MIGRATION_PLAN.md) — 8 фаз разработки
-- 💬 [**FAQ**](docs/FAQ.md) — Вопросы и ответы
-- 📊 [**Phase 1 Summary**](docs/development/PHASE1_SUMMARY.md) — Отчёт по Phase 1
-- 🚀 [**Phase 2 Transition**](docs/development/PHASE1_TO_PHASE2_TRANSITION.md) — Переход к Phase 2
-- 📝 [**CHANGELOG**](docs/CHANGELOG.md) — История изменений
-
-**📖 Полный список документов:** [`docs/README.md`](docs/README.md)
+**Полный план:** См. [`MIGRATION_PLAN.md`](MIGRATION_PLAN.md)
 
 ---
 
@@ -637,6 +663,66 @@ VALUES (YOUR_CHAT_ID, 'group', 'My Chat');
 - Комментарии в коде — на русском
 - Runtime-логи и переменные — на английском
 - Перед PR: `go vet ./...` + `go fmt ./...`
+
+---
+
+## ❓ FAQ
+
+### Как подключиться к БД при локальной отладке?
+
+```bash
+# Запусти PostgreSQL через Docker Compose
+docker-compose -f docker-compose.env.yaml up -d
+
+# В .env укажи localhost (не postgres!):
+POSTGRES_DSN=postgres://bmft:secret@localhost:5432/bmft?sslmode=disable
+
+# Запусти бота
+go run cmd/bot/main.go
+```
+
+**Почему `localhost` а не `postgres`?**  
+Потому что бот запускается ВНЕ Docker сети. Если запускаешь бот в Docker (`docker-compose.bot.yaml`), тогда используй `@postgres:5432`.
+
+### Как перенести данные на другой сервер?
+
+```bash
+# На старом сервере:
+docker-compose -f docker-compose.env.yaml down
+tar -czf bmft_backup.tar.gz data/
+scp bmft_backup.tar.gz user@new-server:/opt/bmft/
+
+# На новом сервере:
+tar -xzf bmft_backup.tar.gz
+docker-compose -f docker-compose.env.yaml up -d
+```
+
+Копируй только папку `./data/` — в ней PostgreSQL данные и логи.
+
+### Как добавить админа для команд /addreaction и т.п.?
+
+В `cmd/bot/main.go` найди строку:
+```go
+adminUsers := []int64{} // Пока пустой список
+```
+
+Измени на:
+```go
+adminUsers := []int64{123456789, 987654321} // Твои Telegram user_id
+```
+
+Чтобы узнать свой user_id, напиши боту [@userinfobot](https://t.me/userinfobot).
+
+### Почему бот не отвечает на команды?
+
+1. Проверь что модуль включён для чата: `/modules`
+2. Проверь логи: `docker logs -f bmft_bot` или консоль если `go run`
+3. Убедись что бот добавлен в группу как администратор
+4. Для reactions: проверь что паттерн правильный через `/testreaction`
+
+### Где посмотреть историю изменений?
+
+Смотри [`CHANGELOG.md`](CHANGELOG.md) — там всё по версиям (v0.1.0, v0.2.0, v0.3.0...)
 
 ## � Дополнительная документация
 
