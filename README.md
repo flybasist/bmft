@@ -92,10 +92,6 @@ docker-compose -f docker-compose.bot.yaml up -d
 - ✅ **Content limits** — контроль типов контента (photo/video/sticker) с VIP bypass
 - ✅ **Text violations** — счётчик нарушений с автоудалением (regex-based moderation)
 - ✅ **Edited message handling** — обработка отредактированных сообщений (Python parity)
-- ✅ **Welcome messages** — приветствие новых пользователей, информация о боте (/version)
-- ✅ **Content limits** — контроль типов контента (photo/video/sticker) с VIP bypass
-- ✅ **Text violations** — счётчик нарушений с автоудалением (regex-based moderation)
-- ✅ **Edited message handling** — обработка отредактированных сообщений (Python parity)
 
 ### 🛠 Автоматические миграции
 
@@ -675,44 +671,63 @@ go test -v ./internal/modules/limiter/...
 
 ## 🔧 Разработка
 
-### Структура проекта (после миграции):
+### Структура проекта:
 
 ```
 .
 ├── cmd/
 │   └── bot/
-│       └── main.go                # Точка входа
+│       └── main.go                     # Точка входа приложения
 ├── internal/
-│   ├── config/                    # Конфигурация
-│   │   └── config.go
-│   ├── core/                      # Module Registry + Interfaces
-│   │   ├── interface.go           # Module interface
-│   │   ├── registry.go            # Module registry
-│   │   └── context.go             # MessageContext
-│   ├── modules/                   # Модули (features)
-│   │   ├── limiter/               # Лимиты на контент
-│   │   │   ├── module.go
-│   │   │   ├── service.go
-│   │   │   ├── repository.go
-│   │   │   └── commands.go
-│   │   ├── reactions/             # Keyword reactions
-│   │   ├── statistics/            # Статистика
-│   │   ├── scheduler/             # Cron tasks
-│   │   └── antispam/              # AntiSpam (в разработке)
-│   ├── postgresql/                # База данных
-│   │   ├── postgresql.go
-│   │   └── repositories/
-│   ├── logx/                      # Логирование (zap)
-│   │   └── logx.go
-│   └── utils/                     # Утилиты
-│       ├── utils.go
-│       └── utils_test.go
-├── migrations/                    # Миграции БД
-│   └── 001_initial_schema.sql
-├── docker-compose.yaml            # PostgreSQL
-├── Dockerfile
+│   ├── config/                         # Конфигурация (.env)
+│   │   ├── config.go
+│   │   └── config_test.go
+│   ├── core/                           # Ядро: Module Registry, Interfaces, Middleware
+│   │   ├── interface.go                # Module interface
+│   │   ├── registry.go                 # Module registry
+│   │   ├── middleware.go               # Logger, Panic Recovery, Rate Limit
+│   │   └── welcome.go                  # Welcome Module (новые пользователи, /version)
+│   ├── modules/                        # Модули (pluggable features)
+│   │   ├── limiter/                    # Phase 2 + 2.5: User & Content Limits
+│   │   │   ├── limiter.go              # Основная логика модуля
+│   │   │   ├── content_limiter.go      # Лимиты на типы контента (Phase 2.5)
+│   │   │   └── commands_content.go     # Команды управления контент-лимитами
+│   │   ├── reactions/                  # Phase 3 + 3.5: Reactions & Text Violations
+│   │   │   ├── reactions.go            # Автоматические реакции на regex/exact/contains
+│   │   │   ├── text_violations.go      # Счётчик текстовых нарушений (Phase 3.5)
+│   │   │   └── commands_violations.go  # Команды для text violations
+│   │   ├── statistics/                 # Phase 4: Статистика активности
+│   │   │   └── statistics.go
+│   │   └── scheduler/                  # Phase 5: Планировщик задач (cron)
+│   │       └── scheduler.go
+│   ├── postgresql/                     # База данных PostgreSQL
+│   │   ├── postgresql.go               # Connection pool
+│   │   └── repositories/               # Data Access Layer
+│   │       ├── chat_repository.go
+│   │       ├── module_repository.go
+│   │       ├── event_repository.go
+│   │       ├── limit_repository.go
+│   │       ├── statistics_repository.go
+│   │       └── scheduler_repository.go
+│   ├── migrations/                     # Автоматические миграции БД
+│   │   └── migrations.go               # Migration Manager
+│   └── logx/                           # Structured logging (zap)
+│       └── logx.go
+├── migrations/                         # SQL миграции
+│   └── 001_initial_schema.sql          # Полная схема БД (18 таблиц)
+├── docs/                               # Приватная документация (gitignored)
+│   ├── CONVENTIONS.md                  # Правила разработки
+│   ├── PROJECT_ANALYSIS.md             # Анализ проекта
+│   ├── DEPLOYMENT.md                   # Гайды по развёртыванию
+│   └── *.md                            # Другие внутренние документы
+├── .env.example                        # Пример конфигурации (4 сценария)
+├── docker-compose.env.yaml             # PostgreSQL окружение
+├── docker-compose.bot.yaml             # Бот в Docker
+├── Dockerfile                          # Multi-stage build
 ├── go.mod
-└── README.md
+├── go.sum
+├── README.md                           # ← Ты здесь
+└── CHANGELOG.md                        # История изменений
 ```
 
 ### Правила разработки:
@@ -1028,13 +1043,6 @@ adminUsers := []int64{123456789, 987654321} // Твои Telegram user_id
 ### Где посмотреть историю изменений?
 
 Смотри [`CHANGELOG.md`](CHANGELOG.md) — там всё по версиям (v0.1.0, v0.2.0, v0.3.0...)
-
-## � Дополнительная документация
-
-- [`ARCHITECTURE.md`](ARCHITECTURE.md) — детальная архитектура модульной системы
-- [`MIGRATION_PLAN.md`](MIGRATION_PLAN.md) — полный план миграции (8 фаз, 15-20 дней)
-- [`ANSWERS.md`](ANSWERS.md) — ответы на вопросы по архитектурным решениям
-- [`migrations/001_initial_schema.sql`](migrations/001_initial_schema.sql) — полная схема БД (443 строки)
 
 ## 💬 Контакты
 
