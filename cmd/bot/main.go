@@ -9,6 +9,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/joho/godotenv"
 	_ "github.com/lib/pq" // PostgreSQL driver
 	"go.uber.org/zap"
 	tele "gopkg.in/telebot.v3"
@@ -26,6 +27,9 @@ import (
 )
 
 func main() {
+	// Загружаем .env для локальной разработки (в проде файл не требуется)
+	_ = godotenv.Load()
+
 	// Русский комментарий: Главная точка входа бота.
 	// 1. Загружаем конфиг
 	// 2. Инициализируем логгер

@@ -8,7 +8,7 @@
 # ============================================================================
 # Stage 1: Builder
 # ============================================================================
-FROM golang:1.23-alpine AS builder
+FROM golang:1.25.1-alpine AS builder
 
 # Метаданные
 LABEL maintainer="flybasist"

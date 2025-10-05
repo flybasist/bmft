@@ -2,7 +2,7 @@
 
 **Модульный бот для управления Telegram-чатами с plugin-based архитектурой.**
 
-[![Go Version](https://img.shields.io/badge/Go-1.25+-00ADD8?style=flat&logo=go)](https://go.dev/)
+[![Go Version](https://img.shields.io/badge/Go-1.25.1+-00ADD8?style=flat&logo=go)](https://go.dev/)
 [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-12+-316192?style=flat&logo=postgresql)](https://www.postgresql.org/)
 [![License](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
 
@@ -10,15 +10,15 @@
 
 **BMFT** (Bot Moderator For Telegram) — это модульная система для управления Telegram-чатами. Каждая фича реализована как отдельный модуль, который можно включать/выключать для каждого чата индивидуально.
 
-**⚙️ Технологии:**
-- Go 1.25+ с [telebot.v3](https://github.com/tucnak/telebot)
+**⚢️ Технологии:**
+- Go 1.25.1+ с [telebot.v3](https://github.com/tucnak/telebot)
 - PostgreSQL 12+ для хранения данных
 - Docker Compose для развёртывания
 - Long Polling (без webhook)
 
 **⚡ Quick Start:**
 
-**Требования:** Go 1.25+, PostgreSQL 12+, Telegram Bot Token
+**Требования:** Go 1.25.1+, PostgreSQL 12+, Telegram Bot Token
 
 ### 🐳 Вариант 1: Docker Compose (рекомендуется)
 

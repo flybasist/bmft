@@ -22,6 +22,10 @@ services:
     container_name: bmft_bot
     restart: unless-stopped
     
+    # Автоматически читаем .env файл (для локальной разработки)
+    env_file:
+      - .env
+    
     environment:
       # Telegram Bot Token (ОБЯЗАТЕЛЬНО задать в .env файле!)
       TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}

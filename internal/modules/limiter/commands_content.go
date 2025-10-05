@@ -11,10 +11,10 @@ import (
 )
 
 // handleSetContentLimit устанавливает лимит на тип контента
-// Usage: /setcontentlimit <content_type> <limit>
-// Example: /setcontentlimit photo 5
-// Example: /setcontentlimit sticker -1  (полный запрет)
-// Example: /setcontentlimit video 0     (без ограничений)
+// Использование: /setcontentlimit <content_type> <limit>
+// Пример: /setcontentlimit photo 5
+// Пример: /setcontentlimit sticker -1  (полный запрет)
+// Пример: /setcontentlimit video 0     (без ограничений)
 func (m *LimiterModule) handleSetContentLimit(c tele.Context) error {
 	// Проверка что команда из группы/супергруппы
 	if !c.Message().FromGroup() {
@@ -109,7 +109,7 @@ func (m *LimiterModule) handleSetContentLimit(c tele.Context) error {
 }
 
 // handleMyContentUsage показывает использование лимитов контента за сегодня
-// Usage: /mycontentusage
+// Использование: /mycontentusage
 func (m *LimiterModule) handleMyContentUsage(c tele.Context) error {
 	// Проверка что команда из группы/супергруппы
 	if !c.Message().FromGroup() {
@@ -190,7 +190,7 @@ func (m *LimiterModule) handleMyContentUsage(c tele.Context) error {
 }
 
 // handleListContentLimits показывает все лимиты чата (только для админов)
-// Usage: /listcontentlimits
+// Использование: /listcontentlimits
 func (m *LimiterModule) handleListContentLimits(c tele.Context) error {
 	// Проверка что команда из группы/супергруппы
 	if !c.Message().FromGroup() {

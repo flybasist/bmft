@@ -11,7 +11,7 @@ import (
 )
 
 // handleMyTextViolations показывает счётчик текстовых нарушений за сегодня
-// Usage: /mytextviolations
+// Использование: /mytextviolations
 func (m *ReactionsModule) handleMyTextViolations(c tele.Context) error {
 	// Проверка что команда из группы/супергруппы
 	if c.Chat().Type != tele.ChatGroup && c.Chat().Type != tele.ChatSuperGroup {
@@ -73,9 +73,9 @@ func (m *ReactionsModule) handleMyTextViolations(c tele.Context) error {
 }
 
 // handleSetTextViolationLimit устанавливает лимит на текстовые нарушения
-// Usage: /settextlimit <limit>
-// Example: /settextlimit 10
-// Example: /settextlimit 0  (без ограничений)
+// Использование: /settextlimit <limit>
+// Пример: /settextlimit 10
+// Пример: /settextlimit 0  (без ограничений)
 func (m *ReactionsModule) handleSetTextViolationLimit(c tele.Context) error {
 	// Проверка прав админа
 	adminIDs, err := c.Bot().AdminsOf(c.Chat())
@@ -164,7 +164,7 @@ func (m *ReactionsModule) handleSetTextViolationLimit(c tele.Context) error {
 }
 
 // handleChatTextViolations показывает статистику текстовых нарушений чата (админы)
-// Usage: /chattextviolations
+// Использование: /chattextviolations
 func (m *ReactionsModule) handleChatTextViolations(c tele.Context) error {
 	// Проверка прав админа
 	adminIDs, err := c.Bot().AdminsOf(c.Chat())
