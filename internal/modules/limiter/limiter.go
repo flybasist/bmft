@@ -55,7 +55,20 @@ func (m *LimiterModule) Enabled(chatID int64) (bool, error) {
 func (m *LimiterModule) OnMessage(ctx *core.MessageContext) error {
 	msg := ctx.Message
 
-	// Проверяем лимиты только для личных сообщений
+	// Phase 2.5: Content Type Limiter
+	// Проверяем лимиты на типы контента (photo/video/sticker/etc)
+	// Работает для всех типов чатов (не только личные сообщения)
+	shouldContinue, err := m.checkContentLimit(ctx)
+	if err != nil {
+		m.logger.Error("failed to check content limit", zap.Error(err))
+	}
+	if !shouldContinue {
+		// Сообщение было удалено из-за превышения лимита
+		return nil
+	}
+
+	// Phase 2: User Request Limiter
+	// Проверяем лимиты на AI-запросы (только для личных сообщений)
 	if !m.shouldCheckLimit(msg) {
 		return nil
 	}
@@ -131,13 +144,22 @@ func (m *LimiterModule) sendLimitWarning(ctx *core.MessageContext, info *reposit
 
 // RegisterCommands регистрирует команды модуля
 func (m *LimiterModule) RegisterCommands(bot *telebot.Bot) {
+	// Phase 2: User Request Limiter
 	bot.Handle("/limits", m.handleLimitsCommand)
+
+	// Phase 2.5: Content Type Limiter
+	bot.Handle("/mycontentusage", m.handleMyContentUsage)
 }
 
 // RegisterAdminCommands регистрирует административные команды
 func (m *LimiterModule) RegisterAdminCommands(bot *telebot.Bot) {
+	// Phase 2: User Request Limiter
 	bot.Handle("/setlimit", m.handleSetLimitCommand)
 	bot.Handle("/getlimit", m.handleGetLimitCommand)
+
+	// Phase 2.5: Content Type Limiter
+	bot.Handle("/setcontentlimit", m.handleSetContentLimit)
+	bot.Handle("/listcontentlimits", m.handleListContentLimits)
 }
 
 // handleLimitsCommand обрабатывает команду /limits

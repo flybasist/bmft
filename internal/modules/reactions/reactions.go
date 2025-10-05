@@ -120,6 +120,34 @@ func (m *ReactionsModule) OnMessage(ctx *core.MessageContext) error {
 			continue
 		}
 
+		// Phase 3.5: Text Violations Counter
+		// Если violation_code == 21, проверяем счётчик текстовых нарушений
+		if reaction.ViolationCode == 21 {
+			shouldDelete, err := m.checkTextViolation(ctx, reaction)
+			if err != nil {
+				m.logger.Error("failed to check text violation",
+					zap.Int64("reaction_id", reaction.ID),
+					zap.Error(err))
+			}
+			if shouldDelete {
+				// Удаляем сообщение из-за превышения лимита
+				if err := ctx.Bot.Delete(ctx.Message); err != nil {
+					m.logger.Error("failed to delete message (text violation)",
+						zap.Error(err))
+				}
+				// Логируем событие
+				_ = m.eventRepo.Log(
+					ctx.Chat.ID,
+					ctx.Message.Sender.ID,
+					m.Name(),
+					"text_violation_limit_exceeded",
+					fmt.Sprintf("Message deleted: text violation limit exceeded (reaction #%d)", reaction.ID),
+				)
+				return nil // Сообщение удалено, дальше не обрабатываем
+			}
+			// Если не удалили - продолжаем обычную реакцию
+		}
+
 		// Проверяем cooldown (антифлуд)
 		if m.shouldSkipDueToCooldown(ctx, reaction) {
 			continue
@@ -284,8 +312,8 @@ func (m *ReactionsModule) executeReaction(ctx *core.MessageContext, reaction Rea
 // logReaction записывает срабатывание реакции в reactions_log
 func (m *ReactionsModule) logReaction(chatID, userID, reactionID int64) error {
 	query := `
-		INSERT INTO reactions_log (chat_id, user_id, reaction_id, triggered_at)
-		VALUES ($1, $2, $3, NOW())
+		INSERT INTO reactions_log (chat_id, user_id, reaction_id, message_id, keyword, emojis_added, violation_code, triggered_at, created_at)
+		VALUES ($1, $2, $3, 0, '', '', 0, NOW(), NOW())
 	`
 	_, err := m.db.Exec(query, chatID, userID, reactionID)
 	if err != nil {
@@ -302,10 +330,21 @@ func (m *ReactionsModule) RegisterCommands(bot *tele.Bot) {
 
 // RegisterAdminCommands регистрирует админские команды модуля
 func (m *ReactionsModule) RegisterAdminCommands(bot *tele.Bot) {
+	// Управление реакциями
 	bot.Handle("/addreaction", m.handleAddReaction)
 	bot.Handle("/listreactions", m.handleListReactions)
 	bot.Handle("/delreaction", m.handleDeleteReaction)
 	bot.Handle("/testreaction", m.handleTestReaction)
+	
+	// Управление text violations (Phase 3.5)
+	bot.Handle("/settextlimit", m.handleSetTextViolationLimit)
+	bot.Handle("/chattextviolations", m.handleChatTextViolations)
+}
+
+// RegisterPublicCommands регистрирует публичные команды
+func (m *ReactionsModule) RegisterPublicCommands(bot *tele.Bot) {
+	// Проверка своих счётчиков (Phase 3.5)
+	bot.Handle("/mytextviolations", m.handleMyTextViolations)
 }
 
 // handleAddReaction добавляет новую реакцию

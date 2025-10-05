@@ -8,6 +8,24 @@
 ## [Unreleased]
 
 ### Added
+- ✅ **Phase 3.5: Text Violations Counter** — счётчик текстовых нарушений с автоудалением
+  - `internal/modules/reactions/text_violations.go` — логика проверки violation_code=21 (268 строк)
+  - `internal/modules/reactions/commands_violations.go` — команды управления (259 строк)
+  - Методы: `checkTextViolation()`, `getTextViolationLimit()`, `getTextViolationCount()`, `incrementTextViolationCounter()`, `isVIPUser()`
+  - **Python паритет:** Полная миграция функционала из `checkmessage.py::regextext()` с violation=21
+  - **Команды:** `/mytextviolations`, `/settextlimit`, `/chattextviolations`
+  - **Логика:** 0 = без лимита, N = лимит нарушений/день (default: 10)
+  - **Features:** Автоудаление при превышении, предупреждения за 2 до лимита, VIP bypass
+  - **DB Schema:** Расширена таблица `reactions_log` колонками `violation_code`, `keyword`, `emojis_added`, `created_at`
+  - **Integration:** Проверка violation_code==21 в `reactions.go::OnMessage()` перед обработкой реакции
+- ✅ **Phase 2.5: Content Type Limiter** — лимиты на типы контента (photo/video/sticker/etc)
+  - `internal/modules/limiter/content_limiter.go` — логика проверки лимитов (198 строк)
+  - `internal/modules/limiter/commands_content.go` — команды управления (276 строк)
+  - Методы в LimitRepository: `GetContentLimit()`, `GetContentCount()`, `IncrementContentCounter()`, `IsVIP()`, `SaveContentLimit()`, `GetAllContentLimits()`
+  - **Python паритет:** Полная миграция функционала из `reaction.py::newmessage()`
+  - **Команды:** `/setcontentlimit`, `/mycontentusage`, `/listcontentlimits`
+  - **Логика:** -1 = запрет, 0 = без лимита, N = лимит сообщений/день
+  - **Features:** Автоматическое удаление при превышении, предупреждения за 2 до лимита, VIP bypass
 - 🔄 **Auto-Migration System** — автоматическое применение миграций при старте бота
   - `internal/migrations/migrations.go` — Migration Manager (358 строк)
   - Автоматическое определение состояния схемы: empty/complete/partial/unknown

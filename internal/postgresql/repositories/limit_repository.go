@@ -354,3 +354,203 @@ func (r *LimitRepository) buildLimitInfo(limit *UserLimit) *LimitInfo {
 		MonthlyLimit:     limit.MonthlyLimit,
 	}
 }
+
+// ============================================================================
+// Phase 2.5: Content Type Limiter
+// ============================================================================
+
+// GetContentLimit получает лимит на тип контента для пользователя
+// Сначала проверяет персональный лимит (user_id != NULL)
+// Потом общий лимит (user_id = NULL для allmembers)
+// Возвращает: -1 = запрет, 0 = без лимита, N = лимит на N сообщений/день
+func (r *LimitRepository) GetContentLimit(chatID, userID int64, contentType string) (int, error) {
+	// 1. Проверяем персональный лимит
+	query := `
+		SELECT daily_limit
+		FROM limiter_config
+		WHERE chat_id = $1 AND user_id = $2 AND content_type = $3
+		LIMIT 1
+	`
+
+	var limit int
+	err := r.db.QueryRow(query, chatID, userID, contentType).Scan(&limit)
+	if err == nil {
+		// Нашли персональный лимит
+		return limit, nil
+	}
+
+	if err != sql.ErrNoRows {
+		r.logger.Error("failed to get personal content limit",
+			zap.Int64("chat_id", chatID),
+			zap.Int64("user_id", userID),
+			zap.String("content_type", contentType),
+			zap.Error(err))
+		return 0, fmt.Errorf("get personal content limit: %w", err)
+	}
+
+	// 2. Проверяем общий лимит (user_id = NULL)
+	query = `
+		SELECT daily_limit
+		FROM limiter_config
+		WHERE chat_id = $1 AND user_id IS NULL AND content_type = $2
+		LIMIT 1
+	`
+
+	err = r.db.QueryRow(query, chatID, contentType).Scan(&limit)
+	if err == sql.ErrNoRows {
+		// Нет конфигурации - без ограничений
+		return 0, nil
+	}
+
+	if err != nil {
+		r.logger.Error("failed to get allmembers content limit",
+			zap.Int64("chat_id", chatID),
+			zap.String("content_type", contentType),
+			zap.Error(err))
+		return 0, fmt.Errorf("get allmembers content limit: %w", err)
+	}
+
+	return limit, nil
+}
+
+// GetContentCount получает количество сообщений типа contentType за сегодня
+func (r *LimitRepository) GetContentCount(chatID, userID int64, contentType string, date time.Time) (int, error) {
+	counterDate := date.Format("2006-01-02")
+
+	query := `
+		SELECT COALESCE(counter_value, 0)
+		FROM limiter_counters
+		WHERE chat_id = $1 AND user_id = $2 AND content_type = $3 AND counter_date = $4
+	`
+
+	var count int
+	err := r.db.QueryRow(query, chatID, userID, contentType, counterDate).Scan(&count)
+	if err == sql.ErrNoRows {
+		// Нет записи - значит 0
+		return 0, nil
+	}
+
+	if err != nil {
+		r.logger.Error("failed to get content count",
+			zap.Int64("chat_id", chatID),
+			zap.Int64("user_id", userID),
+			zap.String("content_type", contentType),
+			zap.String("date", counterDate),
+			zap.Error(err))
+		return 0, fmt.Errorf("get content count: %w", err)
+	}
+
+	return count, nil
+}
+
+// IncrementContentCounter инкрементирует счётчик контента (UPSERT)
+func (r *LimitRepository) IncrementContentCounter(chatID, userID int64, contentType string, date time.Time) error {
+	counterDate := date.Format("2006-01-02")
+
+	query := `
+		INSERT INTO limiter_counters (chat_id, user_id, content_type, counter_date, counter_value, updated_at)
+		VALUES ($1, $2, $3, $4, 1, NOW())
+		ON CONFLICT (chat_id, user_id, content_type, counter_date)
+		DO UPDATE SET
+			counter_value = limiter_counters.counter_value + 1,
+			updated_at = NOW()
+	`
+
+	_, err := r.db.Exec(query, chatID, userID, contentType, counterDate)
+	if err != nil {
+		r.logger.Error("failed to increment content counter",
+			zap.Int64("chat_id", chatID),
+			zap.Int64("user_id", userID),
+			zap.String("content_type", contentType),
+			zap.String("date", counterDate),
+			zap.Error(err))
+		return fmt.Errorf("increment content counter: %w", err)
+	}
+
+	return nil
+}
+
+// IsVIP проверяет является ли пользователь VIP (игнорирует лимиты)
+// Проверяет флаг is_vip в limiter_config
+func (r *LimitRepository) IsVIP(userID int64) (bool, error) {
+	query := `
+		SELECT COALESCE(is_vip, false)
+		FROM limiter_config
+		WHERE user_id = $1 AND is_vip = true
+		LIMIT 1
+	`
+
+	var isVIP bool
+	err := r.db.QueryRow(query, userID).Scan(&isVIP)
+	if err == sql.ErrNoRows {
+		// Нет записи с VIP флагом
+		return false, nil
+	}
+
+	if err != nil {
+		r.logger.Error("failed to check VIP status",
+			zap.Int64("user_id", userID),
+			zap.Error(err))
+		return false, fmt.Errorf("check VIP status: %w", err)
+	}
+
+	return isVIP, nil
+}
+
+// SaveContentLimit сохраняет лимит в limiter_config (для админских команд)
+func (r *LimitRepository) SaveContentLimit(chatID, userID int64, contentType string, limit int) error {
+	query := `
+		INSERT INTO limiter_config (chat_id, user_id, content_type, daily_limit, warning_threshold, is_vip, updated_at)
+		VALUES ($1, NULLIF($2, 0), $3, $4, 2, false, NOW())
+		ON CONFLICT (chat_id, COALESCE(user_id, -1), content_type)
+		DO UPDATE SET
+			daily_limit = EXCLUDED.daily_limit,
+			updated_at = NOW()
+	`
+
+	_, err := r.db.Exec(query, chatID, userID, contentType, limit)
+	if err != nil {
+		r.logger.Error("failed to save content limit",
+			zap.Int64("chat_id", chatID),
+			zap.Int64("user_id", userID),
+			zap.String("content_type", contentType),
+			zap.Int("limit", limit),
+			zap.Error(err))
+		return fmt.Errorf("save content limit: %w", err)
+	}
+
+	return nil
+}
+
+// GetAllContentLimits получает все лимиты чата из limiter_config
+func (r *LimitRepository) GetAllContentLimits(chatID int64) (map[string]int, error) {
+	query := `
+		SELECT content_type, daily_limit
+		FROM limiter_config
+		WHERE chat_id = $1 AND user_id IS NULL
+		ORDER BY content_type
+	`
+
+	rows, err := r.db.Query(query, chatID)
+	if err != nil {
+		r.logger.Error("failed to get all content limits",
+			zap.Int64("chat_id", chatID),
+			zap.Error(err))
+		return nil, fmt.Errorf("get all content limits: %w", err)
+	}
+	defer rows.Close()
+
+	limits := make(map[string]int)
+	for rows.Next() {
+		var contentType string
+		var limit int
+		if err := rows.Scan(&contentType, &limit); err != nil {
+			r.logger.Error("failed to scan content limit",
+				zap.Error(err))
+			return nil, fmt.Errorf("scan content limit: %w", err)
+		}
+		limits[contentType] = limit
+	}
+
+	return limits, nil
+}

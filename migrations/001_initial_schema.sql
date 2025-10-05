@@ -180,12 +180,17 @@ CREATE TABLE IF NOT EXISTS reactions_log (
     id BIGSERIAL PRIMARY KEY,
     chat_id BIGINT NOT NULL,
     user_id BIGINT NOT NULL,
-    reaction_id BIGINT NOT NULL REFERENCES reactions_config(id) ON DELETE CASCADE,
+    reaction_id BIGINT DEFAULT NULL REFERENCES reactions_config(id) ON DELETE CASCADE, -- NULL для text violations
     message_id BIGINT NOT NULL,
-    triggered_at TIMESTAMPTZ DEFAULT NOW()
+    keyword TEXT,  -- ключевое слово для text violations
+    emojis_added TEXT,  -- для совместимости с Python версией
+    violation_code INT DEFAULT 0,  -- Phase 3.5: 21 = text violation
+    triggered_at TIMESTAMPTZ DEFAULT NOW(),
+    created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
 CREATE INDEX idx_reactions_log_cooldown ON reactions_log(chat_id, reaction_id, triggered_at DESC);
+CREATE INDEX idx_reactions_log_violations ON reactions_log(chat_id, user_id, violation_code, created_at DESC);
 
 -- ============================================================
 -- MODULE: ANTISPAM (антиспам фильтры)

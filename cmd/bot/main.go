@@ -165,6 +165,11 @@ func run() error {
 	schedulerModule.RegisterCommands(bot)
 	schedulerModule.RegisterAdminCommands(bot)
 
+	// Welcome Module (не требует регистрации в registry, просто команды)
+	// Python аналог: reaction.py::newchat(), newmember(), reactionversion()
+	welcomeModule := core.NewWelcomeModule("0.5")
+	welcomeModule.RegisterCommands(bot)
+
 	// Регистрируем middleware
 	bot.Use(core.LoggerMiddleware(logger))
 	bot.Use(core.PanicRecoveryMiddleware(logger))
@@ -464,6 +469,29 @@ func registerCommands(
 		// Передаём сообщение всем активным модулям
 		if err := registry.OnMessage(ctx); err != nil {
 			logger.Error("failed to process message in modules", zap.Error(err))
+		}
+
+		return nil
+	})
+
+	// Обработчик отредактированных сообщений
+	// Русский комментарий: Аналог Python @bot.edited_message_handler()
+	// Python: telegrambot.py::handle_edited_message() — обрабатывает точно так же как новое сообщение
+	bot.Handle(tele.OnEdited, func(c tele.Context) error {
+		// Создаём MessageContext для модулей
+		ctx := &core.MessageContext{
+			Message: c.Message(),
+			Bot:     bot,
+			DB:      db,
+			Logger:  logger,
+			Chat:    c.Chat(),
+			Sender:  c.Sender(),
+		}
+
+		// Передаём отредактированное сообщение всем активным модулям
+		// Python бот обрабатывает edited_message идентично новому сообщению
+		if err := registry.OnMessage(ctx); err != nil {
+			logger.Error("failed to process edited message in modules", zap.Error(err))
 		}
 
 		return nil

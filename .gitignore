@@ -11,6 +11,10 @@
 *.out
 bin/
 
+# Compiled bot binary (используется для тестовой компиляции)
+bot
+bmft
+
 ##############################
 # Go workspace files
 ##############################
@@ -52,9 +56,15 @@ settings.yaml
 # PostgreSQL & Data Folders
 ##############################
 
-/pgdata
+/data
 /data/postgres
 /data/logs
+
+##############################
+# Private documentation (audits, analysis, internal notes)
+##############################
+
+/docs
 
 ##############################
 # Go module files (опционально)

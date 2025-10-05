@@ -38,7 +38,7 @@ var ExpectedSchema = []ExpectedTable{
 
 	// Reactions Module (Phase 3)
 	{Name: "reactions_config", Columns: []string{"id", "chat_id", "content_type", "trigger_type", "trigger_pattern", "reaction_type", "reaction_data"}},
-	{Name: "reactions_log", Columns: []string{"id", "chat_id", "user_id", "reaction_id"}},
+	{Name: "reactions_log", Columns: []string{"id", "chat_id", "user_id", "message_id", "keyword", "violation_code"}},
 
 	// Statistics Module (Phase 4)
 	{Name: "statistics_daily", Columns: []string{"id", "chat_id", "user_id", "stat_date", "message_count"}},
