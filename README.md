@@ -171,9 +171,13 @@ type Module interface {
 - **antispam** — антиспам фильтры (в разработке)
 
 #### 3. **PostgreSQL** (`migrations/`)
-- Unified schema: `chats`, `users`, `chat_modules`, `messages` (partitioned)
-- Per-module tables: `limiter_config`, `reactions_config`, `scheduler_tasks`
-- Analytics: `statistics_daily`, `event_log` для audit trail
+- **Core tables:** `chats`, `users`, `chat_admins`, `chat_modules`, `messages` (partitioned), `bot_settings`
+- **Limiter Module:** `limiter_config`, `limiter_counters`, `user_limits`
+- **Reactions Module:** `reactions_config`, `reactions_log`
+- **Statistics Module:** `statistics_daily`
+- **Scheduler Module:** `scheduler_tasks`
+- **AntiSpam Module:** `antispam_config` (future)
+- **System:** `event_log` (аудит всех действий)
 
 #### 4. **Config** (`internal/config/`)
 - Загрузка конфигурации из `.env`
@@ -273,78 +277,238 @@ SHUTDOWN_TIMEOUT=10s
 
 #### `chats` — метаданные чатов
 ```sql
-CREATE TABLE chats (
-    chat_id BIGINT PRIMARY KEY,
-    chat_type VARCHAR(20),  -- private, group, supergroup, channel
+CREATE TABLE IF NOT EXISTS chats (
+    id BIGSERIAL PRIMARY KEY,
+    chat_id BIGINT UNIQUE NOT NULL,
+    chat_type VARCHAR(20) NOT NULL,  -- 'private', 'group', 'supergroup', 'channel'
     title TEXT,
     username TEXT,
-    is_active BOOLEAN DEFAULT TRUE,
-    created_at TIMESTAMP DEFAULT NOW(),
-    updated_at TIMESTAMP DEFAULT NOW()
+    is_active BOOLEAN DEFAULT true,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 ```
 
 #### `chat_modules` — активные модули для чатов
 ```sql
-CREATE TABLE chat_modules (
-    id SERIAL PRIMARY KEY,
-    chat_id BIGINT REFERENCES chats(chat_id) ON DELETE CASCADE,
-    module_name VARCHAR(50),  -- limiter, reactions, statistics, etc.
-    is_enabled BOOLEAN DEFAULT TRUE,
-    config JSONB DEFAULT '{}'::jsonb,  -- модуль-специфичные настройки
+CREATE TABLE IF NOT EXISTS chat_modules (
+    id BIGSERIAL PRIMARY KEY,
+    chat_id BIGINT NOT NULL REFERENCES chats(chat_id) ON DELETE CASCADE,
+    module_name VARCHAR(50) NOT NULL,  -- 'limiter', 'reactions', 'statistics', 'scheduler', etc.
+    is_enabled BOOLEAN DEFAULT false,
+    config JSONB DEFAULT '{}',  -- модуль-специфичные настройки
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
     UNIQUE(chat_id, module_name)
 );
 ```
 
 #### `messages` — партиционированное хранение сообщений
 ```sql
-CREATE TABLE messages (
+CREATE TABLE IF NOT EXISTS messages (
     id BIGSERIAL,
-    chat_id BIGINT,
-    user_id BIGINT,
-    message_id BIGINT,
-    content_type VARCHAR(20),  -- text, photo, video, sticker, etc.
+    chat_id BIGINT NOT NULL,
+    user_id BIGINT NOT NULL,
+    message_id BIGINT NOT NULL,
+    content_type VARCHAR(20) NOT NULL, -- 'text', 'photo', 'video', 'sticker', 'voice', 'document', etc.
     text TEXT,
     caption TEXT,
-    has_media BOOLEAN DEFAULT FALSE,
-    is_deleted BOOLEAN DEFAULT FALSE,
-    created_at TIMESTAMP DEFAULT NOW(),
-    PRIMARY KEY (id, created_at)  -- composite key для партиционирования
+    file_id TEXT,  -- Telegram file_id для фото/видео/стикеров
+    is_deleted BOOLEAN DEFAULT false,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    PRIMARY KEY (id, created_at)
 ) PARTITION BY RANGE (created_at);
 
--- Партиции по месяцам
+-- Партиции по месяцам (создаются автоматически миграцией)
 CREATE TABLE messages_2025_10 PARTITION OF messages
     FOR VALUES FROM ('2025-10-01') TO ('2025-11-01');
+CREATE TABLE messages_2025_11 PARTITION OF messages
+    FOR VALUES FROM ('2025-11-01') TO ('2025-12-01');
+CREATE TABLE messages_2025_12 PARTITION OF messages
+    FOR VALUES FROM ('2025-12-01') TO ('2026-01-01');
 ```
 
-#### `limiter_config` — нормализованные лимиты
+#### `limiter_config` — лимиты на типы контента (future)
 ```sql
-CREATE TABLE limiter_config (
-    id SERIAL PRIMARY KEY,
-    chat_id BIGINT,
-    user_group VARCHAR(50) DEFAULT 'allmembers',  -- allmembers, vip, admin
-    content_type VARCHAR(20),  -- photo, video, sticker, etc.
-    daily_limit INTEGER,  -- -1 = banned, 0 = unlimited, N = limit
-    UNIQUE(chat_id, user_group, content_type)
+CREATE TABLE IF NOT EXISTS limiter_config (
+    id BIGSERIAL PRIMARY KEY,
+    chat_id BIGINT NOT NULL REFERENCES chats(chat_id) ON DELETE CASCADE,
+    user_id BIGINT DEFAULT NULL,  -- NULL = для всех пользователей
+    content_type VARCHAR(20) NOT NULL,  -- 'photo', 'video', 'sticker', 'text', etc.
+    daily_limit INT NOT NULL,  -- -1 = запрет, 0 = без лимита, N = лимит
+    warning_threshold INT DEFAULT 2,
+    is_vip BOOLEAN DEFAULT false,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE(chat_id, COALESCE(user_id, -1), content_type)
 );
 ```
 
-### Полезные view:
+#### `user_limits` — лимиты пользователей (Phase 2, daily/monthly)
+```sql
+CREATE TABLE IF NOT EXISTS user_limits (
+    user_id BIGINT PRIMARY KEY,
+    username VARCHAR(255),
+    daily_limit INT NOT NULL DEFAULT 10,
+    monthly_limit INT NOT NULL DEFAULT 300,
+    daily_used INT NOT NULL DEFAULT 0,
+    monthly_used INT NOT NULL DEFAULT 0,
+    last_reset_daily TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    last_reset_monthly TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+```
+
+#### `chat_admins` — администраторы чатов (для управления модулями)
+```sql
+CREATE TABLE IF NOT EXISTS chat_admins (
+    id BIGSERIAL PRIMARY KEY,
+    chat_id BIGINT NOT NULL REFERENCES chats(chat_id) ON DELETE CASCADE,
+    user_id BIGINT NOT NULL,
+    can_manage_modules BOOLEAN DEFAULT true,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE(chat_id, user_id)
+);
+```
+
+#### `limiter_counters` — счётчики для limiter модуля (Phase 2, future)
+```sql
+CREATE TABLE IF NOT EXISTS limiter_counters (
+    id BIGSERIAL PRIMARY KEY,
+    chat_id BIGINT NOT NULL,
+    user_id BIGINT NOT NULL,
+    content_type VARCHAR(20) NOT NULL,
+    counter_date DATE NOT NULL,
+    counter_value INT DEFAULT 0,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE(chat_id, user_id, content_type, counter_date)
+);
+```
+
+#### `reactions_config` — настройки reactions модуля (Phase 3)
+```sql
+CREATE TABLE IF NOT EXISTS reactions_config (
+    id BIGSERIAL PRIMARY KEY,
+    chat_id BIGINT NOT NULL REFERENCES chats(chat_id) ON DELETE CASCADE,
+    keyword TEXT NOT NULL,
+    emoji_list TEXT[] NOT NULL,
+    is_active BOOLEAN DEFAULT true,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+```
+
+#### `reactions_log` — лог реакций (Phase 3)
+```sql
+CREATE TABLE IF NOT EXISTS reactions_log (
+    id BIGSERIAL PRIMARY KEY,
+    chat_id BIGINT NOT NULL,
+    message_id BIGINT NOT NULL,
+    keyword TEXT NOT NULL,
+    emojis_added TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+```
+
+#### `statistics_daily` — суточная статистика (Phase 4)
+```sql
+CREATE TABLE IF NOT EXISTS statistics_daily (
+    id BIGSERIAL PRIMARY KEY,
+    chat_id BIGINT NOT NULL REFERENCES chats(chat_id) ON DELETE CASCADE,
+    stat_date DATE NOT NULL,
+    content_type VARCHAR(20) NOT NULL,
+    message_count INT DEFAULT 0,
+    violation_count INT DEFAULT 0,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE(chat_id, stat_date, content_type)
+);
+```
+
+#### `scheduler_tasks` — планировщик задач (Phase 5)
+```sql
+CREATE TABLE IF NOT EXISTS scheduler_tasks (
+    id BIGSERIAL PRIMARY KEY,
+    chat_id BIGINT NOT NULL REFERENCES chats(chat_id) ON DELETE CASCADE,
+    task_name VARCHAR(100) NOT NULL,
+    cron_expression VARCHAR(100) NOT NULL,
+    message_text TEXT NOT NULL,
+    is_active BOOLEAN DEFAULT true,
+    last_run TIMESTAMPTZ,
+    next_run TIMESTAMPTZ,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+```
+
+#### `event_log` — аудит всех действий бота
+```sql
+CREATE TABLE IF NOT EXISTS event_log (
+    id BIGSERIAL PRIMARY KEY,
+    event_type VARCHAR(50) NOT NULL,  -- 'module_enable', 'module_disable', 'limiter_violation', etc.
+    chat_id BIGINT,
+    user_id BIGINT,
+    module_name VARCHAR(50),
+    details JSONB DEFAULT '{}',
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+```
+
+#### `antispam_config` — настройки антиспама (Phase AI, future)
+```sql
+CREATE TABLE IF NOT EXISTS antispam_config (
+    id BIGSERIAL PRIMARY KEY,
+    chat_id BIGINT NOT NULL REFERENCES chats(chat_id) ON DELETE CASCADE,
+    rule_name VARCHAR(100) NOT NULL,
+    rule_type VARCHAR(50) NOT NULL,  -- 'regex', 'url_whitelist', 'flood_protection', etc.
+    rule_value TEXT NOT NULL,
+    action VARCHAR(50) DEFAULT 'delete',  -- 'delete', 'warn', 'ban'
+    is_active BOOLEAN DEFAULT true,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+```
+
+#### `bot_settings` — глобальные настройки бота
+```sql
+CREATE TABLE IF NOT EXISTS bot_settings (
+    id BIGSERIAL PRIMARY KEY,
+    key VARCHAR(100) UNIQUE NOT NULL,
+    value TEXT NOT NULL,
+    description TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+```
+
+### Полезные VIEW (создаются автоматически миграцией):
 
 ```sql
--- Активные модули по чатам
-CREATE VIEW active_modules_by_chat AS
-SELECT chat_id, ARRAY_AGG(module_name) as modules
-FROM chat_modules
-WHERE is_enabled = TRUE
-GROUP BY chat_id;
+-- v_active_modules: активные модули по чатам
+CREATE OR REPLACE VIEW v_active_modules AS
+SELECT 
+    c.chat_id,
+    c.title AS chat_title,
+    cm.module_name,
+    cm.config,
+    cm.updated_at
+FROM chats c
+JOIN chat_modules cm ON c.chat_id = cm.chat_id
+WHERE c.is_active = true AND cm.is_enabled = true;
 
--- Статистика за последний день
-CREATE VIEW daily_stats AS
-SELECT chat_id, content_type, COUNT(*) as count
-FROM messages
-WHERE created_at > NOW() - INTERVAL '1 day'
-GROUP BY chat_id, content_type;
+-- v_daily_chat_stats: суточная статистика по чатам
+CREATE OR REPLACE VIEW v_daily_chat_stats AS
+SELECT 
+    chat_id,
+    stat_date,
+    content_type,
+    SUM(message_count) as total_messages,
+    SUM(violation_count) as total_violations
+FROM statistics_daily
+GROUP BY chat_id, stat_date, content_type
+ORDER BY stat_date DESC, chat_id;
 ```
 
 ## 📝 Примеры использования

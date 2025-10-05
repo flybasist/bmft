@@ -118,12 +118,7 @@ bmft=# \q
    docker-compose -f docker-compose.env.yaml up -d
    ```
 
-2. Примени миграции:
-   ```bash
-   migrate -path migrations -database "postgres://bmft:secret@localhost:5432/bmft?sslmode=disable" up
-   ```
-
-3. Запусти бота:
+2. Запусти бота (миграции применятся автоматически):
    ```bash
    # Локально (для отладки):
    go run cmd/bot/main.go
@@ -132,7 +127,7 @@ bmft=# \q
    docker-compose -f docker-compose.bot.yaml up -d
    ```
 
-### При добавлении новой таблицы (Phase 4+):
+### При добавлении новой таблицы (Hot Development):
 
 Пока проект в разработке (до v1.0.0) просто добавляй новые таблицы в `001_initial_schema.sql`.
 
@@ -150,12 +145,13 @@ rm -rf data/postgres/*
 # Запусти БД заново
 docker-compose -f docker-compose.env.yaml up -d
 
-# Применить миграции
-migrate -path migrations -database "postgres://bmft:secret@localhost:5432/bmft?sslmode=disable" up
-
-# Запусти бота
+# Запусти бота (схема создастся автоматически)
+go run cmd/bot/main.go
+# или
 docker-compose -f docker-compose.bot.yaml up -d
 ```
+
+**Примечание:** Миграции теперь применяются автоматически при старте бота через `internal/migrations/migrations.go`. Ручное использование `migrate` CLI больше не требуется.
 
 ---
 
