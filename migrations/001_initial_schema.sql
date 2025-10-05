@@ -130,10 +130,11 @@ CREATE TABLE IF NOT EXISTS limiter_config (
     warning_threshold INT DEFAULT 2, -- за сколько сообщений до лимита предупреждать
     is_vip BOOLEAN DEFAULT false, -- VIP игнорирует лимиты
     created_at TIMESTAMPTZ DEFAULT NOW(),
-    updated_at TIMESTAMPTZ DEFAULT NOW(),
-    UNIQUE(chat_id, COALESCE(user_id, -1), content_type) -- -1 для NULL user_id
+    updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- Уникальный индекс с COALESCE (вместо constraint)
+CREATE UNIQUE INDEX idx_limiter_unique ON limiter_config(chat_id, COALESCE(user_id, -1), content_type);
 CREATE INDEX idx_limiter_chat ON limiter_config(chat_id, content_type);
 CREATE INDEX idx_limiter_user ON limiter_config(chat_id, user_id) WHERE user_id IS NOT NULL;
 

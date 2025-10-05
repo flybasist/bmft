@@ -30,8 +30,10 @@ func NewLogger(level string, pretty bool) (*zap.Logger, error) {
 
 	cfg.EncoderConfig.TimeKey = "ts"
 	cfg.EncoderConfig.EncodeTime = zapcore.ISO8601TimeEncoder
-	cfg.OutputPaths = []string{"stdout"}
-	cfg.ErrorOutputPaths = []string{"stdout"}
+
+	// Пишем логи в stdout и в файл
+	cfg.OutputPaths = []string{"stdout", "logs/bot.log"}
+	cfg.ErrorOutputPaths = []string{"stderr", "logs/bot.log"}
 
 	return cfg.Build(zap.AddCaller(), zap.AddCallerSkip(1))
 }

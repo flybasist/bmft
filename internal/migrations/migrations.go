@@ -228,9 +228,28 @@ func runInitialMigration(ctx context.Context, db *sql.DB, logger *zap.Logger) er
 			continue
 		}
 
-		logger.Debug("executing migration command", zap.Int("index", i+1), zap.Int("total", len(commands)))
+		// Извлекаем первые 100 символов для логирования
+		preview := command
+		if len(preview) > 100 {
+			preview = preview[:100] + "..."
+		}
+
+		logger.Info("executing migration command",
+			zap.Int("index", i+1),
+			zap.Int("total", len(commands)),
+			zap.String("preview", preview))
 
 		if _, err := db.ExecContext(ctx, command); err != nil {
+			// Логируем ошибку но продолжаем для некритичных команд (COMMENT, CREATE INDEX IF NOT EXISTS)
+			if strings.Contains(command, "COMMENT ON") ||
+				strings.Contains(command, "CREATE INDEX IF NOT EXISTS") ||
+				strings.Contains(command, "CREATE TRIGGER") {
+				logger.Warn("non-critical migration command failed (continuing)",
+					zap.Int("index", i+1),
+					zap.Error(err),
+					zap.String("command_preview", preview))
+				continue
+			}
 			return fmt.Errorf("failed to execute migration command %d: %w\nCommand: %s", i+1, err, command)
 		}
 	}
@@ -242,33 +261,50 @@ func runInitialMigration(ctx context.Context, db *sql.DB, logger *zap.Logger) er
 }
 
 // splitSQLCommands разбивает SQL файл на отдельные команды
-// Русский комментарий: Разделитель — точка с запятой. Игнорируем комментарии.
+// Русский комментарий: Разделитель — точка с запятой. Учитываем PL/pgSQL блоки с $$ ... $$
 func splitSQLCommands(sqlContent string) []string {
 	// Удаляем многострочные комментарии /* ... */
 	sqlContent = removeMultilineComments(sqlContent)
 
-	// Разбиваем по точке с запятой
-	rawCommands := strings.Split(sqlContent, ";")
-
 	var commands []string
-	for _, cmd := range rawCommands {
+	var currentCommand strings.Builder
+	inDollarQuote := false
+
+	lines := strings.Split(sqlContent, "\n")
+	for _, line := range lines {
 		// Удаляем однострочные комментарии --
-		lines := strings.Split(cmd, "\n")
-		var cleanLines []string
-		for _, line := range lines {
-			// Удаляем комментарии после --
-			if idx := strings.Index(line, "--"); idx >= 0 {
-				line = line[:idx]
-			}
-			line = strings.TrimSpace(line)
-			if line != "" {
-				cleanLines = append(cleanLines, line)
-			}
+		if idx := strings.Index(line, "--"); idx >= 0 {
+			line = line[:idx]
+		}
+		line = strings.TrimSpace(line)
+
+		if line == "" {
+			continue
 		}
 
-		if len(cleanLines) > 0 {
-			command := strings.Join(cleanLines, "\n")
-			commands = append(commands, command)
+		// Проверяем вход/выход из $$ блока (PL/pgSQL функции)
+		if strings.Contains(line, "$$") {
+			inDollarQuote = !inDollarQuote
+		}
+
+		currentCommand.WriteString(line)
+		currentCommand.WriteString("\n")
+
+		// Если встретили ; и НЕ внутри $$ блока - это конец команды
+		if strings.HasSuffix(line, ";") && !inDollarQuote {
+			cmd := strings.TrimSpace(currentCommand.String())
+			if cmd != "" && cmd != ";" {
+				commands = append(commands, cmd)
+			}
+			currentCommand.Reset()
+		}
+	}
+
+	// Добавляем последнюю команду если есть
+	if currentCommand.Len() > 0 {
+		cmd := strings.TrimSpace(currentCommand.String())
+		if cmd != "" && cmd != ";" {
+			commands = append(commands, cmd)
 		}
 	}
 
