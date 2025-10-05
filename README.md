@@ -1,1081 +1,190 @@
 # BMFT — Bot Moderator Framework for Telegram
 
-**Модульный бот для управления Telegram-чатами с plugin-based архитектурой.**
+**Модульный бот для управления Telegram-чатами на Go.**
 
 [![Go Version](https://img.shields.io/badge/Go-1.25.1+-00ADD8?style=flat&logo=go)](https://go.dev/)
-[![PostgreSQL](https://img.shields.io/badge/PostgreSQL-12+-316192?style=flat&logo=postgresql)](https://www.postgresql.org/)
+[![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16+-316192?style=flat&logo=postgresql)](https://www.postgresql.org/)
 [![License](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
+[![Status](https://img.shields.io/badge/Status-Alpha-yellow.svg)](https://github.com)
 
-## 📖 Описание проекта
+## 📖 О проекте
 
-**BMFT** (Bot Moderator For Telegram) — это модульная система для управления Telegram-чатами. Каждая фича реализована как отдельный модуль, который можно включать/выключать для каждого чата индивидуально.
+**BMFT** (Bot Moderator For Telegram) — это полноценный порт оригинального Python [rts_bot](https://github.com/flybasist/rts_bot) на Go с улучшенной архитектурой.
 
-**⚢️ Технологии:**
-- Go 1.25.1+ с [telebot.v3](https://github.com/tucnak/telebot)
-- PostgreSQL 12+ для хранения данных
-- Docker Compose для развёртывания
-- Long Polling (без webhook)
+🟡 **Статус:** Alpha — идет активный рефакторинг после анализа оригинального бота. Собираем фидбэк на тестовых чатах.
 
-**⚡ Quick Start:**
+### ✨ Ключевые особенности
 
-**Требования:** Go 1.25.1+, PostgreSQL 12+, Telegram Bot Token
-
-### 🐳 Вариант 1: Docker Compose (рекомендуется)
-
-```bash
-git clone <repo> && cd bmft
-cp .env.example .env  # Укажите TELEGRAM_BOT_TOKEN
-
-# Запуск окружения (PostgreSQL)
-docker-compose -f docker-compose.env.yaml up -d
-
-# Запуск бота в Docker (миграции применятся автоматически при первом запуске)
-docker-compose -f docker-compose.bot.yaml up -d
-
-# Просмотр логов
-docker logs -f bmft_bot
-```
-
-### 💻 Вариант 2: Локальная отладка (Go run)
-
-```bash
-git clone <repo> && cd bmft
-cp .env.example .env  # Укажите TELEGRAM_BOT_TOKEN
-
-# Запуск только окружения (PostgreSQL)
-docker-compose -f docker-compose.env.yaml up -d
-
-# Запуск бота локально (миграции применятся автоматически)
-# Измени POSTGRES_DSN в .env: postgres://bmft:secret@localhost:5432/bmft?sslmode=disable
-go run cmd/bot/main.go
-```
-
-### 🌐 Вариант 3: Внешняя БД (production)
-
-```bash
-# В .env укажи POSTGRES_DSN внешней БД
-POSTGRES_DSN=postgres://user:pass@remote-host:5432/bmft?sslmode=require
-
-# Запуск только бота (миграции применятся автоматически)
-docker-compose -f docker-compose.bot.yaml up -d
-```
-
-### 🔌 Доступные модули:
-
-- **Limiter** — лимиты на запросы пользователей (daily/monthly per user) + лимиты на типы контента (photo/video/sticker/voice/etc) ✅
-- **Reactions** — автоматические реакции на ключевые слова (regex/exact/contains) + счётчик текстовых нарушений ✅
-- **Statistics** — статистика сообщений и активности пользователей ✅
-- **Scheduler** — задачи по расписанию (cron-like) ✅
-- **Welcome** — приветственные сообщения, информация о версии бота, приветствие новых пользователей ✅
-- **AntiSpam** — антиспам фильтры (в будущем) 🔮
-- **Custom** — добавь свой модуль за 5 минут!
-
-### 🎯 Преимущества модульной архитектуры:
-
-1. **Гибкость:** Админ чата сам выбирает нужные модули через команды
-2. **Масштабируемость:** Новый модуль = просто реализовать интерфейс
-3. **Независимость:** Модули не знают друг о друге
-4. **Аналитика:** Все события в единой БД для cross-chat анализа
-
-### Ключевые возможности:
-
-- ✅ **Plugin architecture** — каждая фича = отдельный модуль (limiter, reactions, stats, scheduler, welcome)
-- ✅ **Per-chat module control** — админ чата сам выбирает нужные модули через команды
-- ✅ **Unified database** — все данные в одной PostgreSQL (cross-chat аналитика)
-- ✅ **Long Polling** — нет нужды в публичном домене/webhook
-- ✅ **Graceful shutdown** — корректная остановка всех модулей при SIGINT/SIGTERM
-- ✅ **Structured logging** — zap для операционных логов
-- ✅ **Event audit** — все действия модулей логируются в `event_log`
-- ✅ **Автоматические миграции** — нет нужды в migrate CLI, всё работает out-of-the-box
-- ✅ **100% Python parity** — полная миграция функционала из rts_bot (28/28 функций)
-- ✅ **Welcome messages** — приветствие новых пользователей, информация о боте (/version)
-- ✅ **Content limits** — контроль типов контента (photo/video/sticker) с VIP bypass
-- ✅ **Text violations** — счётчик нарушений с автоудалением (regex-based moderation)
-- ✅ **Edited message handling** — обработка отредактированных сообщений (Python parity)
-
-### 🛠 Автоматические миграции
-
-**Миграции теперь автоматические!** При первом запуске приложение:
-
-1. ✅ Проверит схему БД и выполнит миграцию `migrations/001_initial_schema.sql` если таблиц нет
-2. ✅ Валидирует что все необходимые таблицы и колонки присутствуют
-3. 🛑 Остановится с ошибкой если обнаружит частично созданную/некорректную схему (защита от несовместимости)
-
-**💡 Горячая разработка (main ветка):**
-- ✅ Используется **только** `001_initial_schema.sql` с полной схемой всех модулей
-- ✅ При изменениях структуры БД — **вайпаем базу** (нет боевых данных)
-- ✅ Не нужны миграции 002, 003 и т.д. (обновляем 001)
-
-**🚀 Production (будущее):**
-- 🔮 Когда появится боевая БД с боевыми данными
-- 🔮 Появятся миграции 002, 003 для сохранения данных
-- 🔮 Выкатка новых фич через feature-ветки
-
-## 🏗 Архитектура
-
-### Plugin-based модульная система:
-
-```
-                    ┌──────────────────┐
-                    │  Telegram API    │
-                    └────────┬─────────┘
-                             │ Long Polling
-                             ▼
-                    ┌──────────────────┐
-                    │  Bot (telebot.v3)│
-                    └────────┬─────────┘
-                             │
-                             ▼
-                    ┌──────────────────┐
-                    │ Module Registry  │◄──── chat_modules (config)
-                    └────────┬─────────┘
-                             │
-         ┌───────────────────┼───────────────────┐
-         ▼                   ▼                   ▼
-    ┌─────────┐         ┌─────────┐        ┌─────────┐
-    │ Limiter │         │Reactions│        │  Stats  │
-    │ Module  │         │ Module  │        │ Module  │
-    └────┬────┘         └────┬────┘        └────┬────┘
-         │                   │                   │
-         └───────────────────┴───────────────────┘
-                             │
-                             ▼
-                    ┌──────────────────┐
-                    │   PostgreSQL     │
-                    │ (unified schema) │
-                    └──────────────────┘
-```
-
-### Интерфейс модуля:
-
-Каждый модуль реализует простой интерфейс:
-
-```go
-type Module interface {
-    Init(deps ModuleDependencies) error      // Инициализация при старте
-    OnMessage(ctx MessageContext) error      // Обработка сообщения
-    Commands() []BotCommand                  // Список команд модуля
-    Enabled(chatID int64) bool              // Включен ли для чата
-    Shutdown() error                         // Graceful shutdown
-}
-```
-
-### Компоненты системы:
-
-#### 1. **Core** (`internal/core/`)
-- Module Registry — управление жизненным циклом модулей
-- Message Router — маршрутизация сообщений к активным модулям
-- Module Dependencies — DI контейнер (DB, logger, bot instance)
-- Middleware layer — rate limiting, logging, panic recovery
-
-#### 2. **Modules** (`internal/modules/`)
-- **limiter** — лимиты на количество запросов пользователей (daily/monthly per user)
-- **reactions** — автоматические реакции на ключевые слова (regex)
-- **statistics** — статистика сообщений и активности юзеров
-- **scheduler** — задачи по расписанию (cron-like)
-- **antispam** — антиспам фильтры (в разработке)
-
-#### 3. **PostgreSQL** (`migrations/`)
-- **Core tables:** `chats`, `users`, `chat_admins`, `chat_modules`, `messages` (partitioned), `bot_settings`
-- **Limiter Module:** `limiter_config`, `limiter_counters`, `user_limits`
-- **Reactions Module:** `reactions_config`, `reactions_log`
-- **Statistics Module:** `statistics_daily`
-- **Scheduler Module:** `scheduler_tasks`
-- **AntiSpam Module:** `antispam_config` (future)
-- **System:** `event_log` (аудит всех действий)
-
-#### 4. **Config** (`internal/config/`)
-- Загрузка конфигурации из `.env`
-- Валидация обязательных параметров
-- Module-specific settings через JSONB в `chat_modules.config`
+- **Plugin Architecture** — каждая функция это отдельный модуль
+- **Per-Chat Control** — админ чата управляет модулями через команды
+- **PostgreSQL** — единая база для всех чатов
+- **Long Polling** — не требует webhook/публичного IP
+- **Docker Ready** — простое развертывание через Docker Compose
+- **Auto Migrations** — схема БД создается автоматически при первом запуске
+- **Graceful Shutdown** — корректная остановка при SIGINT/SIGTERM
 
 ## 🚀 Быстрый старт
 
-### Требования:
+### Требования
 
-- Go 1.25+
-- PostgreSQL 12+
-- Docker (опционально)
+- Docker & Docker Compose
+- Telegram Bot Token (получить у [@BotFather](https://t.me/BotFather))
 
-### Установка:
+### Установка
 
-```bash
+\`\`\`bash
 # 1. Клонируйте репозиторий
 git clone <repository-url>
 cd bmft
 
-# 2. Скопируйте пример конфигурации
+# 2. Создайте конфигурацию
 cp .env.example .env
+nano .env  # Укажите TELEGRAM_BOT_TOKEN
 
-# 3. Отредактируйте .env — укажите токен бота и PostgreSQL DSN
-nano .env
+# 3. Запустите PostgreSQL
+docker-compose -f docker-compose.env.yaml up -d
 
-# 4. Запустите PostgreSQL (если нужно)
-docker run -d --name bmft-postgres \
-  -e POSTGRES_USER=bmft \
-  -e POSTGRES_PASSWORD=secret \
-  -e POSTGRES_DB=bmft \
-  -p 5432:5432 \
-  postgres:16
+# 4. Запустите бота (миграции выполнятся автоматически)
+docker-compose -f docker-compose.bot.yaml up -d
 
-# 5. Запустите бота (миграции применятся автоматически)
-go run cmd/bot/main.go
-```
+# 5. Проверьте логи
+docker logs -f bmft_bot
+tail -f ./data/logs/bot.log
+\`\`\`
 
-### Локальная разработка:
+### Конфигурация (.env)
 
-```bash
-# Установите зависимости
-go mod download
-
-# Установите переменные окружения
-export TELEGRAM_BOT_TOKEN="123456:ABCdefGHIjklMNOpqrsTUVwxyz"
-export POSTGRES_DSN="postgres://bmft:secret@localhost:5432/bmft?sslmode=disable"
-export LOG_LEVEL="debug"
-
-# Запустите тесты
-go test ./...
-
-# Запустите приложение
-go run cmd/bot/main.go
-```
-
-## ⚙️ Конфигурация
-
-Все настройки задаются через **переменные окружения**:
-
-### Обязательные параметры:
-
-| Переменная | Описание | Пример |
-|------------|----------|--------|
-| `TELEGRAM_BOT_TOKEN` | Токен Telegram-бота (получить у @BotFather) | `123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11` |
-| `POSTGRES_DSN` | Строка подключения к PostgreSQL | `postgres://user:pass@localhost:5432/bmft?sslmode=disable` |
-
-### Опциональные параметры:
-
-| Переменная | Описание | Значение по умолчанию |
-|------------|----------|-----------------------|
-| `LOG_LEVEL` | Уровень логирования: `debug`, `info`, `warn`, `error` | `info` |
-| `LOGGER_PRETTY` | Человекочитаемые логи (для dev) | `false` |
-| `SHUTDOWN_TIMEOUT` | Таймаут graceful shutdown | `15s` |
-| `METRICS_ADDR` | Адрес HTTP-сервера метрик (placeholder) | `:9090` |
-| `POLLING_TIMEOUT` | Таймаут Long Polling в секундах | `60` |
-
-### Пример `.env` файла:
-
-```bash
-# Обязательные
+\`\`\`bash
+# Обязательные параметры
 TELEGRAM_BOT_TOKEN=123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11
-POSTGRES_DSN=postgres://bmft:bmftpass@postgres:5432/bmft?sslmode=disable
+POSTGRES_DSN=postgres://bmft:bmft@postgres:5432/bmft?sslmode=disable
 
-# Опциональные (для разработки)
-LOG_LEVEL=debug
-LOGGER_PRETTY=true
-SHUTDOWN_TIMEOUT=10s
-```
+# Опциональные
+LOG_LEVEL=info              # debug, info, warn, error
+LOGGER_PRETTY=false         # true для dev
+SHUTDOWN_TIMEOUT=15s
+POLLING_TIMEOUT=60
+\`\`\`
 
-## � База данных PostgreSQL
+## 📦 Модули
 
-Полная схема в файле `migrations/001_initial_schema.sql`.
+| Модуль | Статус | Описание |
+|--------|--------|----------|
+| **Core** | ✅ | Базовые команды (/start, /help, /modules) |
+| **Welcome** | ✅ | Приветствия, /version |
+| **Limiter** | 🔄 | Лимиты на типы контента (рефакторится) |
+| **Reactions** | 🔄 | Автореакции на слова (рефакторится) |
+| **Statistics** | 🔄 | Статистика сообщений (рефакторится) |
+| **Scheduler** | 🔄 | Задачи по расписанию (рефакторится) |
 
-### Основные таблицы:
+**Легенда:** ✅ Готово | 🔄 В разработке | 🔮 Планируется
 
-#### `chats` — метаданные чатов
-```sql
-CREATE TABLE IF NOT EXISTS chats (
-    id BIGSERIAL PRIMARY KEY,
-    chat_id BIGINT UNIQUE NOT NULL,
-    chat_type VARCHAR(20) NOT NULL,  -- 'private', 'group', 'supergroup', 'channel'
-    title TEXT,
-    username TEXT,
-    is_active BOOLEAN DEFAULT true,
-    created_at TIMESTAMPTZ DEFAULT NOW(),
-    updated_at TIMESTAMPTZ DEFAULT NOW()
-);
-```
+⚠️ **Примечание:** Модули рефакторятся для достижения паритета с оригинальным Python ботом. См. [CHANGELOG.md](CHANGELOG.md).
 
-#### `chat_modules` — активные модули для чатов
-```sql
-CREATE TABLE IF NOT EXISTS chat_modules (
-    id BIGSERIAL PRIMARY KEY,
-    chat_id BIGINT NOT NULL REFERENCES chats(chat_id) ON DELETE CASCADE,
-    module_name VARCHAR(50) NOT NULL,  -- 'limiter', 'reactions', 'statistics', 'scheduler', etc.
-    is_enabled BOOLEAN DEFAULT false,
-    config JSONB DEFAULT '{}',  -- модуль-специфичные настройки
-    created_at TIMESTAMPTZ DEFAULT NOW(),
-    updated_at TIMESTAMPTZ DEFAULT NOW(),
-    UNIQUE(chat_id, module_name)
-);
-```
+## 🎮 Команды
 
-#### `messages` — партиционированное хранение сообщений
-```sql
-CREATE TABLE IF NOT EXISTS messages (
-    id BIGSERIAL,
-    chat_id BIGINT NOT NULL,
-    user_id BIGINT NOT NULL,
-    message_id BIGINT NOT NULL,
-    content_type VARCHAR(20) NOT NULL, -- 'text', 'photo', 'video', 'sticker', 'voice', 'document', etc.
-    text TEXT,
-    caption TEXT,
-    file_id TEXT,  -- Telegram file_id для фото/видео/стикеров
-    is_deleted BOOLEAN DEFAULT false,
-    created_at TIMESTAMPTZ DEFAULT NOW(),
-    PRIMARY KEY (id, created_at)
-) PARTITION BY RANGE (created_at);
+### Для всех
 
--- Партиции по месяцам (создаются автоматически миграцией)
-CREATE TABLE messages_2025_10 PARTITION OF messages
-    FOR VALUES FROM ('2025-10-01') TO ('2025-11-01');
-CREATE TABLE messages_2025_11 PARTITION OF messages
-    FOR VALUES FROM ('2025-11-01') TO ('2025-12-01');
-CREATE TABLE messages_2025_12 PARTITION OF messages
-    FOR VALUES FROM ('2025-12-01') TO ('2026-01-01');
-```
+- \`/start\` — инициализация чата
+- \`/help\` — список команд
+- \`/version\` — версия бота
 
-#### `limiter_config` — лимиты на типы контента (future)
-```sql
-CREATE TABLE IF NOT EXISTS limiter_config (
-    id BIGSERIAL PRIMARY KEY,
-    chat_id BIGINT NOT NULL REFERENCES chats(chat_id) ON DELETE CASCADE,
-    user_id BIGINT DEFAULT NULL,  -- NULL = для всех пользователей
-    content_type VARCHAR(20) NOT NULL,  -- 'photo', 'video', 'sticker', 'text', etc.
-    daily_limit INT NOT NULL,  -- -1 = запрет, 0 = без лимита, N = лимит
-    warning_threshold INT DEFAULT 2,
-    is_vip BOOLEAN DEFAULT false,
-    created_at TIMESTAMPTZ DEFAULT NOW(),
-    updated_at TIMESTAMPTZ DEFAULT NOW(),
-    UNIQUE(chat_id, COALESCE(user_id, -1), content_type)
-);
-```
+### Для админов
 
-#### `user_limits` — лимиты пользователей (Phase 2, daily/monthly)
-```sql
-CREATE TABLE IF NOT EXISTS user_limits (
-    user_id BIGINT PRIMARY KEY,
-    username VARCHAR(255),
-    daily_limit INT NOT NULL DEFAULT 10,
-    monthly_limit INT NOT NULL DEFAULT 300,
-    daily_used INT NOT NULL DEFAULT 0,
-    monthly_used INT NOT NULL DEFAULT 0,
-    last_reset_daily TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    last_reset_monthly TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-```
+- \`/modules\` — список модулей и статус
+- \`/enable <module>\` — включить модуль
+- \`/disable <module>\` — выключить модуль
 
-#### `chat_admins` — администраторы чатов (для управления модулями)
-```sql
-CREATE TABLE IF NOT EXISTS chat_admins (
-    id BIGSERIAL PRIMARY KEY,
-    chat_id BIGINT NOT NULL REFERENCES chats(chat_id) ON DELETE CASCADE,
-    user_id BIGINT NOT NULL,
-    can_manage_modules BOOLEAN DEFAULT true,
-    created_at TIMESTAMPTZ DEFAULT NOW(),
-    updated_at TIMESTAMPTZ DEFAULT NOW(),
-    UNIQUE(chat_id, user_id)
-);
-```
+*Модуль-специфичные команды будут добавлены после завершения рефакторинга.*
 
-#### `limiter_counters` — счётчики для limiter модуля (Phase 2, future)
-```sql
-CREATE TABLE IF NOT EXISTS limiter_counters (
-    id BIGSERIAL PRIMARY KEY,
-    chat_id BIGINT NOT NULL,
-    user_id BIGINT NOT NULL,
-    content_type VARCHAR(20) NOT NULL,
-    counter_date DATE NOT NULL,
-    counter_value INT DEFAULT 0,
-    created_at TIMESTAMPTZ DEFAULT NOW(),
-    updated_at TIMESTAMPTZ DEFAULT NOW(),
-    UNIQUE(chat_id, user_id, content_type, counter_date)
-);
-```
+## 🏗️ Архитектура
 
-#### `reactions_config` — настройки reactions модуля (Phase 3)
-```sql
-CREATE TABLE IF NOT EXISTS reactions_config (
-    id BIGSERIAL PRIMARY KEY,
-    chat_id BIGINT NOT NULL REFERENCES chats(chat_id) ON DELETE CASCADE,
-    keyword TEXT NOT NULL,
-    emoji_list TEXT[] NOT NULL,
-    is_active BOOLEAN DEFAULT true,
-    created_at TIMESTAMPTZ DEFAULT NOW(),
-    updated_at TIMESTAMPTZ DEFAULT NOW()
-);
-```
+\`\`\`
+Telegram API
+     │
+     ▼
+Bot (telebot.v3)
+     │
+     ▼
+Module Registry ◄─── chat_modules (DB)
+     │
+     ├─► Limiter
+     ├─► Reactions
+     ├─► Statistics
+     └─► Scheduler
+          │
+          ▼
+      PostgreSQL
+\`\`\`
 
-#### `reactions_log` — лог реакций (Phase 3)
-```sql
-CREATE TABLE IF NOT EXISTS reactions_log (
-    id BIGSERIAL PRIMARY KEY,
-    chat_id BIGINT NOT NULL,
-    message_id BIGINT NOT NULL,
-    keyword TEXT NOT NULL,
-    emojis_added TEXT,
-    created_at TIMESTAMPTZ DEFAULT NOW()
-);
-```
+Каждый модуль реализует интерфейс:
 
-#### `statistics_daily` — суточная статистика (Phase 4)
-```sql
-CREATE TABLE IF NOT EXISTS statistics_daily (
-    id BIGSERIAL PRIMARY KEY,
-    chat_id BIGINT NOT NULL REFERENCES chats(chat_id) ON DELETE CASCADE,
-    stat_date DATE NOT NULL,
-    content_type VARCHAR(20) NOT NULL,
-    message_count INT DEFAULT 0,
-    violation_count INT DEFAULT 0,
-    created_at TIMESTAMPTZ DEFAULT NOW(),
-    UNIQUE(chat_id, stat_date, content_type)
-);
-```
-
-#### `scheduler_tasks` — планировщик задач (Phase 5)
-```sql
-CREATE TABLE IF NOT EXISTS scheduler_tasks (
-    id BIGSERIAL PRIMARY KEY,
-    chat_id BIGINT NOT NULL REFERENCES chats(chat_id) ON DELETE CASCADE,
-    task_name VARCHAR(100) NOT NULL,
-    cron_expression VARCHAR(100) NOT NULL,
-    message_text TEXT NOT NULL,
-    is_active BOOLEAN DEFAULT true,
-    last_run TIMESTAMPTZ,
-    next_run TIMESTAMPTZ,
-    created_at TIMESTAMPTZ DEFAULT NOW(),
-    updated_at TIMESTAMPTZ DEFAULT NOW()
-);
-```
-
-#### `event_log` — аудит всех действий бота
-```sql
-CREATE TABLE IF NOT EXISTS event_log (
-    id BIGSERIAL PRIMARY KEY,
-    event_type VARCHAR(50) NOT NULL,  -- 'module_enable', 'module_disable', 'limiter_violation', etc.
-    chat_id BIGINT,
-    user_id BIGINT,
-    module_name VARCHAR(50),
-    details JSONB DEFAULT '{}',
-    created_at TIMESTAMPTZ DEFAULT NOW()
-);
-```
-
-#### `antispam_config` — настройки антиспама (Phase AI, future)
-```sql
-CREATE TABLE IF NOT EXISTS antispam_config (
-    id BIGSERIAL PRIMARY KEY,
-    chat_id BIGINT NOT NULL REFERENCES chats(chat_id) ON DELETE CASCADE,
-    rule_name VARCHAR(100) NOT NULL,
-    rule_type VARCHAR(50) NOT NULL,  -- 'regex', 'url_whitelist', 'flood_protection', etc.
-    rule_value TEXT NOT NULL,
-    action VARCHAR(50) DEFAULT 'delete',  -- 'delete', 'warn', 'ban'
-    is_active BOOLEAN DEFAULT true,
-    created_at TIMESTAMPTZ DEFAULT NOW(),
-    updated_at TIMESTAMPTZ DEFAULT NOW()
-);
-```
-
-#### `bot_settings` — глобальные настройки бота
-```sql
-CREATE TABLE IF NOT EXISTS bot_settings (
-    id BIGSERIAL PRIMARY KEY,
-    key VARCHAR(100) UNIQUE NOT NULL,
-    value TEXT NOT NULL,
-    description TEXT,
-    created_at TIMESTAMPTZ DEFAULT NOW(),
-    updated_at TIMESTAMPTZ DEFAULT NOW()
-);
-```
-
-### Полезные VIEW (создаются автоматически миграцией):
-
-```sql
--- v_active_modules: активные модули по чатам
-CREATE OR REPLACE VIEW v_active_modules AS
-SELECT 
-    c.chat_id,
-    c.title AS chat_title,
-    cm.module_name,
-    cm.config,
-    cm.updated_at
-FROM chats c
-JOIN chat_modules cm ON c.chat_id = cm.chat_id
-WHERE c.is_active = true AND cm.is_enabled = true;
-
--- v_daily_chat_stats: суточная статистика по чатам
-CREATE OR REPLACE VIEW v_daily_chat_stats AS
-SELECT 
-    chat_id,
-    stat_date,
-    content_type,
-    SUM(message_count) as total_messages,
-    SUM(violation_count) as total_violations
-FROM statistics_daily
-GROUP BY chat_id, stat_date, content_type
-ORDER BY stat_date DESC, chat_id;
-```
-
-## 📝 Примеры использования
-
-### Для админа чата:
-
-```
-# Базовые команды
-/start                       # Приветствие и список команд
-/help                        # Помощь по командам
-/version                     # Информация о версии бота (Python паритет ✅)
-/modules                     # Показать доступные модули
-/enable limiter              # Включить модуль лимитов
-/disable limiter             # Выключить модуль лимитов
-
-# Команды модуля Limiter (Phase 2: User Request Limiter)
-/limits                      # Посмотреть свои лимиты запросов
-
-# Админские команды модуля Limiter (Phase 2)
-/setlimit <user_id> daily <limit>     # Установить дневной лимит
-/setlimit <user_id> monthly <limit>   # Установить месячный лимит
-/getlimit <user_id>                   # Посмотреть лимиты пользователя
-
-# Команды модуля Limiter (Phase 2.5: Content Type Limiter) ✅
-/mycontentusage              # Показать использование лимитов контента за сегодня
-/setcontentlimit <type> <limit>  # (Админ) Установить лимит на тип контента (photo/video/sticker/etc)
-/listcontentlimits           # (Админ) Список всех лимитов контента в чате
-
-# Команды модуля Reactions (Phase 3):
-/addreaction <type> <regex> <reaction>  # Добавить реакцию (админ)
-/listreactions               # Список всех реакций
-/delreaction <id>            # Удалить реакцию (админ)
-/testreaction <text>         # Проверить какие реакции сработают
-
-# Команды Phase 3.5 (Text Violations Counter):
-/mytextviolations            # Счётчик текстовых нарушений за сегодня
-/settextlimit <limit>        # Установить лимит нарушений (админ)
-/chattextviolations          # Топ-10 нарушителей за сегодня (админ)
-
-# Команды модуля Statistics (Phase 4):
-/mystats                     # Моя статистика за сегодня
-/myweek                      # Моя статистика за неделю
-/chatstats                   # Статистика чата за сегодня (админ)
-/topchat                     # Топ-10 активных пользователей (админ)
-
-# Phase 5 - Scheduler Module:
-/addtask <name> "<cron>" <type> <data>  # Добавить задачу (админ)
-/listtasks                   # Список задач планировщика
-/deltask <id>                # Удалить задачу (админ)
-/runtask <id>                # Запустить задачу вручную (админ)
-
-# Будущие команды (Phase AI)
-
-# Phase AI - AI Module:
-/gpt <question>              # Задать вопрос AI
-/reset                       # Сбросить контекст диалога
-/context                     # Показать текущий контекст
-```
-
-### Для разработчика нового модуля:
-
-```go
-// 1. Создайте файл modules/mymodule/module.go
-type MyModule struct {
-    db  *sql.DB
-    bot *telebot.Bot
-    log *zap.Logger
+\`\`\`go
+type Module interface {
+    Init(deps ModuleDependencies) error
+    Name() string
+    Description() string
+    Routes() []telebot.Route
+    Cleanup() error
 }
+\`\`\`
 
-// 2. Реализуйте интерфейс Module
-func (m *MyModule) Init(deps core.ModuleDependencies) error {
-    m.db = deps.DB
-    m.bot = deps.Bot
-    m.log = deps.Logger
-    return nil
-}
+## 🗄️ База данных
 
-func (m *MyModule) OnMessage(ctx core.MessageContext) error {
-    // Ваша логика обработки сообщения
-    if ctx.Message.Text == "/mycommand" {
-        m.bot.Send(ctx.Message.Chat, "Hello from MyModule!")
-    }
-    return nil
-}
+PostgreSQL 16 с автоматическими миграциями. При первом запуске создается полная схема (15 таблиц + 3 партиции).
 
-func (m *MyModule) Commands() []core.BotCommand {
-    return []core.BotCommand{
-        {Command: "/mycommand", Description: "My custom command"},
-    }
-}
-
-func (m *MyModule) Enabled(chatID int64) bool {
-    // Проверка в chat_modules таблице
-    return true
-}
-
-func (m *MyModule) Shutdown() error {
-    return nil
-}
-
-// 3. Зарегистрируйте модуль в cmd/bot/main.go
-registry.Register("mymodule", &modules.MyModule{})
-```
-
-## 🚀 Миграция из Python
-
-Если мигрируете из Python-версии (rts_bot):
-
-```bash
-# 1. Запустите бота (миграции применятся автоматически)
-go run cmd/bot/main.go
-
-# 2. Импортируйте конфигурацию из Python бота (limits + reactions)
-python scripts/migrate_config.py --sqlite rtsbot.db --postgres "$POSTGRES_DSN"
-
-# 3. Перезапустите бота и проверьте работу
-go run cmd/bot/main.go
-
-# Старые сообщения НЕ мигрируются (drop), только конфигурация
-```
-
-Подробный план миграции: `MIGRATION_PLAN.md`
-
-## 📈 Мониторинг
-
-HTTP-сервер метрик (placeholder) на порту `:9090`:
-
-- `GET /healthz` — health check
-- `GET /metrics` — Prometheus метрики (в разработке)
-
-**Event Audit:** Все действия модулей логируются в таблицу `event_log`:
-
-```sql
-SELECT * FROM event_log 
-WHERE chat_id = -1001234567890 
-ORDER BY created_at DESC 
-LIMIT 10;
-
--- Пример лога:
--- event_type=limit_exceeded, module_name=limiter, 
--- details={"user_id": 123, "content_type": "photo", "limit": 5}
-
-## 🧪 Тестирование
-
-```bash
-# Запуск всех тестов
-go test ./...
-
-# Тесты с покрытием
-go test -cover ./...
-
-# Тесты конкретного модуля
-go test -v ./internal/modules/limiter/...
-```
+⚠️ **Текущая структура активно рефакторится** для достижения паритета с Python версией (см. внутреннюю документацию).
 
 ## 🔧 Разработка
 
-### Структура проекта:
+### Локальная отладка
 
-```
-.
-├── cmd/
-│   └── bot/
-│       └── main.go                     # Точка входа приложения
-├── internal/
-│   ├── config/                         # Конфигурация (.env)
-│   │   ├── config.go
-│   │   └── config_test.go
-│   ├── core/                           # Ядро: Module Registry, Interfaces, Middleware
-│   │   ├── interface.go                # Module interface
-│   │   ├── registry.go                 # Module registry
-│   │   ├── middleware.go               # Logger, Panic Recovery, Rate Limit
-│   │   └── welcome.go                  # Welcome Module (новые пользователи, /version)
-│   ├── modules/                        # Модули (pluggable features)
-│   │   ├── limiter/                    # Phase 2 + 2.5: User & Content Limits
-│   │   │   ├── limiter.go              # Основная логика модуля
-│   │   │   ├── content_limiter.go      # Лимиты на типы контента (Phase 2.5)
-│   │   │   └── commands_content.go     # Команды управления контент-лимитами
-│   │   ├── reactions/                  # Phase 3 + 3.5: Reactions & Text Violations
-│   │   │   ├── reactions.go            # Автоматические реакции на regex/exact/contains
-│   │   │   ├── text_violations.go      # Счётчик текстовых нарушений (Phase 3.5)
-│   │   │   └── commands_violations.go  # Команды для text violations
-│   │   ├── statistics/                 # Phase 4: Статистика активности
-│   │   │   └── statistics.go
-│   │   └── scheduler/                  # Phase 5: Планировщик задач (cron)
-│   │       └── scheduler.go
-│   ├── postgresql/                     # База данных PostgreSQL
-│   │   ├── postgresql.go               # Connection pool
-│   │   └── repositories/               # Data Access Layer
-│   │       ├── chat_repository.go
-│   │       ├── module_repository.go
-│   │       ├── event_repository.go
-│   │       ├── limit_repository.go
-│   │       ├── statistics_repository.go
-│   │       └── scheduler_repository.go
-│   ├── migrations/                     # Автоматические миграции БД
-│   │   └── migrations.go               # Migration Manager
-│   └── logx/                           # Structured logging (zap)
-│       └── logx.go
-├── migrations/                         # SQL миграции
-│   └── 001_initial_schema.sql          # Полная схема БД (18 таблиц)
-├── docs/                               # Приватная документация (gitignored)
-│   ├── CONVENTIONS.md                  # Правила разработки
-│   ├── PROJECT_ANALYSIS.md             # Анализ проекта
-│   ├── DEPLOYMENT.md                   # Гайды по развёртыванию
-│   └── *.md                            # Другие внутренние документы
-├── .env.example                        # Пример конфигурации (4 сценария)
-├── docker-compose.env.yaml             # PostgreSQL окружение
-├── docker-compose.bot.yaml             # Бот в Docker
-├── Dockerfile                          # Multi-stage build
-├── go.mod
-├── go.sum
-├── README.md                           # ← Ты здесь
-└── CHANGELOG.md                        # История изменений
-```
-
-### Правила разработки:
-
-1. **Комментарии в коде и README — на русском языке**
-2. **Runtime-логи и переменные — строго на английском**
-3. Код должен быть понятен начинающим
-4. Новые функции должны иметь подробные комментарии
-5. Перед коммитом: `go vet ./...` и `go fmt ./...`
-
-### Добавление нового модуля:
-
-1. Создайте директорию `internal/modules/mymodule/`
-2. Реализуйте интерфейс `core.Module` в `module.go`
-3. Добавьте таблицы в новую миграцию (если нужны)
-4. Зарегистрируйте в `cmd/bot/main.go`: `registry.Register("mymodule", &mymodule.Module{})`
-5. Включите для чата: `/enable mymodule`
-
-```go
-func processBusinessLogic(update map[string]any) (map[string]any, error) {
-    // Здесь можно реализовать:
-    // - Фильтрацию сообщений по типу контента
-    // - Начисление/снятие лимитов
-    // - Отправку реакций/ответов в топик telegram-send
-    // - Анализ нарушений правил чата
-    
-    return update, nil
-}
-```
-
-## 🐛 Troubleshooting
-
-### Проблема: Бот не реагирует на сообщения
-
-**Решение:**
-1. Проверьте что PostgreSQL запущен: `docker ps | grep postgres`
-2. Проверьте что таблицы созданы: `psql -U bmft -d bmft -c "\dt"`
-3. Проверьте логи: `docker logs bmft-bot -f` или консоль приложения
-   - При старте должно быть: `"database schema ready"` — миграции применились
-   - Если ошибка: `"database migration failed"` — смотрите детали в логах
-
-### Проблема: Модуль не работает в чате
-
-**Решение:**
-1. Проверьте что модуль включен: `/modules` или SQL:
-   ```sql
-   SELECT * FROM chat_modules WHERE chat_id = YOUR_CHAT_ID;
-   ```
-2. Включите модуль: `/enable limiter`
-3. Проверьте конфигурацию в `chat_modules.config` (JSONB)
-
-### Проблема: Ошибка "chat_id not found"
-
-**Решение:**
-Чат автоматически создается при первом сообщении. Если ошибка остается:
-```sql
-INSERT INTO chats (chat_id, chat_type, title) 
-VALUES (YOUR_CHAT_ID, 'group', 'My Chat');
-```
-
-## 📝 Roadmap
-
-### Phase 1 — Core Framework ✅ 100% Complete
-- [x] Удалить Kafka инфраструктуру (Step 1)
-- [x] Интегрировать telebot.v3 (Steps 2-5)
-- [x] Создать Module Registry (Step 3)
-- [x] Реализовать базовые команды (/start, /help, /modules, /enable, /disable) (Step 5)
-- [x] Repository layer (ChatRepository, ModuleRepository, EventRepository) (Step 6)
-- [x] Unit tests для config (Step 7)
-- [x] Docker setup (Step 9)
-- [x] Final verification (Step 10)
-- [x] Code cleanup (удалено ~260 строк мёртвого кода)
-
-**📦 Phase 1 Summary:** См. `PHASE1_SUMMARY.md` и `PRE_MERGE_CHECKLIST.md`
-
-### Phase 2 — Limiter Module ✅ 100% Complete
-- [x] Создана таблица user_limits (миграция 003)
-- [x] LimitRepository (8 методов) — работа с лимитами пользователей
-- [x] LimiterModule (17 методов) — модуль контроля лимитов
-- [x] Команды: /limits, /setlimit, /getlimit
-- [x] Daily counters с автосбросом (24 часа)
-- [x] Monthly counters с автосбросом (30 дней)
-- [x] Unit-тесты (10 тестов, 485 строк)
-- [x] Интеграция с main.go
-- [x] Документация обновлена
-
-**📦 Phase 2 Summary:** См. [`CHANGELOG.md`](CHANGELOG.md) → v0.2.0
-
-### Phase 3 (✅ Завершена) — Reactions Module
-- [x] Миграция regex паттернов из Python бота (rts_bot)
-- [x] Cooldown система (10 минут между реакциями, настраиваемый)
-- [x] Типы реакций: text, sticker, delete (mute планируется отдельно)
-- [x] Команды: /addreaction, /listreactions, /delreaction, /testreaction
-- [x] Антифлуд через reactions_log (проверка последней реакции)
-- [x] Триггеры: regex, exact, contains
-- [x] VIP bypass для cooldown (is_vip флаг)
-
-### Phase 4 (✅ Завершена) — Statistics Module
-- [x] StatisticsRepository (5 методов для работы со статистикой)
-- [x] Инкремент счётчиков при каждом сообщении (UPSERT)
-- [x] Команды: /mystats, /myweek, /chatstats, /topchat
-- [x] Форматированный вывод с эмодзи (текст, фото, видео, стикеры, войс)
-- [x] Топ-10 активных пользователей за день
-- [x] Недельная статистика (last 7 days)
-
-### Phase 5 — Scheduler Module ✅ 100% Complete
-- [x] SchedulerRepository (7 методов для CRUD операций с задачами)
-- [x] Cron-планировщик (robfig/cron/v3)
-- [x] Миграция функционала из Python scheduletask.py
-- [x] Задачи по расписанию: sticker, text, photo
-- [x] Загрузка активных задач при старте бота
-- [x] Команды: /addtask, /listtasks, /deltask, /runtask
-- [x] Admin-only управление задачами
-- [x] Graceful shutdown с остановкой cron
-
-**📦 Phase 5 Summary:** См. [`CHANGELOG.md`](CHANGELOG.md) → v0.5.0
-
-### Welcome Module ✅ 100% Complete
-**Статус:** ✅ Реализовано  
-**Python аналог:** `reaction.py::newchat()`, `reaction.py::newmember()`, `reaction.py::reactionversion()`
-
-- [x] Приветствие новых пользователей (HandleNewChatMember)
-- [x] Сообщение при добавлении бота в чат (HandleBotAddedToChat)
-- [x] Команда /version — информация о версии бота и контакты
-- [x] Интеграция через internal/core/welcome.go (100 строк)
-- [x] Регистрация команд в main.go
-- [x] Обработка события OnUserJoined
-
-**📦 Welcome Module Summary:** См. [`CHANGELOG.md`](CHANGELOG.md) → v0.6.0
-
-**✅ Полный паритет с Python rts_bot!**
-
----
-
-## ✅ **Все критические Phase завершены (100% Python parity)**
-
-Все необходимые функции из Python rts_bot мигрированы:
-
-### Phase 2.5 — Content Type Limiter ✅ 100% Complete
-**Статус:** ✅ Реализовано  
-**Python аналог:** `reaction.py::newmessage()` — полный паритет
-
-- [x] Использовать существующие таблицы: `limiter_config`, `limiter_counters`
-- [x] Лимиты на content_type: photo, video, sticker, voice, document, audio, animation, video_note
-- [x] Логика: -1 = полный запрет, 0 = без лимита, N = лимит на N сообщений/день
-- [x] Удаление сообщений при превышении лимита
-- [x] Предупреждения за 2 сообщения до лимита
-- [x] VIP bypass (is_vip флаг игнорирует лимиты)
-- [x] Команды: `/setcontentlimit <content_type> <limit>`, `/mycontentusage`, `/listcontentlimits`
-- [x] Интеграция с LimiterModule через content_limiter.go (198 строк)
-- [x] Команды добавлены через commands_content.go (276 строк)
-- [x] Полная миграция функционала из Python rts_bot
-
-**📦 Phase 2.5 Summary:** См. [`CHANGELOG.md`](CHANGELOG.md) → v0.6.0
-
-**✅ Готово к production!**
-
-### Phase 3.5 — Text Violations Counter ✅ 100% Complete
-**Статус:** ✅ Реализовано  
-**Python аналог:** `checkmessage.py::regextext()` — счётчик текстовых нарушений
-
-- [x] Расширить `reactions_log` для подсчёта violations (добавлены колонки violation_code, keyword)
-- [x] Счётчик нарушений (violation_code=21) за день
-- [x] Удаление сообщений при превышении лимита (default: 10 нарушений/день)
-- [x] Предупреждения при приближении к лимиту (за 2 до превышения)
-- [x] Интеграция с Reactions Module через text_violations.go (268 строк)
-- [x] Команды: `/mytextviolations`, `/settextlimit`, `/chattextviolations`
-- [x] VIP bypass (VIP пользователи игнорируют лимит)
-- [x] Admin-only команды для управления лимитом
-- [x] Топ-10 нарушителей за день (админ команда)
-
-**📦 Phase 3.5 Summary:** См. [`CHANGELOG.md`](CHANGELOG.md) → v0.6.0
-
-**✅ Готово к production!**
-
----
-
-## 🔮 **Будущие Phase (новые фичи)**
-
-Эти Phase добавляют **новый функционал**, которого не было в Python версии:
-
-### Phase AI — AI Integration
-**Статус:** Планируется  
-**Цель:** Интеграция OpenAI/Anthropic API для умных ответов
-
-- [ ] OpenAI/Anthropic API client
-- [ ] Context Management (история последних 10 сообщений)
-- [ ] Интеграция с Limiter Module (проверка лимитов перед AI запросом)
-- [ ] Команды: `/gpt <question>`, `/reset`, `/context`, `/setmodel`
-- [ ] Token counting и billing tracking
-- [ ] System prompts (конфигурируемые через БД)
-- [ ] Таблицы: `ai_config`, `ai_conversations`
-
-### Phase Admin — Web Admin Panel
-**Статус:** Планируется  
-**Цель:** Веб-интерфейс для управления ботом
-
-- [ ] Web интерфейс (React + TailwindCSS)
-- [ ] Dashboard с графиками (Chart.js)
-- [ ] Bulk configuration (настройка нескольких чатов сразу)
-- [ ] User management (блокировка, VIP статус)
-- [ ] Export reports (Excel/PDF)
-- [ ] Backend: Echo/Fiber (Go)
-- [ ] Auth: JWT tokens
-
-### Phase AntiSpam — Advanced Moderation
-**Статус:** Планируется  
-**Цель:** Продвинутые функции модерации
-
-- [ ] Flood protection (X messages per Y seconds)
-- [ ] Link filtering (whitelist/blacklist domains)
-- [ ] User reputation system (auto-ban при низкой репутации)
-- [ ] CAPTCHA для новых пользователей
-- [ ] Auto-mute временные (1h/24h/7d)
-- [ ] Таблицы: `user_reputation`, `muted_users` (используем `antispam_config`)
-
-### Phase Voice — Voice Message Processing
-**Статус:** Планируется  
-**Цель:** Обработка голосовых сообщений
-
-- [ ] Whisper API (OpenAI) для транскрипции
-- [ ] Автоматическая модерация голосовых (AI анализ текста)
-- [ ] Команда `/transcribe` (ответить на voice message)
-- [ ] Dependencies: OpenAI Whisper API, ffmpeg
-
-### Phase Reports — Advanced Analytics
-**Статус:** Планируется  
-**Цель:** Расширенная аналитика и отчёты
-
-- [ ] Weekly/monthly reports в чат (автоматически через Scheduler)
-- [ ] Сравнение с предыдущим периодом (↗️ +15%)
-- [ ] Топ тем обсуждений (word cloud)
-- [ ] Peak activity hours (когда больше всего сообщений)
-- [ ] Export в PDF/Excel
-
-**Полный план:** См. [`MIGRATION_PLAN.md`](MIGRATION_PLAN.md)
-
----
-
-## 🤝 Contributing
-
-Хочешь добавить свой модуль или улучшить существующий?
-
-1. Fork проекта
-2. Создай feature-ветку: `git checkout -b feature/my-awesome-module`
-3. Реализуй модуль в `internal/modules/mymodule/`
-4. Добавь тесты: `go test ./internal/modules/mymodule/...`
-5. Коммит: `git commit -am 'Add my awesome module'`
-6. Push: `git push origin feature/my-awesome-module`
-7. Создай Pull Request
-
-**Важно:**
-- Комментарии в коде — на русском
-- Runtime-логи и переменные — на английском
-- Перед PR: `go vet ./...` + `go fmt ./...`
-
----
-
-## ❓ FAQ
-
-### Как подключиться к БД при локальной отладке?
-
-```bash
-# Запусти PostgreSQL через Docker Compose
+\`\`\`bash
+# Запустите только PostgreSQL
 docker-compose -f docker-compose.env.yaml up -d
 
-# В .env укажи localhost (не postgres!):
-POSTGRES_DSN=postgres://bmft:secret@localhost:5432/bmft?sslmode=disable
+# Измените POSTGRES_DSN в .env
+# postgres://bmft:secret@localhost:5432/bmft?sslmode=disable
 
-# Запусти бота
+# Запустите бота локально
 go run cmd/bot/main.go
-```
+\`\`\`
 
-**Почему `localhost` а не `postgres`?**  
-Потому что бот запускается ВНЕ Docker сети. Если запускаешь бот в Docker (`docker-compose.bot.yaml`), тогда используй `@postgres:5432`.
+### Структура проекта
 
-### Как перенести данные на другой сервер?
+\`\`\`
+bmft/
+├── cmd/bot/           # Точка входа
+├── internal/
+│   ├── config/        # Конфигурация
+│   ├── core/          # Ядро бота
+│   ├── db/            # База данных
+│   ├── logx/          # Логирование
+│   ├── migrations/    # Миграции
+│   └── modules/       # Модули
+├── migrations/        # SQL-файлы миграций
+├── docker-compose.*.yaml
+└── .env
+\`\`\`
 
-```bash
-# На старом сервере:
-docker-compose -f docker-compose.env.yaml down
-tar -czf bmft_backup.tar.gz data/
-scp bmft_backup.tar.gz user@new-server:/opt/bmft/
+## 📝 Changelog
 
-# На новом сервере:
-tar -xzf bmft_backup.tar.gz
-docker-compose -f docker-compose.env.yaml up -d
-```
+См. [CHANGELOG.md](CHANGELOG.md) для истории изменений и известных проблем.
 
-Копируй только папку `./data/` — в ней PostgreSQL данные и логи.
+## 🤝 Разработка
 
-### Как добавить админа для команд /addreaction и т.п.?
+Текущие задачи:
 
-В `cmd/bot/main.go` найди строку:
-```go
-adminUsers := []int64{} // Пока пустой список
-```
+- 🔄 Рефакторинг модуля Limiter (лимиты на типы контента)
+- 🔄 Рефакторинг модуля Reactions (regex-реакции с кулдаунами)
+- 🔄 Рефакторинг модуля Statistics (детальная статистика по типам)
+- 🔄 Рефакторинг модуля Scheduler (гибкое расписание из БД)
 
-Измени на:
-```go
-adminUsers := []int64{123456789, 987654321} // Твои Telegram user_id
-```
+## 📧 Контакты
 
-Чтобы узнать свой user_id, напиши боту [@userinfobot](https://t.me/userinfobot).
+- GitHub: [@flybasist](https://github.com/flybasist)
+- Telegram: [@flybasist](https://t.me/flybasist)
 
-### Почему бот не отвечает на команды?
+## 📄 Лицензия
 
-1. Проверь что модуль включён для чата: `/modules`
-2. Проверь логи: `docker logs -f bmft_bot` или консоль если `go run`
-3. Убедись что бот добавлен в группу как администратор
-4. Для reactions: проверь что паттерн правильный через `/testreaction`
-
-### Где посмотреть историю изменений?
-
-Смотри [`CHANGELOG.md`](CHANGELOG.md) — там всё по версиям (v0.1.0, v0.2.0, v0.3.0...)
-
-## 💬 Контакты
-
-- **Вопросы/баги:** [GitHub Issues](https://github.com/your-repo/bmft/issues)
-- **Telegram:** @FlyBasist
-- **Email:** flybasist92@gmail.com
-
----
-
-## 🛡️ Лицензия
-
-Этот проект распространяется под лицензией [GNU GPLv3](https://www.gnu.org/licenses/gpl-3.0.html).
-
-Вы можете использовать, модифицировать и распространять этот код, при условии, что производные работы также будут открыты под лицензией GPLv3. Это означает, что если вы вносите изменения и распространяете модифицированную версию, вы обязаны предоставить исходный код этих изменений.
-
-В случае использования кода **внутри организации** без его распространения — раскрытие изменений не требуется.
-
-**Автор:** Alexander Ognev (aka FlyBasist)  
-**Год:** 2025
-
----
-
-**⭐ Если проект оказался полезен — поставь звезду на GitHub!**
-
----
-
-### 🇺🇸 English
-
-This project is licensed under the [GNU GPLv3](https://www.gnu.org/licenses/gpl-3.0.html).
-
-You are free to use, modify, and distribute this code under the condition that any derivative works are also licensed under GPLv3. This means if you make changes and distribute your modified version, you must make the source code of those changes available.
-
-If you use the code **within your organization** without distributing it externally, you are not required to disclose your modifications.
-
-**Author:** Alexander Ognev (aka FlyBasist)  
-**Year:** 2025
+GNU General Public License v3.0 — см. [LICENSE](LICENSE)

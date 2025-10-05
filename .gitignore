@@ -69,3 +69,5 @@ settings.yaml
 ##############################
 # Go module files (опционально)
 ##############################
+# Internal documentation
+docs/
