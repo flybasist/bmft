@@ -1,5 +1,34 @@
 # Миграции базы данных
 
+## ⚡ Автоматические миграции (из коробки)
+
+**🎉 Миграции теперь автоматические!** При первом запуске приложение:
+
+1. ✅ Проверит схему БД и выполнит миграцию `migrations/001_initial_schema.sql` если таблиц нет
+2. ✅ Валидирует что все необходимые таблицы и колонки присутствуют
+3. 🛑 Остановится с ошибкой если обнаружит частично созданную/некорректную схему (защита от несовместимости)
+
+**Вам НЕ НУЖНО запускать миграции вручную!** Просто запустите бота:
+
+```bash
+# Docker
+docker-compose -f docker-compose.bot.yaml up -d
+
+# Локально
+go run cmd/bot/main.go
+```
+
+В логах увидите:
+```
+INFO    starting database schema validation and migrations
+INFO    database schema is empty, running initial migration from 001_initial_schema.sql
+INFO    executing initial database migration
+INFO    initial migration completed successfully
+INFO    database schema ready
+```
+
+---
+
 ## 📋 Текущий подход (Development)
 
 ### Один файл = вся схема
@@ -15,32 +44,19 @@ migrations/
 - ✅ Phase 3: Reactions Module (reactions_config, reactions_log)
 - ✅ Phase 4-5: Statistics & Scheduler (готовые таблицы)
 
+**Горячая разработка (main ветка):**
+- При изменении структуры БД → обновляем `001_initial_schema.sql`
+- Локально вайпаем базу: `docker-compose -f docker-compose.env.yaml down -v && docker-compose -f docker-compose.env.yaml up -d`
+- Запускаем бота → миграция применяется автоматически ✅
+- Нет нужды в миграциях 002, 003 и т.д. пока нет боевых данных
+
 ---
 
-## 🚀 Как применить миграции
+## 🛠 Ручное применение (опционально, для отладки)
 
-### Вариант 1: golang-migrate (рекомендуется)
+Если нужно проверить SQL вручную (например, для отладки), можно использовать:
 
-```bash
-# Установка (если ещё не установлен)
-# macOS:
-brew install golang-migrate
-
-# Linux:
-curl -L https://github.com/golang-migrate/migrate/releases/download/v4.17.0/migrate.linux-amd64.tar.gz | tar xvz
-sudo mv migrate /usr/local/bin/
-
-# Применить миграции
-migrate -path migrations -database "postgres://bmft:secret@localhost:5432/bmft?sslmode=disable" up
-
-# Откатить последнюю миграцию (если нужно)
-migrate -path migrations -database "postgres://bmft:secret@localhost:5432/bmft?sslmode=disable" down 1
-
-# Проверить версию схемы
-migrate -path migrations -database "postgres://bmft:secret@localhost:5432/bmft?sslmode=disable" version
-```
-
-### Вариант 2: psql (ручной импорт)
+### psql (ручной импорт SQL)
 
 ```bash
 # Подключись к PostgreSQL

@@ -16,6 +16,7 @@ import (
 	"github.com/flybasist/bmft/internal/config"
 	"github.com/flybasist/bmft/internal/core"
 	"github.com/flybasist/bmft/internal/logx"
+	"github.com/flybasist/bmft/internal/migrations"
 	"github.com/flybasist/bmft/internal/modules/limiter"
 	"github.com/flybasist/bmft/internal/modules/reactions"
 	"github.com/flybasist/bmft/internal/modules/scheduler"
@@ -29,13 +30,14 @@ func main() {
 	// 1. Загружаем конфиг
 	// 2. Инициализируем логгер
 	// 3. Подключаемся к PostgreSQL
-	// 4. Создаём telebot.v3 бота с Long Polling
-	// 5. Создаём Module Registry
-	// 6. Регистрируем модули (пока пустой список)
-	// 7. Инициализируем модули
-	// 8. Регистрируем хендлеры команд
-	// 9. Запускаем бота
-	// 10. Ждём SIGINT/SIGTERM для graceful shutdown
+	// 4. Автоматически применяем миграции (001_initial_schema.sql)
+	// 5. Создаём telebot.v3 бота с Long Polling
+	// 6. Создаём Module Registry
+	// 7. Регистрируем модули (limiter, reactions, statistics, scheduler)
+	// 8. Инициализируем модули
+	// 9. Регистрируем хендлеры команд
+	// 10. Запускаем бота
+	// 11. Ждём SIGINT/SIGTERM для graceful shutdown
 
 	if err := run(); err != nil {
 		fmt.Fprintf(os.Stderr, "fatal error: %v\n", err)
@@ -76,6 +78,12 @@ func run() error {
 		return fmt.Errorf("failed to ping postgres: %w", err)
 	}
 	logger.Info("connected to postgresql")
+
+	// Автоматически применяем миграции (или валидируем существующую схему)
+	if err := migrations.RunMigrationsIfNeeded(db, logger); err != nil {
+		return fmt.Errorf("database migration failed: %w", err)
+	}
+	logger.Info("database schema ready")
 
 	// Создаём telebot.v3 бота с Long Polling
 	pref := tele.Settings{
