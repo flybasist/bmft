@@ -8,7 +8,7 @@
 # ============================================================================
 # Stage 1: Builder
 # ============================================================================
-FROM golang:1.25-alpine AS builder
+FROM golang:1.23-alpine AS builder
 
 # Метаданные
 LABEL maintainer="flybasist"
@@ -42,7 +42,7 @@ FROM alpine:latest
 # Метаданные
 LABEL maintainer="flybasist"
 LABEL description="BMFT Bot - Modular Telegram Bot Framework"
-LABEL version="0.2.1"
+LABEL version="0.6.0"
 
 # Установка CA сертификатов и timezone data (для TLS и правильного времени)
 RUN apk --no-cache add ca-certificates tzdata
