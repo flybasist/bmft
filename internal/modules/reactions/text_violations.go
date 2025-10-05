@@ -24,7 +24,7 @@ type TextViolationConfig struct {
 // checkTextViolation проверяет счётчик текстовых нарушений и удаляет сообщение если превышен
 // Вызывается когда reaction.ViolationCode == 21
 // Возвращает: (shouldDelete bool, err error)
-func (m *ReactionsModule) checkTextViolation(ctx *core.MessageContext, reaction ReactionConfig) (bool, error) {
+func (m *ReactionsModule) checkTextViolation(ctx *core.MessageContext, _ ReactionConfig) (bool, error) {
 	chatID := ctx.Chat.ID
 	userID := ctx.Sender.ID
 	username := ctx.Sender.Username
