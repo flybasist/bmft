@@ -50,6 +50,8 @@ services:
       # Логи бота в локальной папке data/logs
       # Для переноса между нодами копируй всю папку ./data
       - ./data/logs:/app/logs
+      # Миграции для инициализации БД
+      - ./migrations:/app/migrations:ro
     
     ports:
       # Metrics / Health endpoint (опционально, можно закомментировать)
