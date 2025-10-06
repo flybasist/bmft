@@ -1,478 +1,179 @@
-# Changelog# Changelog
+# Changelog
 
+Все значимые изменения в проекте BMFT будут документироваться в этом файле.
 
-
-Все значимые изменения в проекте BMFT будут документироваться в этом файле.Все значимые изменения в проекте BMFT будут документироваться в этом файле.
-
-
-
-Формат основан на [Keep a Changelog](https://keepachangelog.com/ru/1.0.0/),Формат основан на [Keep a Changelog](https://keepachangelog.com/ru/1.0.0/),
-
-и этот проект следует [Semantic Versioning](https://semver.org/lang/ru/).и проект следует [Semantic Versioning](https://semver.org/lang/ru/).
-
-
-
----## [Unreleased]
-
-
-
-## [Unreleased]### Changed
-
-- 📝 **README.md:** Обновлены все секции для отражения текущего состояния (100% Python parity)
-
-### В разработке- 📝 **README.md:** Удалены устаревшие упоминания о будущих модулях
-
-- Рефакторинг модуля Limiter (лимиты на типы контента, VIP система)- 📝 **cmd/bot/main.go:** Обновлена команда /help с актуальным списком модулей
-
-- Рефакторинг модуля Reactions (regex реакции, текстовые нарушения)- 📝 **Все комментарии в коде:** Проверены и приведены в соответствие с реализацией
-
-- Рефакторинг модуля Statistics (детальная статистика по типам)
-
-- Рефакторинг модуля Scheduler (гибкий планировщик через БД)## [0.6.0] - 2025-10-05 (Phase 2.5 + Phase 3.5 + Welcome Module)
-
-
-
----### Added
-
-- ✅ **Welcome Module** — приветственные сообщения и информация о боте
-
-## [0.5.0] - 2025-10-05  - `internal/core/welcome.go` — модуль приветствий (100 строк)
-
-  - **Python паритет:** `reaction.py::newchat()`, `reaction.py::newmember()`, `reaction.py::reactionversion()`
-
-### Добавлено  - **Команды:** `/version` — информация о версии бота и контакты разработчика
-
-- 🎉 Базовая инфраструктура проекта  - **Features:** Приветствие новых пользователей, сообщение при добавлении бота в чат
-
-- 🐘 PostgreSQL как основная БД (вместо SQLite)  - **Integration:** Обработчик события OnUserJoined, регистрация команд в main.go
-
-- 🐳 Docker Compose для развертывания (env + bot)- ✅ **Phase 3.5: Text Violations Counter** — счётчик текстовых нарушений с автоудалением
-
-- 🔄 Автоматические миграции при первом запуске  - `internal/modules/reactions/text_violations.go` — логика проверки violation_code=21 (268 строк)
-
-- 📝 Структурированное логирование (zap) в stdout + файлы  - `internal/modules/reactions/commands_violations.go` — команды управления (259 строк)
-
-- 🛑 Graceful shutdown при SIGINT/SIGTERM  - Методы: `checkTextViolation()`, `getTextViolationLimit()`, `getTextViolationCount()`, `incrementTextViolationCounter()`, `isVIPUser()`
-
-- 🧩 Module Registry (plugin-based архитектура)  - **Python паритет:** Полная миграция функционала из `checkmessage.py::regextext()` с violation=21
-
-- 👋 Welcome Module (/version, приветствия новых пользователей)  - **Команды:** `/mytextviolations`, `/settextlimit`, `/chattextviolations`
-
-- 🔧 Базовые команды (/start, /help, /modules, /enable, /disable)  - **Логика:** 0 = без лимита, N = лимит нарушений/день (default: 10)
-
-- 📊 Схема БД: 15 таблиц + 3 партиции для messages  - **Features:** Автоудаление при превышении, предупреждения за 2 до лимита, VIP bypass
-
-- 🔍 Event log для аудита всех действий бота  - **DB Schema:** Расширена таблица `reactions_log` колонками `violation_code`, `keyword`, `emojis_added`, `created_at`
-
-  - **Integration:** Проверка violation_code==21 в `reactions.go::OnMessage()` перед обработкой реакции
-
-### Исправлено- ✅ **Phase 2.5: Content Type Limiter** — лимиты на типы контента (photo/video/sticker/etc)
-
-- ✅ Проблема с duplicate `services:` блоками в docker-compose.env.yaml  - `internal/modules/limiter/content_limiter.go` — логика проверки лимитов (198 строк)
-
-- ✅ Неправильный hostname PostgreSQL (postgresql → postgres)  - `internal/modules/limiter/commands_content.go` — команды управления (276 строк)
-
-- ✅ Отсутствующий volume mount для migrations  - Методы в LimitRepository: `GetContentLimit()`, `GetContentCount()`, `IncrementContentCounter()`, `IsVIP()`, `SaveContentLimit()`, `GetAllContentLimits()`
-
-- ✅ SQL синтаксис ошибка в limiter_config UNIQUE constraint  - **Python паритет:** Полная миграция функционала из `reaction.py::newmessage()`
-
-- ✅ SQL парсер не обрабатывал PL/pgSQL `$$ ... $$` блоки  - **Команды:** `/setcontentlimit`, `/mycontentusage`, `/listcontentlimits`
-
-- ✅ Отсутствие логирования в файлы (добавлен logs/bot.log)  - **Логика:** -1 = запрет, 0 = без лимита, N = лимит сообщений/день
-
-  - **Features:** Автоматическое удаление при превышении, предупреждения за 2 до лимита, VIP bypass
-
-### Известные проблемы- ✅ **Edited Message Handler** — обработка отредактированных сообщений
-
-- ⚠️ Модуль Limiter не поддерживает лимиты на отдельные типы контента  - Обработчик `OnEdited` в `cmd/bot/main.go` — передаёт edited messages всем модулям
-
-- ⚠️ Отсутствует VIP система (обход лимитов)  - **Python паритет:** `@bot.edited_message_handler()` — обрабатывает точно так же как новое сообщение
-
-- ⚠️ Модуль Reactions не проверяет regex в сообщениях  - **Integration:** Отредактированные сообщения проходят через registry.OnMessage()
-
-- ⚠️ Текстовые нарушения (violation=21) не учитываются- 🔄 **Auto-Migration System** — автоматическое применение миграций при старте бота
-
-- ⚠️ Статистика не показывает разбивку по типам контента  - `internal/migrations/migrations.go` — Migration Manager (358 строк)
-
-- ⚠️ Scheduler имеет хардкод вместо настройки через БД  - Автоматическое определение состояния схемы: empty/complete/partial/unknown
-
-  - Валидация всех 18 таблиц и их колонок при старте
-
-**Статус:** Alpha Testing — сбор фидбэка на тестовых чатах  - Защита от partial migrations: ошибка если схема создана частично
-
-  - Production-ready: в будущем будет использовать версионированные миграции (002, 003, etc.)
+Формат основан на [Keep a Changelog](https://keepachangelog.com/ru/1.0.0/),
+и проект следует [Semantic Versioning](https://semver.org/lang/ru/).
 
 ---
 
-### Features
+## [Unreleased]
 
-## [0.4.0] - 2025-10-04- 🎉 **100% Python Parity Achieved** — все 28 функций из rts_bot мигрированы
+### В разработке
+- Рефакторинг модуля Limiter (лимиты на типы контента, VIP система)
+- Рефакторинг модуля Reactions (regex реакции, текстовые нарушения)
+- Рефакторинг модуля Statistics (детальная статистика по типам)
+- Рефакторинг модуля Scheduler (гибкий планировщик на БД)
 
-- 🔄 **Automatic Schema Creation:** Если БД пустая — создаёт все таблицы из 001_initial_schema.sql
+### Планируется
+- **Webhook Mode:** Переход с Long Polling на Webhook для production
+- **Redis:** Кеширование часто запрашиваемых данных
+- **Grafana:** Визуализация метрик и статистики
+- **CI/CD:** Автоматизированные тесты и деплой
 
-### Добавлено- 🔄 **Schema Validation:** При старте проверяет наличие всех таблиц и колонок
+---
 
-- Модуль Scheduler (базовая версия с хардкод задачами)- 🔄 **Safety Checks:** Останавливает бот если схема создана не полностью (partial state)
-
-- Модуль Statistics (базовая версия)- 🔄 **Development Workflow:** Hot development — удаляй БД и перезапускай бота для обновления схемы
-
-- Модуль Reactions (базовая версия)- 🔄 **Production Workflow:** Будущие изменения через версионированные миграции (002, 003, etc.)
-
-- Модуль Limiter (базовая версия с user_limits)
+## [0.6.0] - 2025-10-06
 
 ### Changed
+- 🚀 **Bot Init:** `internal/bot/init.go` — централизованная инициализация Telegram бота
+- 📝 **Logging:** Переход на структурированные логи с уровнями (ERROR, WARN, INFO, DEBUG)
 
-### Изменено- 📝 **README.md:** Удалены все упоминания ручного `migrate -path migrations` CLI
+### Added
+- **Limiter:**
+  - Лимиты на контент (текст, фото, стикеры, голосовые)
+  - Прогресс-бары для пользователей (`/mycontentusage`)
+  - Команды: `/setcontentlimit`, `/mycontentusage`, `/listcontentlimits`
 
-- Переход на telebot.v3 вместо telebot.v4- 📝 **README.md:** Обновлена секция "База данных PostgreSQL" - все таблицы теперь соответствуют 001_initial_schema.sql
+- **Reactions:**
+  - Приветствия новых участников (welcome/goodbye messages)
+  - Случайные стикеры/фото на входящие сообщения
+  - Версионная команда `/version`
 
-- 📝 **README.md:** Добавлена документация по всем 18 таблицам и 2 VIEW
+- **Statistics:**
+  - Команды: `/activestats`, `/totalmessages`
 
----- 📝 **README.md:** Обновлены секции с доступными модулями и командами
+### Fixed
+- ✅ **Graceful Shutdown:** Корректное завершение с context.Context
+- ✅ **Telegram Polling:** Убран legacy `bot.Start()`
 
-- 📝 **README.md:** Все Phase отмечены как завершённые (100% Complete)
+---
 
-## [0.3.0] - 2025-10-03- 📝 **migrations/README.md:** Добавлены инструкции по автомиграциям
+## [0.5.0] - 2025-10-05
 
+### Added
+- 🧩 **Module Registry:** Plugin-based архитектура
+  - Централизованный реестр модулей в `internal/modules/registry.go`
+  - Инициализация через `RegisterAllModules()`
+  - Поддержка модулей: `limiter`, `reactions`, `statistics`, `scheduler`, `chatexport`
 
+- **Violations (Regex Reactions):**
+  - Обработка regex-паттернов с violation=21
+  - Автоматическая реакция на запрещённые слова/фразы
+  - Интеграция с базой данных через `db.GetAllActiveRegexPatterns()`
 
-### Добавлено### Fixed
+- **Edit Handler:**
+  - Отредактированные сообщения проходят через ту же логику обработки
+  - Проверка лимитов, regex-паттернов, статистика
 
-- Module Registry для управления жизненным циклом модулей- ✅ **Documentation Drift:** README описывал устаревшую схему БД - теперь полностью соответствует SQL файлам
+### Changed
+- 📁 Рефакторинг структуры проекта:
+  - `internal/bot/` — инициализация Telegram-бота
+  - `internal/handlers/` — обработчики событий
+  - `internal/modules/` — модули функциональности
 
-- Middleware layer (rate limiting, logging, panic recovery)- ✅ **ExpectedSchema:** Обновлена с 9 таблиц до 18 реальных таблиц из 001_initial_schema.sql
+---
 
-- Обработка отредактированных сообщений (OnEdited)- ✅ **VIEW Names:** Исправлены названия view в документации (v_active_modules, v_daily_chat_stats)
+## [0.4.1] - 2025-10-04
 
+### Fixed
+- ✅ SQL синтаксис ошибка в `limiter_config` UNIQUE constraint
+- ✅ Отсутствующий volume mount для `migrations/`
 
+### Known Issues
+- ⚠️ Отсутствует VIP система (обход лимитов для администраторов)
 
----### Python Migration Status
+---
 
-✅ **28/28 функций (100% parity):**
+## [0.4.0] - 2025-10-04
 
-## [0.2.0] - 2025-10-02- Phase 1: Core Framework
+### Added
+- ✅ **Полный функционал реализован** — все основные модули работают
 
-- Phase 2: User Request Limiter (daily/monthly)
+- **Scheduler (Планировщик задач):**
+  - Поддержка `file_id` для стикеров/фото (без необходимости хранить файлы)
+  - Команды: `/schedule`, `/listtasks`, `/deletetask`
+  - Cron-формат для периодических задач
 
-### Добавлено- Phase 2.5: Content Type Limiter (photo/video/sticker/etc)
+- **ChatExport (Экспорт данных):**
+  - Экспорт статистики чата в CSV
+  - Команда: `/exportchat`
 
-- PostgreSQL schema с партиционированием messages по месяцам- Phase 3: Reactions Module (regex/exact/contains)
+- **Limiter (Лимиты на контент):**
+  - Лимиты на типы контента (текст, стикеры, фото, голосовые)
+  - Команды: `/setcontentlimit`, `/mycontentusage`, `/listcontentlimits`
 
-- Repositories pattern для работы с БД- Phase 3.5: Text Violations Counter (violation_code=21)
+- **Statistics (Статистика):**
+  - Команды: `/activestats`, `/totalmessages`
 
-- Config загрузка из .env с валидацией- Phase 4: Statistics Module (mystats/chatstats/topchat)
+### Changed
+- 🚀 **Docker Compose:** Обновлён `docker-compose.yml` с автомиграциями
+- 📝 **Migrations:** Автоматическое применение SQL-миграций при старте
+- 🔧 **Config:** Поддержка `config/config.json` с database credentials
 
-- Phase 5: Scheduler Module (cron tasks)
+### Technical Implementation
+- Полная интеграция с PostgreSQL 16
+- Автоматические миграции через volume mount
+- Graceful shutdown с `context.Context`
 
----- Welcome Module: /version, new_chat_members, bot_added_to_chat
+---
 
-- Edited Message Handler: обработка отредактированных сообщений
+## [0.3.1] - 2025-10-03
+
+### Fixed
+- ✅ Docker volume mount для миграций
+- ✅ PostgreSQL подключение через `host.docker.internal`
+
+---
+
+## [0.3.0] - 2025-10-03
+
+### Added
+- 📁 **migrations/:** SQL-миграции для автоматического создания схемы БД
+- 📝 **migrations/README.md:** Инструкции по автомиграциям
+- 🐳 **docker-compose.yml:** Контейнеризация с PostgreSQL 16
+
+- **Scheduler Module:**
+  - `/schedule <time> <message>` — Отложенная отправка сообщений
+  - `/schedule <cron> <message>` — Периодические задачи (cron-формат)
+  - `/listtasks` — Список всех задач планировщика в чате
+
+---
+
+## [0.2.0] - 2025-10-02
+
+### Added
+- 🗄️ **PostgreSQL Integration:**
+  - База данных для хранения статистики, лимитов, настроек
+  - Миграции через `migrations/001_initial_schema.sql`
+
+- **Commands:**
+  - `/version` — Версия бота и информация о системе
+  - `/activestats` — Активность пользователей за последние 7 дней
+  - `/totalmessages` — Общее количество сообщений в чате
+
+### Changed
+- Переход от In-Memory к PostgreSQL для статистики
+
+---
 
 ## [0.1.0] - 2025-10-01
 
-## [0.5.0] - 2025-01-XX (Phase 5: Scheduler Module)
-
-### Добавлено
-
-- Начальная структура проекта (cmd, internal, migrations)### Added
-
-- Базовый bot setup с telebot- ✅ **Scheduler Module** — планировщик задач на основе cron для автоматических действий в чате
-
-- Docker окружение для разработки  - `internal/postgresql/repositories/scheduler_repository.go` — SchedulerRepository (187 строк, 7 методов)
-
-  - `internal/modules/scheduler/scheduler.go` — SchedulerModule (370 строк)
-
----
-
-### Features
-
-## Типы изменений- ⏰ **Cron-планировщик:** Интеграция robfig/cron/v3 для выполнения задач по расписанию
-
-- ⏰ **Типы задач:** sticker, text, photo (отправка контента в чат по cron выражению)
-
-- `Добавлено` — для новых функций- ⏰ **Автозагрузка:** Активные задачи загружаются при старте бота и регистрируются в cron
-
-- `Изменено` — для изменений существующего функционала- ⏰ **Управление задачами:** Создание, удаление, ручной запуск задач (только админы)
-
-- `Устарело` — для функций, которые скоро будут удалены- ⏰ **Graceful shutdown:** Корректная остановка cron при завершении работы бота
-
-- `Удалено` — для удаленных функций- ⏰ **Валидация:** Проверка cron выражений при создании задачи
-
-- `Исправлено` — для исправления багов- ⏰ **История:** Запись последнего времени выполнения задачи (last_run)
-
-- `Безопасность` — для уязвимостей
-
-### Commands
-
----- `/addtask <name> "<cron>" <type> <data>` — (Админ) Добавить задачу планировщика
-
-- `/listtasks` — Список всех задач планировщика в чате
-
-[Unreleased]: https://github.com/flybasist/bmft/compare/v0.5.0...HEAD- `/deltask <id>` — (Админ) Удалить задачу по ID
-
-[0.5.0]: https://github.com/flybasist/bmft/releases/tag/v0.5.0- `/runtask <id>` — (Админ) Запустить задачу вручную (вне расписания)
-
-[0.4.0]: https://github.com/flybasist/bmft/releases/tag/v0.4.0
-
-[0.3.0]: https://github.com/flybasist/bmft/releases/tag/v0.3.0### Database
-
-[0.2.0]: https://github.com/flybasist/bmft/releases/tag/v0.2.0- Использует таблицу `scheduler_tasks` из миграции 003
-
-[0.1.0]: https://github.com/flybasist/bmft/releases/tag/v0.1.0- Колонки: id, chat_id, task_name, cron_expr, task_type, task_data, is_active, last_run
-
-- Индексы: chat_id, is_active для эффективной выборки активных задач
-
-### Technical Details
-- **Repository методы:**
-  - `CreateTask()` — создать новую задачу
-  - `GetTask()` — получить задачу по ID
-  - `GetChatTasks()` — все задачи чата
-  - `GetActiveTasks()` — только активные задачи
-  - `UpdateLastRun()` — обновить время последнего запуска
-  - `DeleteTask()` — удалить задачу
-  - `SetActive()` — включить/выключить задачу
-- **Модуль интегрирован:** Зарегистрирован в Module Registry, команды добавлены
-- **Cron управление:** Использует cron.ParseStandard() для валидации, cron.AddFunc() для регистрации
-
-### Migration from Python
-- ✅ Полная миграция функционала из Python rts_bot/scheduletask.py
-- ✅ Поддержка file_id для стикеров/фото (как в Python версии)
-- ✅ Cron выражения вместо simple schedule library
-
-### Documentation
-- 📝 README.md обновлён: Phase 5 отмечена как завершённая ✅
-- 📝 Команды scheduler добавлены в секцию Available Commands
-- 📝 CHANGELOG.md обновлён: версия 0.5.0
-
-## [0.4.0] - 2025-10-04 (Phase 4: Statistics Module)
-
 ### Added
-- ✅ **Statistics Module** — статистика активности пользователей в чатах
-  - `internal/postgresql/repositories/statistics_repository.go` — StatisticsRepository (250+ строк)
-  - `internal/modules/statistics/statistics.go` — StatisticsModule (470+ строк)
-
-### Features
-- 📊 **Личная статистика:** `/mystats` — сколько сообщений отправил за день/неделю
-- 📊 **Статистика чата:** `/chatstats` — общая активность в чате (только админы)
-- 📊 **Топ пользователей:** `/topchat` — топ 10 активных пользователей (админы)
-- 📊 **Автосбор:** При каждом сообщении инкрементирует счётчик в statistics_daily
-- 📊 **Форматирование:** Красивый вывод с эмодзи и группировкой по типам контента
-
-### Commands
-- `/mystats` — Посмотреть свою статистику за день и неделю
-- `/chatstats` — (Админ) Общая статистика чата за день
-- `/topchat` — (Админ) Топ 10 активных пользователей за день
-
-### Database
-- Использует таблицу `statistics_daily` для кэшированной агрегации
-- Автоматический сбор данных при каждом сообщении
-- Оптимизированные запросы с JOIN для получения username
-
-### Technical Details
-- **Repository методы:**
-  - `RecordMessage()` — записать сообщение в статистику
-  - `GetUserDailyStats()` — статистика пользователя за день
-  - `GetUserWeeklyStats()` — статистика пользователя за неделю
-  - `GetChatDailyStats()` — статистика чата за день
-  - `GetTopUsers()` — топ активных пользователей
-- **Модуль интегрирован:** Зарегистрирован в Module Registry
-- **OnMessage:** Автоматически собирает статистику при каждом сообщении
-
-### Documentation
-- 📝 README.md обновлён: Phase 4 завершена ✅
-- 📝 CHANGELOG.md обновлён: версия 0.4.0
-
-## [0.3.0] - 2025-10-04 (Phase 2: Limiter Module)
-
-### Added
-- ✅ **Limiter Module** — контроль лимитов пользователей на запросы к AI
-  - `migrations/003_create_limits_table.sql` — таблица user_limits с индексами
-  - `internal/postgresql/repositories/limit_repository.go` — LimitRepository (362 строки, 8 методов)
-  - `internal/modules/limiter/limiter.go` — LimiterModule (273 строки)
-  - Unit-тесты: `limit_repository_test.go` (486 строк, 10 тестов)
-
-### Features
-- 🎯 **Дневные лимиты:** По умолчанию 10 запросов в день, автоматический сброс через 24 часа
-- 🎯 **Месячные лимиты:** По умолчанию 300 запросов в месяц, автоматический сброс через 30 дней
-- 🎯 **Проверка и инкремент:** Атомарная операция CheckAndIncrement() с блокировкой при превышении
-- 🎯 **Уведомления:** Автоматические уведомления при превышении лимита и предупреждения при 20% остатке
-
-### Commands
-- `/limits` — Посмотреть свои текущие лимиты (дневной и месячный)
-- `/setlimit <user_id> daily <limit>` — (Админ) Установить дневной лимит пользователю
-- `/setlimit <user_id> monthly <limit>` — (Админ) Установить месячный лимит пользователю
-- `/getlimit <user_id>` — (Админ) Посмотреть лимиты конкретного пользователя
-
-### Database
-```sql
--- Новая таблица user_limits
-- user_id (PK), username
-- daily_limit, monthly_limit (с дефолтами 10/300)
-- daily_used, monthly_used (счётчики)
-- last_reset_daily, last_reset_monthly (для автосброса)
-- Индексы на last_reset_* для быстрого поиска устаревших записей
-```
-
-### Technical Details
-- **Repository методы:**
-  - `GetOrCreate()` — получить или создать запись лимита
-  - `CheckAndIncrement()` — проверить лимит и увеличить счётчик (атомарно)
-  - `GetLimitInfo()` — получить информацию о лимитах
-  - `SetDailyLimit()`, `SetMonthlyLimit()` — админские функции
-  - `ResetDailyIfNeeded()`, `ResetMonthlyIfNeeded()` — автоматический сброс
-- **Модуль интегрирован:** Зарегистрирован в Module Registry, команды добавлены в бота
-- **Покрытие тестами:** 10 unit-тестов для всех методов репозитория
-
-### Documentation
-- 📝 README.md обновлён: добавлены команды Limiter модуля
-- 📝 CHANGELOG.md обновлён: версия 0.3.0
-
-## [0.2.1] - 2025-01-04 (Phase 1 Implementation - 100% Complete)
-
-### Changed (Breaking Changes)
-- **Полная переработка архитектуры:** удален Kafka, реализована plugin-based модульная система
-- **Изменение библиотеки:** tgbotapi v5 заменен на telebot.v3 v3.3.8
-- **Изменение entry point:** cmd/telegram_bot → cmd/bot
-- **Deployment:** переход на Long Polling вместо webhook (60s timeout)
-- **Config:** удалены все Kafka-related переменные (KAFKA_BROKERS, KAFKA_GROUP_*, DLQ_TOPIC, etc.)
-- **Binary size:** ~10M (включает все зависимости)
-
-### Removed
-- ❌ **Kafka infrastructure:** internal/kafkabot/, internal/logger/
-- ❌ **Old bot:** internal/telegram_bot/, cmd/telegram_bot/
-- ❌ **Docker:** docker-compose.env.yaml, docker-compose.bot.yaml, Dockerfile.telegram_bot
-- ❌ **Dependencies:** segmentio/kafka-go v0.4.48 (библиотека полностью удалена)
-
-### Added (Phase 1 Complete - Steps 1-7)
-- ✅ **Core framework** (728 lines):
-  - `internal/core/interface.go` — Module interface (5 methods) + ModuleDependencies (DI)
-  - `internal/core/registry.go` — ModuleRegistry с lifecycle management
-  - `internal/core/middleware.go` — LoggerMiddleware, PanicRecoveryMiddleware, RateLimitMiddleware
-- ✅ **Bot implementation** (462 lines):
-  - `cmd/bot/main.go` — telebot.v3 с Long Polling, graceful shutdown
-  - Commands: `/start`, `/help`, `/modules`, `/enable <module>`, `/disable <module>`
-  - Admin permission checks через `bot.AdminsOf(chat)`
-  - Event logging для audit trail
-- ✅ **Repository layer** (265 lines):
-  - `internal/postgresql/repositories/chat_repository.go` — Chat CRUD
-  - `internal/postgresql/repositories/module_repository.go` — Module state + JSONB config
-  - `internal/postgresql/repositories/event_repository.go` — Event logging
-- ✅ **Dependencies:**
-  - gopkg.in/telebot.v3 v3.3.8 (Telegram bot framework)
-  - github.com/robfig/cron/v3 v3.0.1 (для будущего scheduler module)
-- ✅ **Config updates:**
-  - Removed: 9 Kafka-related fields
-  - Added: `POLLING_TIMEOUT` (default: 60 seconds)
-  - Defaults: `SHUTDOWN_TIMEOUT=15s`, `METRICS_ADDR=:9090`
-- ✅ **Utility functions:**
-  - `internal/logx/logx.go`: NewLogger() — инициализация zap logger
-  - `internal/postgresql/postgresql.go`: PingWithRetry() — проверка подключения к БД
-- ✅ **Testing:**
-  - `internal/config/config_test.go` — 5 unit tests (все проходят ✅)
-  - Tests: Load(), validate(), defaults, error handling, polling timeout parsing
-- ✅ **Documentation:**
-  - `PHASE1_CHECKLIST.md` — детальный чеклист (811 lines, 75% выполнено)
-  - All previous docs remain accurate (README, ARCHITECTURE, MIGRATION_PLAN)
-
-### Fixed
-- 🔧 Duplicate package declarations в generated files (автоматически исправлено)
-- 🔧 Config default values (ShutdownTimeout 15s, MetricsAddr :9090)
-
-### In Progress (Phase 1 - Steps 8-10 Remaining)
-- [ ] **Step 8:** Documentation updates (README quick start, CHANGELOG)
-- [ ] **Step 9:** Docker setup (Dockerfile multi-stage, docker-compose.yaml)
-- [ ] **Step 10:** Final verification (go vet, go fmt, functional testing)
-
-### Completed
-- [x] **Phase 1:** Core Framework (100% ✅)
-- [x] **Phase 2:** Limiter module (user request limits, daily/monthly counters) (100% ✅)
-
-### Planned (Phase 3-5, Phase AI)
-- [ ] **Phase 3:** Reactions module (regex patterns, cooldowns, Python migration) ← СЛЕДУЮЩАЯ
-- [ ] **Phase 4:** Statistics module (daily/weekly stats, /mystats, /chatstats)
-- [ ] **Phase 5:** Scheduler module (cron-like tasks, scheduled stickers)
-- [ ] **Phase AI:** AI Module (OpenAI/Anthropic, context management, /gpt) ← В БУДУЩЕМ
-- [ ] **Phase AntiSpam:** AntiSpam module (flood protection, link filtering) ← ОПЦИОНАЛЬНО
-
-### Removed
-- ❌ Apache Kafka и Zookeeper (overkill для RPS ~0.004)
-- ❌ segmentio/kafka-go dependency
-- ❌ tgbotapi v5 (заменен на telebot.v3)
-- ❌ Per-chat table pattern в SQLite (заменено на unified schema)
-
----
-
-## [0.2.0] - 2025-10-04 - Documentation Phase
-
-### Added
-- Comprehensive architecture documentation (2481 lines total)
-- Database migration script with optimized schema
-- 8-phase migration plan from Python version
-- Q&A document with architectural decisions
-- Quick start guide for new developers
-
-### Changed
-- Updated README with modular architecture focus
-- Replaced Kafka-centric description with plugin-based approach
-- Added examples for module development
-
----
-
-## [0.1.0] - 2025-08-25 - Initial Kafka-based Version
-
-### Added
-- Initial Kafka-based architecture
-- PostgreSQL integration
-- Telegram Bot API client with tgbotapi v5
-- Basic message processing pipeline
-- Docker Compose setup
-
-### Features
-- Message ingestion via Telegram Bot API
-- Kafka-based message bus
-- PostgreSQL persistence
-- Graceful shutdown
-- Structured logging with zap
+- 🎉 **Первый релиз!**
+- ✅ Базовая структура проекта на Go
+- ✅ Подключение к Telegram Bot API через `telebot.v3`
+- ✅ Обработка входящих сообщений
+- ✅ Базовая конфигурация через JSON
 
 ---
 
 ## Versioning Strategy
 
-Starting from v0.2.0, we follow Semantic Versioning:
+Проект следует [Semantic Versioning](https://semver.org/lang/ru/):
 
-- **MAJOR** version: incompatible API changes
-- **MINOR** version: new features in backward-compatible manner
-- **PATCH** version: backward-compatible bug fixes
+- **MAJOR (X.0.0):** Несовместимые изменения API, критические рефакторинги
+- **MINOR (0.X.0):** Новые функции с сохранением обратной совместимости
+- **PATCH (0.0.X):** Исправления багов, мелкие улучшения
 
-### Pre-1.0 versions:
-- `0.x.x` - Development versions with possible breaking changes
-- `1.0.0` - First stable release (after Phase 7 completion)
-
----
-
-## Migration Notes
-
-### From v0.1.0 to v0.2.0
-
-**Breaking changes:**
-1. Kafka removed — new architecture does NOT use Kafka
-2. tgbotapi replaced with telebot.v3
-3. Database schema completely redesigned
-
-**Migration path:**
-- See `MIGRATION_PLAN.md` for detailed 8-phase migration guide
-- Use `scripts/migrate_config.py` to import limits and reactions from SQLite
-- Old messages are NOT migrated (drop policy)
-
-**Environment variables changed:**
-- Removed: `KAFKA_BROKERS`, `KAFKA_GROUP_*`, `DLQ_TOPIC`, `LOG_TOPICS`
-- Added: `POLLING_TIMEOUT`
-- Kept: `TELEGRAM_BOT_TOKEN`, `POSTGRES_DSN`, `LOG_LEVEL`, `LOGGER_PRETTY`
-
----
-
-## Links
-
-- [Keep a Changelog](https://keepachangelog.com/ru/1.0.0/)
-- [Semantic Versioning](https://semver.org/lang/ru/)
-- [GitHub Repository](https://github.com/your-repo/bmft)
+**Текущий статус:** Alpha (v0.x.x) — активная разработка, API может меняться.
