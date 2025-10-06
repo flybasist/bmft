@@ -93,10 +93,12 @@
 
 - ❌ Старая таблица `limiter_config` (заменена на `content_limits`)
 - ❌ Старая таблица `scheduler_tasks` (заменена на `scheduled_tasks`)
+- ❌ Дублирующая таблица `statistics_daily` (статистика через `content_counters`)
+- ❌ Мертвый код `limit_repository.go` + тесты (заменен на `content_limits.go`)
 - ❌ Магические числа violation (11=амига, 12=похмелье, 21=мат)
 - ❌ Хардкод версии бота в main.go
 - ❌ Хардкод задач scheduler в коде
-- ❌ Файлы `docs/REFACTORING_PLAN.md`, `docs/PROGRESS.md` (устарели)
+- ❌ Файлы `docs/ANALYSIS.md`, `docs/ROADMAP.md` (устарели)
 
 ### Migration Notes
 
@@ -114,15 +116,40 @@ docker-compose up -d
 docker-compose logs bot | grep "initial migration completed successfully"
 ```
 
-**Результаты тестовой миграции (06.01.2025):**
-- ✅ Все 15 таблиц созданы успешно
+**Результаты финальной миграции (06.01.2025):**
+- ✅ Все 14 таблиц созданы успешно (убрали дублирующую statistics_daily)
 - ✅ Все 5 модулей зарегистрированы (limiter, reactions, textfilter, statistics, scheduler)
 - ✅ VIP система работает
 - ✅ Content Limits работают (12 типов контента)
 - ✅ Keyword Reactions работают (regex + cooldown)
 - ✅ Banned Words Filter работает
+- ✅ Statistics работает через content_counters (правильная архитектура)
 - ✅ Schema validation пройдена
+- ✅ Удален мертвый код (старый LimitRepository)
+- ✅ Все комментарии на русском, все логи на английском
 - ✅ Бот запущен без ошибок
+
+### Refactoring (06.01.2025)
+
+**Проблема:** Обнаружены ошибки при первом тестировании
+1. `reactions` модуль падал с ошибкой `column "cooldown_seconds" does not exist`
+2. `statistics` модуль падал с ошибкой `relation "statistics_daily" does not exist`
+3. Дублирование данных между `statistics_daily` и `content_counters`
+4. Мертвый код `limit_repository.go` (старая версия, не используется)
+
+**Решение:**
+1. ✅ Исправлен `reactions.go` - использует правильное название колонки `cooldown`
+2. ✅ Удалена таблица `statistics_daily` из схемы БД
+3. ✅ Переписан `statistics_repository.go` - теперь использует `content_counters` напрямую
+4. ✅ Удален мертвый код `limit_repository.go` + `limit_repository_test.go` (588 строк)
+5. ✅ Обновлен `ExpectedSchema` в `migrations.go` - убрано `statistics_daily`
+6. ✅ Все комментарии на русском, все логи на английском (проверено)
+7. ✅ Актуализирована документация (README, CHANGELOG, docs/)
+
+**Архитектура v0.6.0 (правильная):**
+- `messages` - хранит все сообщения (партиционирование по месяцам)
+- `content_counters` - дневные счетчики по типам контента (12 полей)
+- `statistics_repository` - агрегирует данные из `content_counters` на лету
 
 ### Technical Details
 
@@ -131,18 +158,24 @@ docker-compose logs bot | grep "initial migration completed successfully"
 - `internal/postgresql/repositories/content_limits.go` (280 строк)
 - `internal/postgresql/repositories/settings.go` (70 строк)
 - `internal/modules/textfilter/textfilter.go` (283 строки)
+- `docs/QUICK_START.md` (350+ строк) - руководство для пользователей
+- `docs/TESTING_SHORT.md` (150+ строк) - краткий чеклист тестирования
+- `docs/TERMINAL_CHEATSHEET.md` (200+ строк) - команды терминала
 
 **Обновлённые файлы:**
 - `internal/modules/limiter/limiter.go` - полностью переписан
-- `internal/modules/reactions/reactions.go` - полностью переписан
+- `internal/modules/reactions/reactions.go` - полностью переписан, исправлен баг
+- `internal/modules/statistics/statistics.go` - обновлены комментарии
+- `internal/postgresql/repositories/statistics_repository.go` - полностью переписан на `content_counters`
 - `internal/postgresql/repositories/scheduler_repository.go` - обновлены запросы
-- `migrations/001_initial_schema.sql` (330 строк) - новая схема v0.6.0
+- `internal/migrations/migrations.go` - убрано `statistics_daily` из ExpectedSchema
+- `migrations/001_initial_schema.sql` (179 строк) - убрана `statistics_daily`
 - `cmd/bot/main.go` - интеграция новых репозиториев
 
 **Статистика кода:**
-- Написано: ~1500 строк Go кода
-- Удалено: ~800 строк устаревшего кода
-- Схема БД: 14 таблиц, 13 индексов, 2 view, 4 триггера
+- Написано: ~2200 строк Go кода + документация
+- Удалено: ~1400 строк устаревшего/мертвого кода
+- Схема БД: 14 таблиц (было 15), 13 индексов, без дублирования данных
 
 ---
 

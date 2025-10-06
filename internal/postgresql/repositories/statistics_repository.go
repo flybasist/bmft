@@ -9,8 +9,8 @@ import (
 )
 
 // StatisticsRepository управляет статистикой пользователей и чатов.
-// Русский комментарий: Repository для работы с таблицей statistics_daily.
-// Собирает и кэширует статистику по типам контента (text, photo, video, sticker и т.д.)
+// Использует таблицу content_counters для агрегации данных по типам контента.
+// В v0.6.0 убрали дублирующую таблицу statistics_daily - вся статистика через content_counters.
 type StatisticsRepository struct {
 	db     *sql.DB
 	logger *zap.Logger
@@ -63,19 +63,51 @@ type TopUser struct {
 }
 
 // IncrementCounter увеличивает счётчик сообщений для пользователя.
-// Русский комментарий: Вызывается при каждом сообщении пользователя.
-// Использует ON CONFLICT для атомарного инкремента (UPSERT).
+// Использует таблицу content_counters с отдельными полями для каждого типа контента.
+// Вызывается при каждом сообщении, использует ON CONFLICT для атомарного инкремента.
 func (r *StatisticsRepository) IncrementCounter(chatID, userID int64, contentType string) error {
-	query := `
-		INSERT INTO statistics_daily (chat_id, user_id, stat_date, content_type, message_count, updated_at)
-		VALUES ($1, $2, CURRENT_DATE, $3, 1, NOW())
-		ON CONFLICT (chat_id, user_id, stat_date, content_type)
-		DO UPDATE SET 
-			message_count = statistics_daily.message_count + 1,
-			updated_at = NOW()
-	`
+	// Определяем какое поле инкрементировать
+	var column string
+	switch contentType {
+	case "text":
+		column = "count_text"
+	case "photo":
+		column = "count_photo"
+	case "video":
+		column = "count_video"
+	case "sticker":
+		column = "count_sticker"
+	case "animation":
+		column = "count_animation"
+	case "voice":
+		column = "count_voice"
+	case "video_note":
+		column = "count_video_note"
+	case "audio":
+		column = "count_audio"
+	case "document":
+		column = "count_document"
+	case "location":
+		column = "count_location"
+	case "contact":
+		column = "count_contact"
+	default:
+		// Неизвестный тип контента - пропускаем
+		r.logger.Warn("unknown content type for statistics",
+			zap.String("content_type", contentType))
+		return nil
+	}
 
-	_, err := r.db.Exec(query, chatID, userID, contentType)
+	query := fmt.Sprintf(`
+		INSERT INTO content_counters (chat_id, user_id, counter_date, %s, updated_at)
+		VALUES ($1, $2, CURRENT_DATE, 1, NOW())
+		ON CONFLICT (chat_id, user_id, counter_date)
+		DO UPDATE SET 
+			%s = content_counters.%s + 1,
+			updated_at = NOW()
+	`, column, column, column)
+
+	_, err := r.db.Exec(query, chatID, userID)
 	if err != nil {
 		r.logger.Error("failed to increment statistics counter",
 			zap.Int64("chat_id", chatID),
@@ -89,25 +121,25 @@ func (r *StatisticsRepository) IncrementCounter(chatID, userID int64, contentTyp
 }
 
 // GetUserStats возвращает статистику пользователя за указанный день.
-// Русский комментарий: Получает агрегированную статистику по всем типам контента.
+// Читает из content_counters, где каждый тип контента хранится в отдельном поле.
 func (r *StatisticsRepository) GetUserStats(userID, chatID int64, date time.Time) (*UserDailyStats, error) {
 	query := `
 		SELECT 
-			s.chat_id,
-			s.user_id,
+			c.chat_id,
+			c.user_id,
 			COALESCE(u.username, '') as username,
-			s.stat_date,
-			SUM(CASE WHEN s.content_type = 'text' THEN s.message_count ELSE 0 END) as text_count,
-			SUM(CASE WHEN s.content_type = 'photo' THEN s.message_count ELSE 0 END) as photo_count,
-			SUM(CASE WHEN s.content_type = 'video' THEN s.message_count ELSE 0 END) as video_count,
-			SUM(CASE WHEN s.content_type = 'sticker' THEN s.message_count ELSE 0 END) as sticker_count,
-			SUM(CASE WHEN s.content_type = 'voice' THEN s.message_count ELSE 0 END) as voice_count,
-			SUM(CASE WHEN s.content_type NOT IN ('text', 'photo', 'video', 'sticker', 'voice') THEN s.message_count ELSE 0 END) as other_count,
-			SUM(s.message_count) as total_count
-		FROM statistics_daily s
-		LEFT JOIN users u ON s.user_id = u.user_id
-		WHERE s.user_id = $1 AND s.chat_id = $2 AND s.stat_date = $3
-		GROUP BY s.chat_id, s.user_id, u.username, s.stat_date
+			c.counter_date,
+			c.count_text,
+			c.count_photo,
+			c.count_video,
+			c.count_sticker,
+			c.count_voice,
+			(c.count_animation + c.count_video_note + c.count_audio + c.count_document + c.count_location + c.count_contact) as other_count,
+			(c.count_text + c.count_photo + c.count_video + c.count_sticker + c.count_voice + 
+			 c.count_animation + c.count_video_note + c.count_audio + c.count_document + c.count_location + c.count_contact) as total_count
+		FROM content_counters c
+		LEFT JOIN users u ON c.user_id = u.user_id
+		WHERE c.user_id = $1 AND c.chat_id = $2 AND c.counter_date = $3
 	`
 
 	stats := &UserDailyStats{}
@@ -141,23 +173,24 @@ func (r *StatisticsRepository) GetUserStats(userID, chatID int64, date time.Time
 }
 
 // GetChatStats возвращает статистику всего чата за указанный день.
-// Русский комментарий: Агрегация по всем пользователям чата за день.
+// Агрегирует данные по всем пользователям чата из content_counters.
 func (r *StatisticsRepository) GetChatStats(chatID int64, date time.Time) (*ChatDailyStats, error) {
 	query := `
 		SELECT 
 			chat_id,
-			stat_date,
-			SUM(CASE WHEN content_type = 'text' THEN message_count ELSE 0 END) as text_count,
-			SUM(CASE WHEN content_type = 'photo' THEN message_count ELSE 0 END) as photo_count,
-			SUM(CASE WHEN content_type = 'video' THEN message_count ELSE 0 END) as video_count,
-			SUM(CASE WHEN content_type = 'sticker' THEN message_count ELSE 0 END) as sticker_count,
-			SUM(CASE WHEN content_type = 'voice' THEN message_count ELSE 0 END) as voice_count,
-			SUM(CASE WHEN content_type NOT IN ('text', 'photo', 'video', 'sticker', 'voice') THEN message_count ELSE 0 END) as other_count,
-			SUM(message_count) as total_count,
+			counter_date,
+			SUM(count_text) as text_count,
+			SUM(count_photo) as photo_count,
+			SUM(count_video) as video_count,
+			SUM(count_sticker) as sticker_count,
+			SUM(count_voice) as voice_count,
+			SUM(count_animation + count_video_note + count_audio + count_document + count_location + count_contact) as other_count,
+			SUM(count_text + count_photo + count_video + count_sticker + count_voice + 
+			    count_animation + count_video_note + count_audio + count_document + count_location + count_contact) as total_count,
 			COUNT(DISTINCT user_id) as user_count
-		FROM statistics_daily
-		WHERE chat_id = $1 AND stat_date = $2
-		GROUP BY chat_id, stat_date
+		FROM content_counters
+		WHERE chat_id = $1 AND counter_date = $2
+		GROUP BY chat_id, counter_date
 	`
 
 	stats := &ChatDailyStats{}
@@ -189,19 +222,20 @@ func (r *StatisticsRepository) GetChatStats(chatID int64, date time.Time) (*Chat
 }
 
 // GetTopUsers возвращает топ активных пользователей чата за указанный день.
-// Русский комментарий: Сортирует пользователей по количеству сообщений.
+// Сортирует пользователей по общему количеству сообщений из content_counters.
 func (r *StatisticsRepository) GetTopUsers(chatID int64, date time.Time, limit int) ([]TopUser, error) {
 	query := `
 		SELECT 
-			s.user_id,
+			c.user_id,
 			COALESCE(u.username, '') as username,
 			COALESCE(u.first_name, 'Unknown') as first_name,
-			SUM(s.message_count) as message_count,
-			ROW_NUMBER() OVER (ORDER BY SUM(s.message_count) DESC) as rank
-		FROM statistics_daily s
-		LEFT JOIN users u ON s.user_id = u.user_id
-		WHERE s.chat_id = $1 AND s.stat_date = $2
-		GROUP BY s.user_id, u.username, u.first_name
+			(c.count_text + c.count_photo + c.count_video + c.count_sticker + c.count_voice + 
+			 c.count_animation + c.count_video_note + c.count_audio + c.count_document + c.count_location + c.count_contact) as message_count,
+			ROW_NUMBER() OVER (ORDER BY (c.count_text + c.count_photo + c.count_video + c.count_sticker + c.count_voice + 
+			                              c.count_animation + c.count_video_note + c.count_audio + c.count_document + c.count_location + c.count_contact) DESC) as rank
+		FROM content_counters c
+		LEFT JOIN users u ON c.user_id = u.user_id
+		WHERE c.chat_id = $1 AND c.counter_date = $2
 		ORDER BY message_count DESC
 		LIMIT $3
 	`
@@ -242,27 +276,28 @@ func (r *StatisticsRepository) GetTopUsers(chatID int64, date time.Time, limit i
 }
 
 // GetUserWeeklyStats возвращает статистику пользователя за последние 7 дней.
-// Русский комментарий: Агрегация за неделю для отображения тренда.
+// Агрегирует данные за неделю для отображения тренда активности.
 func (r *StatisticsRepository) GetUserWeeklyStats(userID, chatID int64) (*UserDailyStats, error) {
 	weekAgo := time.Now().AddDate(0, 0, -7)
 
 	query := `
 		SELECT 
-			s.chat_id,
-			s.user_id,
+			c.chat_id,
+			c.user_id,
 			COALESCE(u.username, '') as username,
 			NOW()::date as stat_date,
-			SUM(CASE WHEN s.content_type = 'text' THEN s.message_count ELSE 0 END) as text_count,
-			SUM(CASE WHEN s.content_type = 'photo' THEN s.message_count ELSE 0 END) as photo_count,
-			SUM(CASE WHEN s.content_type = 'video' THEN s.message_count ELSE 0 END) as video_count,
-			SUM(CASE WHEN s.content_type = 'sticker' THEN s.message_count ELSE 0 END) as sticker_count,
-			SUM(CASE WHEN s.content_type = 'voice' THEN s.message_count ELSE 0 END) as voice_count,
-			SUM(CASE WHEN s.content_type NOT IN ('text', 'photo', 'video', 'sticker', 'voice') THEN s.message_count ELSE 0 END) as other_count,
-			SUM(s.message_count) as total_count
-		FROM statistics_daily s
-		LEFT JOIN users u ON s.user_id = u.user_id
-		WHERE s.user_id = $1 AND s.chat_id = $2 AND s.stat_date >= $3
-		GROUP BY s.chat_id, s.user_id, u.username
+			SUM(c.count_text) as text_count,
+			SUM(c.count_photo) as photo_count,
+			SUM(c.count_video) as video_count,
+			SUM(c.count_sticker) as sticker_count,
+			SUM(c.count_voice) as voice_count,
+			SUM(c.count_animation + c.count_video_note + c.count_audio + c.count_document + c.count_location + c.count_contact) as other_count,
+			SUM(c.count_text + c.count_photo + c.count_video + c.count_sticker + c.count_voice + 
+			    c.count_animation + c.count_video_note + c.count_audio + c.count_document + c.count_location + c.count_contact) as total_count
+		FROM content_counters c
+		LEFT JOIN users u ON c.user_id = u.user_id
+		WHERE c.user_id = $1 AND c.chat_id = $2 AND c.counter_date >= $3
+		GROUP BY c.chat_id, c.user_id, u.username
 	`
 
 	stats := &UserDailyStats{}
