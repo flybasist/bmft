@@ -1,6 +1,7 @@
 package limiter
 
 import (
+	"database/sql"
 	"fmt"
 	"strconv"
 	"strings"
@@ -11,284 +12,311 @@ import (
 	"gopkg.in/telebot.v3"
 )
 
-// LimiterModule — модуль контроля лимитов пользователей
 type LimiterModule struct {
-	limitRepo  *repositories.LimitRepository
-	logger     *zap.Logger
-	adminUsers []int64
+	vipRepo           *repositories.VIPRepository
+	contentLimitsRepo *repositories.ContentLimitsRepository
+	logger            *zap.Logger
+	adminUsers        []int64
 }
 
-// New создаёт новый экземпляр модуля лимитов
-func New(limitRepo *repositories.LimitRepository, logger *zap.Logger) *LimiterModule {
+func New(
+	vipRepo *repositories.VIPRepository,
+	contentLimitsRepo *repositories.ContentLimitsRepository,
+	logger *zap.Logger,
+) *LimiterModule {
 	return &LimiterModule{
-		limitRepo:  limitRepo,
-		logger:     logger,
-		adminUsers: []int64{},
+		vipRepo:           vipRepo,
+		contentLimitsRepo: contentLimitsRepo,
+		logger:            logger,
+		adminUsers:        []int64{},
 	}
 }
 
-// Name возвращает имя модуля
 func (m *LimiterModule) Name() string {
 	return "limiter"
 }
 
-// Init инициализирует модуль
 func (m *LimiterModule) Init(deps core.ModuleDependencies) error {
 	m.logger.Info("limiter module initialized")
 	return nil
 }
 
-// Commands возвращает список команд модуля
 func (m *LimiterModule) Commands() []core.BotCommand {
 	return []core.BotCommand{
-		{Command: "/limits", Description: "Посмотреть свои лимиты запросов"},
+		{Command: "/mystats", Description: "Посмотреть свою статистику и лимиты"},
 	}
 }
 
-// Enabled проверяет, включен ли модуль для чата (всегда включен)
 func (m *LimiterModule) Enabled(chatID int64) (bool, error) {
-	// Модуль лимитов всегда активен для всех чатов
 	return true, nil
 }
 
-// OnMessage обрабатывает входящее сообщение
 func (m *LimiterModule) OnMessage(ctx *core.MessageContext) error {
 	msg := ctx.Message
-
-	// Phase 2.5: Content Type Limiter
-	// Проверяем лимиты на типы контента (photo/video/sticker/etc)
-	// Работает для всех типов чатов (не только личные сообщения)
-	shouldContinue, err := m.checkContentLimit(ctx)
-	if err != nil {
-		m.logger.Error("failed to check content limit", zap.Error(err))
-	}
-	if !shouldContinue {
-		// Сообщение было удалено из-за превышения лимита
+	if msg.Private() {
 		return nil
 	}
 
-	// Phase 2: User Request Limiter
-	// Проверяем лимиты на AI-запросы (только для личных сообщений)
-	if !m.shouldCheckLimit(msg) {
-		return nil
-	}
-
+	chatID := msg.Chat.ID
 	userID := msg.Sender.ID
-	username := msg.Sender.Username
 
-	// Проверяем и инкрементируем лимит
-	allowed, info, err := m.limitRepo.CheckAndIncrement(userID, username)
+	isVIP, err := m.vipRepo.IsVIP(chatID, userID)
 	if err != nil {
-		m.logger.Error("failed to check limit",
-			zap.Int64("user_id", userID),
-			zap.Error(err),
-		)
-		return err
+		m.logger.Error("failed to check VIP status", zap.Int64("chat_id", chatID), zap.Int64("user_id", userID), zap.Error(err))
+	}
+	if isVIP {
+		m.logger.Debug("user is VIP, skipping limits", zap.Int64("chat_id", chatID), zap.Int64("user_id", userID))
+		return nil
 	}
 
-	// Если лимит исчерпан — блокируем
-	if !allowed {
-		return m.sendLimitExceededMessage(ctx, info)
+	contentType := m.detectContentType(msg)
+	if contentType == "" {
+		return nil
 	}
 
-	// Если осталось мало запросов — предупреждаем
-	if info.DailyRemaining <= 2 || info.MonthlyRemaining <= 10 {
-		m.sendLimitWarning(ctx, info)
+	limit, err := m.contentLimitsRepo.GetLimitForContentType(chatID, &userID, contentType)
+	if err != nil {
+		m.logger.Error("failed to get limit", zap.Error(err))
+		return nil
+	}
+
+	if limit == -1 {
+		m.logger.Info("content type is banned", zap.Int64("chat_id", chatID), zap.String("content_type", contentType))
+		return ctx.DeleteMessage()
+	}
+
+	if limit == 0 {
+		return nil
+	}
+
+	counter, err := m.contentLimitsRepo.GetCounter(chatID, userID, contentType)
+	if err != nil {
+		m.logger.Error("failed to get counter", zap.Error(err))
+		return nil
+	}
+
+	if counter >= limit {
+		m.logger.Info("content limit exceeded", zap.Int("counter", counter), zap.Int("limit", limit))
+		if err := ctx.DeleteMessage(); err != nil {
+			m.logger.Error("failed to delete message", zap.Error(err))
+		}
+		return ctx.SendReply(fmt.Sprintf("⛔️ @%s, вы превысили дневной лимит (%d/%d)", msg.Sender.Username, counter, limit))
+	}
+
+	if err := m.contentLimitsRepo.IncrementCounter(chatID, userID, contentType); err != nil {
+		m.logger.Error("failed to increment counter", zap.Error(err))
+	}
+
+	newCounter := counter + 1
+	if newCounter == limit-2 || newCounter == limit-1 {
+		_ = ctx.SendReply(fmt.Sprintf("⚠️ @%s, у вас осталось %d из %d", msg.Sender.Username, limit-newCounter, limit))
 	}
 
 	return nil
 }
 
-// Shutdown завершает работу модуля
 func (m *LimiterModule) Shutdown() error {
 	m.logger.Info("limiter module shutdown")
 	return nil
 }
 
-// shouldCheckLimit определяет, нужно ли проверять лимит для сообщения
-func (m *LimiterModule) shouldCheckLimit(msg *telebot.Message) bool {
-	// Проверяем только личные сообщения
-	// В будущем можно расширить для групповых чатов или специфичных команд
-	return msg.Private()
-}
-
-// sendLimitExceededMessage отправляет сообщение о превышении лимита
-func (m *LimiterModule) sendLimitExceededMessage(ctx *core.MessageContext, info *repositories.LimitInfo) error {
-	text := fmt.Sprintf(
-		"⛔️ *Лимит исчерпан!*\n\n"+
-			"📊 Дневной лимит: %d/%d\n"+
-			"📊 Месячный лимит: %d/%d\n\n"+
-			"Попробуйте позже или обратитесь к администратору.",
-		info.DailyUsed, info.DailyLimit,
-		info.MonthlyUsed, info.MonthlyLimit,
-	)
-
-	return ctx.SendReply(text)
-}
-
-// sendLimitWarning отправляет предупреждение о приближении к лимиту
-func (m *LimiterModule) sendLimitWarning(ctx *core.MessageContext, info *repositories.LimitInfo) {
-	text := fmt.Sprintf(
-		"⚠️ *Внимание!* У вас осталось:\n"+
-			"📊 Дневной: %d/%d запросов\n"+
-			"📊 Месячный: %d/%d запросов",
-		info.DailyRemaining, info.DailyLimit,
-		info.MonthlyRemaining, info.MonthlyLimit,
-	)
-
-	// Не блокируем выполнение если не отправилось
-	if err := ctx.SendReply(text); err != nil {
-		m.logger.Warn("failed to send limit warning", zap.Error(err))
+func (m *LimiterModule) detectContentType(msg *telebot.Message) string {
+	if msg.Photo != nil {
+		return "photo"
 	}
+	if msg.Video != nil {
+		return "video"
+	}
+	if msg.Sticker != nil {
+		return "sticker"
+	}
+	if msg.Animation != nil {
+		return "animation"
+	}
+	if msg.Voice != nil {
+		return "voice"
+	}
+	if msg.VideoNote != nil {
+		return "video_note"
+	}
+	if msg.Audio != nil {
+		return "audio"
+	}
+	if msg.Document != nil {
+		return "document"
+	}
+	if msg.Location != nil {
+		return "location"
+	}
+	if msg.Contact != nil {
+		return "contact"
+	}
+	if msg.Text != "" {
+		return "text"
+	}
+	return ""
 }
 
-// RegisterCommands регистрирует команды модуля
 func (m *LimiterModule) RegisterCommands(bot *telebot.Bot) {
-	// Phase 2: User Request Limiter
-	bot.Handle("/limits", m.handleLimitsCommand)
-
-	// Phase 2.5: Content Type Limiter
-	bot.Handle("/mycontentusage", m.handleMyContentUsage)
+	bot.Handle("/mystats", m.handleMyStats)
 }
 
-// RegisterAdminCommands регистрирует административные команды
 func (m *LimiterModule) RegisterAdminCommands(bot *telebot.Bot) {
-	// Phase 2: User Request Limiter
-	bot.Handle("/setlimit", m.handleSetLimitCommand)
-	bot.Handle("/getlimit", m.handleGetLimitCommand)
-
-	// Phase 2.5: Content Type Limiter
-	bot.Handle("/setcontentlimit", m.handleSetContentLimit)
-	bot.Handle("/listcontentlimits", m.handleListContentLimits)
+	bot.Handle("/setlimit", m.handleSetLimit)
+	bot.Handle("/setvip", m.handleSetVIP)
+	bot.Handle("/removevip", m.handleRemoveVIP)
+	bot.Handle("/listvips", m.handleListVIPs)
 }
 
-// handleLimitsCommand обрабатывает команду /limits
-func (m *LimiterModule) handleLimitsCommand(c telebot.Context) error {
+func (m *LimiterModule) handleMyStats(c telebot.Context) error {
+	if c.Message().Private() {
+		return c.Send("📊 В личных сообщениях лимиты не применяются.")
+	}
+
+	chatID := c.Chat().ID
 	userID := c.Sender().ID
 
-	// Получаем информацию о лимитах
-	info, err := m.limitRepo.GetLimitInfo(userID)
+	isVIP, err := m.vipRepo.IsVIP(chatID, userID)
 	if err != nil {
-		m.logger.Error("failed to get limit info",
-			zap.Int64("user_id", userID),
-			zap.Error(err),
-		)
-		return c.Send("❌ Не удалось получить информацию о лимитах")
+		return c.Send("❌ Ошибка получения статуса")
 	}
 
-	text := fmt.Sprintf(
-		"📊 *Ваши лимиты:*\n\n"+
-			"🔵 *Дневной лимит:*\n"+
-			"   Использовано: %d/%d\n"+
-			"   Осталось: %d\n\n"+
-			"🟢 *Месячный лимит:*\n"+
-			"   Использовано: %d/%d\n"+
-			"   Осталось: %d\n\n"+
-			"💡 _Лимиты обновляются автоматически каждый день/месяц._",
-		info.DailyUsed, info.DailyLimit, info.DailyRemaining,
-		info.MonthlyUsed, info.MonthlyLimit, info.MonthlyRemaining,
-	)
+	if isVIP {
+		return c.Send("👑 *VIP-статус активен*\n\nВсе лимиты для вас отключены!", &telebot.SendOptions{ParseMode: telebot.ModeMarkdown})
+	}
+
+	limits, err := m.contentLimitsRepo.GetLimits(chatID, &userID)
+	if err != nil {
+		return c.Send("❌ Не удалось получить лимиты")
+	}
+
+	text := "📊 *Ваша статистика:*\n\n"
+	types := []struct {
+		name, field string
+		value       int
+	}{
+		{"текст", "text", limits.LimitText},
+		{"фото", "photo", limits.LimitPhoto},
+		{"видео", "video", limits.LimitVideo},
+		{"стикеры", "sticker", limits.LimitSticker},
+	}
+
+	for _, t := range types {
+		if t.value == -1 {
+			text += fmt.Sprintf("🚫 %s: *ЗАПРЕЩЕНО*\n", t.name)
+		} else if t.value == 0 {
+			text += fmt.Sprintf("♾ %s: *без лимита*\n", t.name)
+		} else {
+			counter, _ := m.contentLimitsRepo.GetCounter(chatID, userID, t.field)
+			emoji := "✅"
+			if counter >= t.value {
+				emoji = "⛔️"
+			} else if counter >= t.value-2 {
+				emoji = "⚠️"
+			}
+			text += fmt.Sprintf("%s %s: %d из %d\n", emoji, t.name, counter, t.value)
+		}
+	}
 
 	return c.Send(text, &telebot.SendOptions{ParseMode: telebot.ModeMarkdown})
 }
 
-// handleSetLimitCommand обрабатывает команду /setlimit
-// Формат: /setlimit <user_id> daily|monthly <limit>
-func (m *LimiterModule) handleSetLimitCommand(c telebot.Context) error {
+func (m *LimiterModule) handleSetLimit(c telebot.Context) error {
 	if !m.isAdmin(c.Sender().ID) {
-		return c.Send("❌ Эта команда доступна только администраторам")
+		return c.Send("❌ Команда доступна только администраторам")
+	}
+
+	if c.Message().ReplyTo == nil {
+		return c.Send("❌ Ответьте этой командой на сообщение пользователя")
 	}
 
 	args := strings.Fields(c.Text())
-	if len(args) != 4 {
-		return c.Send("📖 *Использование:*\n`/setlimit <user_id> daily|monthly <limit>`\n\n*Примеры:*\n`/setlimit 123456789 daily 20`\n`/setlimit 123456789 monthly 500`",
-			&telebot.SendOptions{ParseMode: telebot.ModeMarkdown})
+	if len(args) != 3 {
+		return c.Send("Использование: /setlimit <type> <value>\nПример: /setlimit photo 5")
 	}
 
-	userID, err := strconv.ParseInt(args[1], 10, 64)
-	if err != nil {
-		return c.Send("❌ Неверный user_id")
+	contentType := args[1]
+	limitValue, err := strconv.Atoi(args[2])
+	if err != nil || limitValue < -1 {
+		return c.Send("❌ Неверное значение лимита")
 	}
 
-	limitType := args[2]
-	limit, err := strconv.Atoi(args[3])
-	if err != nil {
-		return c.Send("❌ Неверный лимит (должно быть целое число)")
+	chatID := c.Chat().ID
+	userID := c.Message().ReplyTo.Sender.ID
+
+	if err := m.contentLimitsRepo.SetLimit(chatID, &userID, contentType, limitValue); err != nil {
+		return c.Send("❌ Не удалось установить лимит")
 	}
 
-	if limit < 0 {
-		return c.Send("❌ Лимит не может быть отрицательным")
-	}
-
-	switch limitType {
-	case "daily":
-		if err := m.limitRepo.SetDailyLimit(userID, limit); err != nil {
-			m.logger.Error("failed to set daily limit",
-				zap.Int64("user_id", userID),
-				zap.Error(err),
-			)
-			return c.Send("❌ Не удалось установить лимит")
-		}
-		return c.Send(fmt.Sprintf("✅ Дневной лимит для пользователя `%d` установлен: *%d*",
-			userID, limit), &telebot.SendOptions{ParseMode: telebot.ModeMarkdown})
-
-	case "monthly":
-		if err := m.limitRepo.SetMonthlyLimit(userID, limit); err != nil {
-			m.logger.Error("failed to set monthly limit",
-				zap.Int64("user_id", userID),
-				zap.Error(err),
-			)
-			return c.Send("❌ Не удалось установить лимит")
-		}
-		return c.Send(fmt.Sprintf("✅ Месячный лимит для пользователя `%d` установлен: *%d*",
-			userID, limit), &telebot.SendOptions{ParseMode: telebot.ModeMarkdown})
-
-	default:
-		return c.Send("❌ Тип лимита должен быть: `daily` или `monthly`",
-			&telebot.SendOptions{ParseMode: telebot.ModeMarkdown})
-	}
+	return c.Send(fmt.Sprintf("✅ Лимит установлен: %s = %d", contentType, limitValue))
 }
 
-// handleGetLimitCommand обрабатывает команду /getlimit
-// Формат: /getlimit <user_id>
-func (m *LimiterModule) handleGetLimitCommand(c telebot.Context) error {
+func (m *LimiterModule) handleSetVIP(c telebot.Context) error {
 	if !m.isAdmin(c.Sender().ID) {
-		return c.Send("❌ Эта команда доступна только администраторам")
+		return c.Send("❌ Команда доступна только администраторам")
 	}
 
-	args := strings.Fields(c.Text())
-	if len(args) != 2 {
-		return c.Send("📖 *Использование:*\n`/getlimit <user_id>`\n\n*Пример:*\n`/getlimit 123456789`",
-			&telebot.SendOptions{ParseMode: telebot.ModeMarkdown})
+	if c.Message().ReplyTo == nil {
+		return c.Send("❌ Ответьте этой командой на сообщение пользователя")
 	}
 
-	userID, err := strconv.ParseInt(args[1], 10, 64)
+	chatID := c.Chat().ID
+	userID := c.Message().ReplyTo.Sender.ID
+	grantedBy := c.Sender().ID
+	reason := "VIP статус предоставлен администратором"
+
+	if err := m.vipRepo.GrantVIP(chatID, userID, grantedBy, reason); err != nil {
+		return c.Send("❌ Не удалось предоставить VIP-статус")
+	}
+
+	return c.Send("👑 VIP-статус предоставлен!")
+}
+
+func (m *LimiterModule) handleRemoveVIP(c telebot.Context) error {
+	if !m.isAdmin(c.Sender().ID) {
+		return c.Send("❌ Команда доступна только администраторам")
+	}
+
+	if c.Message().ReplyTo == nil {
+		return c.Send("❌ Ответьте этой командой на сообщение пользователя")
+	}
+
+	chatID := c.Chat().ID
+	userID := c.Message().ReplyTo.Sender.ID
+
+	if err := m.vipRepo.RevokeVIP(chatID, userID); err != nil {
+		if err == sql.ErrNoRows {
+			return c.Send("ℹ️ У этого пользователя нет VIP-статуса")
+		}
+		return c.Send("❌ Не удалось отозвать VIP-статус")
+	}
+
+	return c.Send("✅ VIP-статус отозван")
+}
+
+func (m *LimiterModule) handleListVIPs(c telebot.Context) error {
+	if !m.isAdmin(c.Sender().ID) {
+		return c.Send("❌ Команда доступна только администраторам")
+	}
+
+	chatID := c.Chat().ID
+	vips, err := m.vipRepo.ListVIPs(chatID)
 	if err != nil {
-		return c.Send("❌ Неверный user_id")
+		return c.Send("❌ Не удалось получить список VIP")
 	}
 
-	info, err := m.limitRepo.GetLimitInfo(userID)
-	if err != nil {
-		m.logger.Error("failed to get limit info",
-			zap.Int64("user_id", userID),
-			zap.Error(err),
-		)
-		return c.Send("❌ Не удалось получить информацию")
+	if len(vips) == 0 {
+		return c.Send("ℹ️ В этом чате нет VIP-пользователей")
 	}
 
-	text := fmt.Sprintf(
-		"📊 *Лимиты пользователя* `%d`:\n\n"+
-			"🔵 *Дневной:* %d/%d (осталось %d)\n"+
-			"🟢 *Месячный:* %d/%d (осталось %d)",
-		userID,
-		info.DailyUsed, info.DailyLimit, info.DailyRemaining,
-		info.MonthlyUsed, info.MonthlyLimit, info.MonthlyRemaining,
-	)
+	text := "👑 *VIP-пользователи:*\n\n"
+	for i, vip := range vips {
+		text += fmt.Sprintf("%d. User ID: `%d`\n   Причина: %s\n\n", i+1, vip.UserID, vip.Reason)
+	}
 
 	return c.Send(text, &telebot.SendOptions{ParseMode: telebot.ModeMarkdown})
 }
 
-// isAdmin проверяет, является ли пользователь администратором
 func (m *LimiterModule) isAdmin(userID int64) bool {
 	for _, id := range m.adminUsers {
 		if id == userID {
@@ -298,7 +326,6 @@ func (m *LimiterModule) isAdmin(userID int64) bool {
 	return false
 }
 
-// SetAdminUsers устанавливает список администраторов
 func (m *LimiterModule) SetAdminUsers(adminUsers []int64) {
 	m.adminUsers = adminUsers
 	m.logger.Info("admin users updated", zap.Int("count", len(adminUsers)))

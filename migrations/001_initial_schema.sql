@@ -1,218 +1,231 @@
 -- ============================================================
--- BMFT Database Schema - Full Schema (All Phases)
+-- BMFT Database Schema v0.6.0 - REFACTORED
 -- ============================================================
--- Миграция 001: Полная схема базы данных
--- Версия: v0.3.0+
--- Дата: 2025-10-04
--- Автор: FlyBasist
+-- Версия: 0.6.0-dev
+-- Дата: 2025-10-06
 -- 
--- Содержит:
--- - Phase 1: Core Framework (chats, users, modules, event_log)
--- - Phase 2: Limiter Module (user_limits)
--- - Phase 3: Reactions Module (reactions_config, reactions_log)
--- - Phase 4-5: Statistics & Scheduler (готовые таблицы)
--- 
--- При первом запуске приложение:
--- 1. Проверит наличие таблиц
--- 2. Выполнит эту миграцию если БД пустая
--- 3. Валидирует схему
--- 4. Остановится с ошибкой если схема неполная
+-- ФИЛОСОФИЯ:
+-- 1. Ничего не хардкодим - всё через БД и команды ТГ
+-- 2. Упрощённая логика - без магических чисел  
+-- 3. VIP система - обход всех лимитов
+-- 4. Понятность > сложность
+--
+-- ИЗМЕНЕНИЯ от v0.5:
+-- - Убраны violation codes → явные типы
+-- - Лимиты на КАЖДЫЙ тип контента
+-- - VIP через отдельную таблицу
+-- - Scheduler полностью на БД
 -- ============================================================
 
 -- ============================================================
--- CORE TABLES (общие для всех модулей)
+-- CORE: Базовые таблицы
 -- ============================================================
 
--- Таблица чатов (метаинформация)
 CREATE TABLE IF NOT EXISTS chats (
-    id BIGSERIAL PRIMARY KEY,
-    chat_id BIGINT UNIQUE NOT NULL,
-    chat_type VARCHAR(20) NOT NULL, -- 'private', 'group', 'supergroup', 'channel'
+    chat_id BIGINT PRIMARY KEY,
+    chat_type VARCHAR(20) NOT NULL,
     title TEXT,
     username TEXT,
-    is_active BOOLEAN DEFAULT true,
+    is_active BOOLEAN DEFAULT TRUE,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
-CREATE INDEX idx_chats_chat_id ON chats(chat_id);
-CREATE INDEX idx_chats_active ON chats(is_active, chat_id);
+CREATE INDEX idx_chats_active ON chats(is_active);
 
--- Таблица пользователей (кэш информации о пользователях)
 CREATE TABLE IF NOT EXISTS users (
-    id BIGSERIAL PRIMARY KEY,
-    user_id BIGINT UNIQUE NOT NULL,
+    user_id BIGINT PRIMARY KEY,
     username TEXT,
     first_name TEXT,
     last_name TEXT,
-    is_bot BOOLEAN DEFAULT false,
+    is_bot BOOLEAN DEFAULT FALSE,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
-CREATE INDEX idx_users_user_id ON users(user_id);
-
--- Таблица администраторов чатов (для управления модулями и настройками)
-CREATE TABLE IF NOT EXISTS chat_admins (
+CREATE TABLE IF NOT EXISTS chat_vips (
     id BIGSERIAL PRIMARY KEY,
     chat_id BIGINT NOT NULL REFERENCES chats(chat_id) ON DELETE CASCADE,
     user_id BIGINT NOT NULL,
-    can_manage_modules BOOLEAN DEFAULT true,   -- может включать/выключать модули
-    can_manage_limits BOOLEAN DEFAULT true,    -- может настраивать лимиты
-    can_manage_reactions BOOLEAN DEFAULT true, -- может настраивать реакции
-    created_at TIMESTAMPTZ DEFAULT NOW(),
-    updated_at TIMESTAMPTZ DEFAULT NOW(),
+    granted_by BIGINT,
+    granted_at TIMESTAMPTZ DEFAULT NOW(),
+    reason TEXT,
     UNIQUE(chat_id, user_id)
 );
 
-CREATE INDEX idx_chat_admins_chat ON chat_admins(chat_id);
-
--- ============================================================
--- MODULE CONFIGURATION (включение/выключение модулей per chat)
--- ============================================================
+CREATE INDEX idx_chat_vips_lookup ON chat_vips(chat_id, user_id);
 
 CREATE TABLE IF NOT EXISTS chat_modules (
     id BIGSERIAL PRIMARY KEY,
     chat_id BIGINT NOT NULL REFERENCES chats(chat_id) ON DELETE CASCADE,
-    module_name VARCHAR(50) NOT NULL, -- 'limiter', 'reactions', 'antispam', 'statistics', etc.
-    is_enabled BOOLEAN DEFAULT false,
-    config JSONB DEFAULT '{}', -- специфичная конфигурация модуля
+    module_name VARCHAR(50) NOT NULL,
+    is_enabled BOOLEAN DEFAULT FALSE,
+    config JSONB DEFAULT '{}',
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW(),
     UNIQUE(chat_id, module_name)
 );
 
-CREATE INDEX idx_chat_modules_chat ON chat_modules(chat_id, is_enabled);
-CREATE INDEX idx_chat_modules_enabled ON chat_modules(module_name, is_enabled);
+CREATE INDEX idx_chat_modules_enabled ON chat_modules(chat_id, is_enabled);
 
 -- ============================================================
--- MESSAGES TABLE (единая для всех чатов, партиционирование по дате)
+-- MESSAGES: Партиционирование по месяцам
 -- ============================================================
 
--- Родительская таблица (партиционирование по created_at)
 CREATE TABLE IF NOT EXISTS messages (
     id BIGSERIAL,
     chat_id BIGINT NOT NULL,
     user_id BIGINT NOT NULL,
     message_id BIGINT NOT NULL,
-    content_type VARCHAR(20) NOT NULL, -- 'text', 'photo', 'video', 'sticker', etc.
+    content_type VARCHAR(20) NOT NULL,
     text TEXT,
     caption TEXT,
-    file_id TEXT, -- для фото/видео/стикеров
-    metadata JSONB DEFAULT '{}', -- дополнительные данные (reply_to, forward_from, etc.)
+    file_id TEXT,
+    was_deleted BOOLEAN DEFAULT FALSE,
+    deletion_reason TEXT,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     PRIMARY KEY (id, created_at)
 ) PARTITION BY RANGE (created_at);
 
--- Индексы на родительской таблице (будут наследоваться партициями)
 CREATE INDEX idx_messages_chat_user ON messages(chat_id, user_id, created_at DESC);
-CREATE INDEX idx_messages_chat_content ON messages(chat_id, content_type, created_at DESC);
-CREATE INDEX idx_messages_unique ON messages(chat_id, message_id, created_at);
+CREATE INDEX idx_messages_content_type ON messages(chat_id, content_type, created_at DESC);
 
--- Создаём партиции на 3 месяца вперед (автоматизация через pg_partman или cron)
-CREATE TABLE messages_2025_10 PARTITION OF messages
-    FOR VALUES FROM ('2025-10-01') TO ('2025-11-01');
-CREATE TABLE messages_2025_11 PARTITION OF messages
-    FOR VALUES FROM ('2025-11-01') TO ('2025-12-01');
-CREATE TABLE messages_2025_12 PARTITION OF messages
-    FOR VALUES FROM ('2025-12-01') TO ('2026-01-01');
+CREATE TABLE messages_2025_10 PARTITION OF messages FOR VALUES FROM ('2025-10-01') TO ('2025-11-01');
+CREATE TABLE messages_2025_11 PARTITION OF messages FOR VALUES FROM ('2025-11-01') TO ('2025-12-01');
+CREATE TABLE messages_2025_12 PARTITION OF messages FOR VALUES FROM ('2025-12-01') TO ('2026-01-01');
 
 -- ============================================================
--- MODULE: LIMITER (лимиты на контент)
+-- MODULE: LIMITER
 -- ============================================================
 
-CREATE TABLE IF NOT EXISTS limiter_config (
+CREATE TABLE IF NOT EXISTS content_limits (
     id BIGSERIAL PRIMARY KEY,
     chat_id BIGINT NOT NULL REFERENCES chats(chat_id) ON DELETE CASCADE,
-    user_id BIGINT DEFAULT NULL, -- NULL = настройки для всех пользователей (allmembers)
-    content_type VARCHAR(20) NOT NULL, -- 'photo', 'video', 'sticker', 'text', etc.
-    daily_limit INT NOT NULL, -- -1 = запрет, 0 = без лимита, N = лимит
-    warning_threshold INT DEFAULT 2, -- за сколько сообщений до лимита предупреждать
-    is_vip BOOLEAN DEFAULT false, -- VIP игнорирует лимиты
-    created_at TIMESTAMPTZ DEFAULT NOW(),
-    updated_at TIMESTAMPTZ DEFAULT NOW()
-);
-
--- Уникальный индекс с COALESCE (вместо constraint)
-CREATE UNIQUE INDEX idx_limiter_unique ON limiter_config(chat_id, COALESCE(user_id, -1), content_type);
-CREATE INDEX idx_limiter_chat ON limiter_config(chat_id, content_type);
-CREATE INDEX idx_limiter_user ON limiter_config(chat_id, user_id) WHERE user_id IS NOT NULL;
-
--- Счётчики (кэш для быстрого доступа, обновляется триггерами или периодически)
-CREATE TABLE IF NOT EXISTS limiter_counters (
-    id BIGSERIAL PRIMARY KEY,
-    chat_id BIGINT NOT NULL,
-    user_id BIGINT NOT NULL,
-    content_type VARCHAR(20) NOT NULL,
-    counter_date DATE NOT NULL DEFAULT CURRENT_DATE,
-    count INT DEFAULT 0,
+    user_id BIGINT,
+    limit_text INTEGER DEFAULT 0,
+    limit_photo INTEGER DEFAULT 0,
+    limit_video INTEGER DEFAULT 0,
+    limit_sticker INTEGER DEFAULT 0,
+    limit_animation INTEGER DEFAULT 0,
+    limit_voice INTEGER DEFAULT 0,
+    limit_video_note INTEGER DEFAULT 0,
+    limit_audio INTEGER DEFAULT 0,
+    limit_document INTEGER DEFAULT 0,
+    limit_location INTEGER DEFAULT 0,
+    limit_contact INTEGER DEFAULT 0,
+    limit_banned_words INTEGER DEFAULT 0,
+    warning_threshold INTEGER DEFAULT 2,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW(),
-    UNIQUE(chat_id, user_id, content_type, counter_date)
+    UNIQUE(chat_id, COALESCE(user_id, -1))
 );
 
-CREATE INDEX idx_limiter_counters_lookup ON limiter_counters(chat_id, user_id, counter_date);
+CREATE INDEX idx_content_limits_chat ON content_limits(chat_id);
 
--- ============================================================
--- MODULE: REACTIONS (реакции на ключевые слова)
--- ============================================================
-
-CREATE TABLE IF NOT EXISTS reactions_config (
-    id BIGSERIAL PRIMARY KEY,
-    chat_id BIGINT NOT NULL REFERENCES chats(chat_id) ON DELETE CASCADE,
-    user_id BIGINT DEFAULT NULL, -- NULL = для всех пользователей
-    content_type VARCHAR(20) NOT NULL, -- 'text', 'photo', 'video', etc.
-    trigger_type VARCHAR(20) NOT NULL, -- 'regex', 'exact', 'contains'
-    trigger_pattern TEXT NOT NULL, -- regex или текст для поиска
-    reaction_type VARCHAR(20) NOT NULL, -- 'text', 'sticker', 'delete', 'mute'
-    reaction_data TEXT, -- текст ответа или file_id стикера
-    violation_code INT DEFAULT 0, -- код нарушения для статистики
-    cooldown_minutes INT DEFAULT 10, -- антифлуд: сколько минут между реакциями
-    is_enabled BOOLEAN DEFAULT true,
-    is_vip BOOLEAN DEFAULT false,
-    created_at TIMESTAMPTZ DEFAULT NOW(),
-    updated_at TIMESTAMPTZ DEFAULT NOW()
-);
-
-CREATE INDEX idx_reactions_chat ON reactions_config(chat_id, content_type, is_enabled);
-
--- Логи реакций (для антифлуда и статистики)
-CREATE TABLE IF NOT EXISTS reactions_log (
+CREATE TABLE IF NOT EXISTS content_counters (
     id BIGSERIAL PRIMARY KEY,
     chat_id BIGINT NOT NULL,
     user_id BIGINT NOT NULL,
-    reaction_id BIGINT DEFAULT NULL REFERENCES reactions_config(id) ON DELETE CASCADE, -- NULL для text violations
-    message_id BIGINT NOT NULL,
-    keyword TEXT,  -- ключевое слово для text violations
-    emojis_added TEXT,  -- для совместимости с Python версией
-    violation_code INT DEFAULT 0,  -- Phase 3.5: 21 = text violation
-    triggered_at TIMESTAMPTZ DEFAULT NOW(),
-    created_at TIMESTAMPTZ DEFAULT NOW()
+    counter_date DATE NOT NULL DEFAULT CURRENT_DATE,
+    count_text INTEGER DEFAULT 0,
+    count_photo INTEGER DEFAULT 0,
+    count_video INTEGER DEFAULT 0,
+    count_sticker INTEGER DEFAULT 0,
+    count_animation INTEGER DEFAULT 0,
+    count_voice INTEGER DEFAULT 0,
+    count_video_note INTEGER DEFAULT 0,
+    count_audio INTEGER DEFAULT 0,
+    count_document INTEGER DEFAULT 0,
+    count_location INTEGER DEFAULT 0,
+    count_contact INTEGER DEFAULT 0,
+    count_banned_words INTEGER DEFAULT 0,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE(chat_id, user_id, counter_date)
 );
 
-CREATE INDEX idx_reactions_log_cooldown ON reactions_log(chat_id, reaction_id, triggered_at DESC);
-CREATE INDEX idx_reactions_log_violations ON reactions_log(chat_id, user_id, violation_code, created_at DESC);
+CREATE INDEX idx_content_counters_lookup ON content_counters(chat_id, user_id, counter_date);
 
 -- ============================================================
--- MODULE: ANTISPAM (антиспам фильтры)
+-- MODULE: REACTIONS
 -- ============================================================
 
-CREATE TABLE IF NOT EXISTS antispam_config (
+CREATE TABLE IF NOT EXISTS keyword_reactions (
     id BIGSERIAL PRIMARY KEY,
     chat_id BIGINT NOT NULL REFERENCES chats(chat_id) ON DELETE CASCADE,
-    rule_name VARCHAR(50) NOT NULL,
-    rule_type VARCHAR(20) NOT NULL, -- 'flood', 'duplicate', 'links', 'mentions'
-    threshold_value INT, -- порог срабатывания (например, 5 сообщений в минуту)
-    action VARCHAR(20) NOT NULL, -- 'warn', 'delete', 'mute', 'ban'
-    is_enabled BOOLEAN DEFAULT true,
+    user_id BIGINT,
+    content_types TEXT[] NOT NULL,
+    trigger_pattern TEXT NOT NULL,
+    case_sensitive BOOLEAN DEFAULT FALSE,
+    reaction_type VARCHAR(20) NOT NULL,
+    reaction_data TEXT NOT NULL,
+    cooldown_minutes INTEGER DEFAULT 60,
+    last_triggered_at TIMESTAMPTZ,
+    description TEXT,
+    is_enabled BOOLEAN DEFAULT TRUE,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
-CREATE INDEX idx_antispam_chat ON antispam_config(chat_id, is_enabled);
+CREATE INDEX idx_keyword_reactions_chat ON keyword_reactions(chat_id, is_enabled);
+
+CREATE TABLE IF NOT EXISTS banned_words (
+    id BIGSERIAL PRIMARY KEY,
+    chat_id BIGINT NOT NULL REFERENCES chats(chat_id) ON DELETE CASCADE,
+    pattern TEXT NOT NULL,
+    pattern_type VARCHAR(20) DEFAULT 'regex',
+    case_sensitive BOOLEAN DEFAULT FALSE,
+    action VARCHAR(20) NOT NULL,
+    warning_message TEXT,
+    description TEXT,
+    is_enabled BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX idx_banned_words_chat ON banned_words(chat_id, is_enabled);
+
+CREATE TABLE IF NOT EXISTS reaction_triggers (
+    id BIGSERIAL PRIMARY KEY,
+    chat_id BIGINT NOT NULL,
+    user_id BIGINT NOT NULL,
+    message_id BIGINT NOT NULL,
+    trigger_type VARCHAR(20) NOT NULL,
+    trigger_id BIGINT,
+    matched_text TEXT,
+    action_taken VARCHAR(20),
+    reaction_sent TEXT,
+    triggered_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX idx_reaction_triggers_cooldown ON reaction_triggers(trigger_type, trigger_id, triggered_at DESC);
 
 -- ============================================================
--- MODULE: STATISTICS (кэшированная статистика)
+-- MODULE: SCHEDULER
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS scheduled_tasks (
+    id BIGSERIAL PRIMARY KEY,
+    chat_id BIGINT NOT NULL REFERENCES chats(chat_id) ON DELETE CASCADE,
+    task_name VARCHAR(100) NOT NULL,
+    description TEXT,
+    cron_expression VARCHAR(100) NOT NULL,
+    timezone VARCHAR(50) DEFAULT 'UTC',
+    action_type VARCHAR(20) NOT NULL,
+    action_data JSONB NOT NULL,
+    is_enabled BOOLEAN DEFAULT TRUE,
+    last_run_at TIMESTAMPTZ,
+    next_run_at TIMESTAMPTZ,
+    run_count INTEGER DEFAULT 0,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE(chat_id, task_name)
+);
+
+CREATE INDEX idx_scheduled_tasks_next_run ON scheduled_tasks(is_enabled, next_run_at) WHERE is_enabled = TRUE;
+
+-- ============================================================
+-- MODULE: STATISTICS
 -- ============================================================
 
 CREATE TABLE IF NOT EXISTS statistics_daily (
@@ -220,45 +233,33 @@ CREATE TABLE IF NOT EXISTS statistics_daily (
     chat_id BIGINT NOT NULL,
     user_id BIGINT NOT NULL,
     stat_date DATE NOT NULL DEFAULT CURRENT_DATE,
-    content_type VARCHAR(20) NOT NULL,
-    message_count INT DEFAULT 0,
-    violation_count INT DEFAULT 0,
+    messages_text INTEGER DEFAULT 0,
+    messages_photo INTEGER DEFAULT 0,
+    messages_video INTEGER DEFAULT 0,
+    messages_sticker INTEGER DEFAULT 0,
+    messages_animation INTEGER DEFAULT 0,
+    messages_voice INTEGER DEFAULT 0,
+    messages_video_note INTEGER DEFAULT 0,
+    messages_audio INTEGER DEFAULT 0,
+    messages_document INTEGER DEFAULT 0,
+    messages_location INTEGER DEFAULT 0,
+    messages_contact INTEGER DEFAULT 0,
+    violations_banned_words INTEGER DEFAULT 0,
+    violations_deleted INTEGER DEFAULT 0,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW(),
-    UNIQUE(chat_id, user_id, stat_date, content_type)
+    UNIQUE(chat_id, user_id, stat_date)
 );
 
-CREATE INDEX idx_statistics_lookup ON statistics_daily(chat_id, user_id, stat_date);
+CREATE INDEX idx_statistics_lookup ON statistics_daily(chat_id, user_id, stat_date DESC);
 
 -- ============================================================
--- MODULE: SCHEDULER (задачи по расписанию)
+-- SYSTEM
 -- ============================================================
 
-CREATE TABLE IF NOT EXISTS scheduler_tasks (
-    id BIGSERIAL PRIMARY KEY,
-    chat_id BIGINT NOT NULL REFERENCES chats(chat_id) ON DELETE CASCADE,
-    task_name VARCHAR(100) NOT NULL,
-    task_type VARCHAR(20) NOT NULL, -- 'sticker', 'text', 'poll', 'custom'
-    cron_expression VARCHAR(100) NOT NULL, -- '0 9 * * *' = каждый день в 9:00
-    task_data JSONB NOT NULL, -- данные для выполнения (file_id стикера, текст, etc.)
-    is_enabled BOOLEAN DEFAULT true,
-    last_run_at TIMESTAMPTZ,
-    next_run_at TIMESTAMPTZ,
-    created_at TIMESTAMPTZ DEFAULT NOW(),
-    updated_at TIMESTAMPTZ DEFAULT NOW(),
-    UNIQUE(chat_id, task_name)
-);
-
-CREATE INDEX idx_scheduler_next_run ON scheduler_tasks(is_enabled, next_run_at);
-
--- ============================================================
--- SYSTEM TABLES (мета-информация)
--- ============================================================
-
--- Логи событий (для отладки и аудита)
 CREATE TABLE IF NOT EXISTS event_log (
     id BIGSERIAL PRIMARY KEY,
-    event_type VARCHAR(50) NOT NULL, -- 'message_deleted', 'user_muted', 'limit_exceeded', etc.
+    event_type VARCHAR(50) NOT NULL,
     chat_id BIGINT,
     user_id BIGINT,
     module_name VARCHAR(50),
@@ -267,143 +268,63 @@ CREATE TABLE IF NOT EXISTS event_log (
 );
 
 CREATE INDEX idx_event_log_time ON event_log(created_at DESC);
-CREATE INDEX idx_event_log_chat ON event_log(chat_id, created_at DESC);
 
--- Настройки бота (глобальные)
 CREATE TABLE IF NOT EXISTS bot_settings (
-    id SERIAL PRIMARY KEY,
-    key VARCHAR(100) UNIQUE NOT NULL,
+    key VARCHAR(100) PRIMARY KEY,
     value TEXT,
     description TEXT,
-    created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
 -- ============================================================
--- TRIGGERS & FUNCTIONS
+-- TRIGGERS
 -- ============================================================
 
--- Функция для обновления updated_at
-CREATE OR REPLACE FUNCTION update_updated_at_column()
-RETURNS TRIGGER AS $$
+CREATE OR REPLACE FUNCTION update_updated_at()
+RETURNS TRIGGER AS $func$
 BEGIN
     NEW.updated_at = NOW();
     RETURN NEW;
 END;
-$$ LANGUAGE plpgsql;
+$func$ LANGUAGE plpgsql;
 
--- Триггеры для updated_at на всех таблицах
-CREATE TRIGGER update_chats_updated_at BEFORE UPDATE ON chats
-    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
-
-CREATE TRIGGER update_users_updated_at BEFORE UPDATE ON users
-    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
-
-CREATE TRIGGER update_chat_admins_updated_at BEFORE UPDATE ON chat_admins
-    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
-
-CREATE TRIGGER update_chat_modules_updated_at BEFORE UPDATE ON chat_modules
-    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
-
-CREATE TRIGGER update_limiter_config_updated_at BEFORE UPDATE ON limiter_config
-    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
-
-CREATE TRIGGER update_reactions_config_updated_at BEFORE UPDATE ON reactions_config
-    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+CREATE TRIGGER trg_chats_updated_at BEFORE UPDATE ON chats FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+CREATE TRIGGER trg_users_updated_at BEFORE UPDATE ON users FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+CREATE TRIGGER trg_chat_modules_updated_at BEFORE UPDATE ON chat_modules FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+CREATE TRIGGER trg_content_limits_updated_at BEFORE UPDATE ON content_limits FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 
 -- ============================================================
--- VIEWS (для удобства запросов)
+-- VIEWS
 -- ============================================================
 
--- Вью: активные модули по чатам
 CREATE OR REPLACE VIEW v_active_modules AS
-SELECT 
-    c.chat_id,
-    c.title AS chat_title,
-    cm.module_name,
-    cm.config,
-    cm.updated_at
+SELECT c.chat_id, c.title, cm.module_name, cm.is_enabled, cm.config
 FROM chats c
 JOIN chat_modules cm ON c.chat_id = cm.chat_id
-WHERE c.is_active = true AND cm.is_enabled = true;
+WHERE c.is_active = TRUE;
 
--- Вью: суточная статистика по чатам
-CREATE OR REPLACE VIEW v_daily_chat_stats AS
-SELECT 
-    chat_id,
-    stat_date,
-    content_type,
-    SUM(message_count) as total_messages,
-    SUM(violation_count) as total_violations
-FROM statistics_daily
-GROUP BY chat_id, stat_date, content_type
-ORDER BY stat_date DESC, chat_id;
+CREATE OR REPLACE VIEW v_chat_vips AS
+SELECT cv.chat_id, c.title AS chat_title, cv.user_id, u.username, u.first_name, cv.granted_at, cv.reason
+FROM chat_vips cv
+JOIN chats c ON cv.chat_id = c.chat_id
+LEFT JOIN users u ON cv.user_id = u.user_id;
 
 -- ============================================================
--- LIMITER MODULE (Phase 2)
+-- SEED DATA
 -- ============================================================
 
--- Таблица лимитов пользователей
-CREATE TABLE IF NOT EXISTS user_limits (
-    user_id BIGINT PRIMARY KEY,
-    username VARCHAR(255),
-    
-    -- Лимиты
-    daily_limit INT NOT NULL DEFAULT 10,
-    monthly_limit INT NOT NULL DEFAULT 300,
-    
-    -- Использование
-    daily_used INT NOT NULL DEFAULT 0,
-    monthly_used INT NOT NULL DEFAULT 0,
-    
-    -- Время последнего сброса
-    last_reset_daily TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    last_reset_monthly TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    
-    -- Метаданные
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-
--- Индексы для оптимизации запросов сброса
-CREATE INDEX IF NOT EXISTS idx_user_limits_daily_reset 
-    ON user_limits(last_reset_daily);
-
-CREATE INDEX IF NOT EXISTS idx_user_limits_monthly_reset 
-    ON user_limits(last_reset_monthly);
-
--- Комментарии к таблице
-COMMENT ON TABLE user_limits IS 'Лимиты пользователей на запросы к боту (Phase 2: Limiter Module)';
-COMMENT ON COLUMN user_limits.user_id IS 'Telegram User ID';
-COMMENT ON COLUMN user_limits.username IS 'Telegram username для логирования';
-COMMENT ON COLUMN user_limits.daily_limit IS 'Максимальное количество запросов в день';
-COMMENT ON COLUMN user_limits.monthly_limit IS 'Максимальное количество запросов в месяц';
-COMMENT ON COLUMN user_limits.daily_used IS 'Использовано запросов сегодня';
-COMMENT ON COLUMN user_limits.monthly_used IS 'Использовано запросов в этом месяце';
-COMMENT ON COLUMN user_limits.last_reset_daily IS 'Время последнего дневного сброса';
-COMMENT ON COLUMN user_limits.last_reset_monthly IS 'Время последнего месячного сброса';
-
--- ============================================================
--- SEED DATA (начальные данные)
--- ============================================================
-
--- Вставляем доступные модули
 INSERT INTO bot_settings (key, value, description) VALUES
-    ('available_modules', 'limiter,reactions,antispam,statistics,scheduler', 'Список доступных модулей через запятую'),
-    ('bot_version', '1.0.0', 'Версия бота'),
-    ('default_timezone', 'UTC', 'Часовой пояс по умолчанию')
-ON CONFLICT (key) DO NOTHING;
+    ('bot_version', '0.6.0-dev', 'Версия бота'),
+    ('default_timezone', 'UTC', 'Часовой пояс по умолчанию'),
+    ('available_modules', 'limiter,reactions,statistics,scheduler', 'Список доступных модулей')
+ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value;
 
 -- ============================================================
--- COMMENTS (документация схемы)
+-- COMMENTS
 -- ============================================================
 
-COMMENT ON TABLE chats IS 'Метаинформация о чатах где работает бот';
-COMMENT ON TABLE chat_modules IS 'Включение/выключение модулей для каждого чата';
-COMMENT ON TABLE limiter_config IS 'Настройки лимитов на контент (модуль limiter)';
-COMMENT ON TABLE reactions_config IS 'Настройки реакций на ключевые слова (модуль reactions)';
-COMMENT ON TABLE scheduler_tasks IS 'Задачи по расписанию (модуль scheduler)';
-COMMENT ON TABLE event_log IS 'Лог всех событий для аудита и отладки';
-
-COMMENT ON COLUMN messages.metadata IS 'JSONB поле для хранения reply_to_message_id, forward_from, entities и другой мета-информации';
-COMMENT ON COLUMN chat_modules.config IS 'JSONB конфигурация специфичная для модуля. Например: {"max_warnings": 3, "ban_duration": 86400}';
+COMMENT ON TABLE chat_vips IS 'VIP пользователи - обходят ВСЕ лимиты';
+COMMENT ON TABLE content_limits IS 'Лимиты: -1=запрет, 0=без лимита, N=макс в день';
+COMMENT ON TABLE keyword_reactions IS 'Автореакции на ключевые слова (regex)';
+COMMENT ON TABLE banned_words IS 'Запрещённые слова с действиями';
+COMMENT ON TABLE scheduled_tasks IS 'Задачи по расписанию (cron)';

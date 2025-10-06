@@ -22,6 +22,7 @@ import (
 	"github.com/flybasist/bmft/internal/modules/reactions"
 	"github.com/flybasist/bmft/internal/modules/scheduler"
 	"github.com/flybasist/bmft/internal/modules/statistics"
+	"github.com/flybasist/bmft/internal/modules/textfilter"
 	"github.com/flybasist/bmft/internal/postgresql"
 	"github.com/flybasist/bmft/internal/postgresql/repositories"
 )
@@ -124,10 +125,12 @@ func run() error {
 	chatRepo := repositories.NewChatRepository(db)
 	moduleRepo := repositories.NewModuleRepository(db)
 	eventRepo := repositories.NewEventRepository(db)
-	limitRepo := repositories.NewLimitRepository(db, logger)
+	settingsRepo := repositories.NewSettingsRepository(db)
+	vipRepo := repositories.NewVIPRepository(db, logger)
+	contentLimitsRepo := repositories.NewContentLimitsRepository(db, logger)
 
-	// Создаём и регистрируем модуль лимитов
-	limiterModule := limiter.New(limitRepo, logger)
+	// Создаём и регистрируем модуль лимитов (v0.6.0 - с VIP и content limits)
+	limiterModule := limiter.New(vipRepo, contentLimitsRepo, logger)
 	// TODO: Загружать список админов из конфига
 	adminUsers := []int64{} // Пока пустой список, заполнить потом
 	limiterModule.SetAdminUsers(adminUsers)
@@ -138,14 +141,23 @@ func run() error {
 	limiterModule.RegisterCommands(bot)
 	limiterModule.RegisterAdminCommands(bot)
 
-	// Создаём и регистрируем модуль реакций (Phase 3)
-	reactionsModule := reactions.New(db, moduleRepo, eventRepo, logger)
+	// Создаём и регистрируем модуль реакций (v0.6.0 - keyword_reactions)
+	reactionsModule := reactions.New(db, vipRepo, logger)
 	reactionsModule.SetAdminUsers(adminUsers)
 
 	registry.Register("reactions", reactionsModule)
 
 	// Регистрируем команды модуля реакций
 	reactionsModule.RegisterAdminCommands(bot)
+
+	// Создаём и регистрируем модуль фильтра текста (v0.6.0 - banned_words)
+	textFilterModule := textfilter.New(db, vipRepo, contentLimitsRepo, logger)
+	textFilterModule.SetAdminUsers(adminUsers)
+
+	registry.Register("textfilter", textFilterModule)
+
+	// Регистрируем команды модуля фильтра текста
+	textFilterModule.RegisterAdminCommands(bot)
 
 	// Создаём и регистрируем модуль статистики (Phase 4)
 	statsRepo := repositories.NewStatisticsRepository(db, logger)
@@ -169,9 +181,15 @@ func run() error {
 	schedulerModule.RegisterCommands(bot)
 	schedulerModule.RegisterAdminCommands(bot)
 
-	// Welcome Module (не требует регистрации в registry, просто команды)
-	// Python аналог: reaction.py::newchat(), newmember(), reactionversion()
-	welcomeModule := core.NewWelcomeModule("0.5")
+	// Welcome Module (версия из БД)
+	botVersion, err := settingsRepo.GetVersion()
+	if err != nil {
+		logger.Warn("failed to get bot version from DB, using default",
+			zap.Error(err),
+		)
+		botVersion = "0.6.0-dev"
+	}
+	welcomeModule := core.NewWelcomeModule(botVersion)
 	welcomeModule.RegisterCommands(bot)
 
 	// Регистрируем middleware

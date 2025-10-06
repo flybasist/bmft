@@ -8,7 +8,7 @@ import (
 	"go.uber.org/zap"
 )
 
-// SchedulerRepository управляет операциями с таблицей scheduler_tasks.
+// SchedulerRepository управляет операциями с таблицей scheduled_tasks.
 // Русский комментарий: Репозиторий для работы с задачами планировщика.
 // Создаёт, читает, удаляет задачи. Отслеживает последний запуск.
 type SchedulerRepository struct {
@@ -41,7 +41,7 @@ type ScheduledTask struct {
 // CreateTask создаёт новую задачу планировщика.
 func (r *SchedulerRepository) CreateTask(chatID int64, taskName, cronExpr, taskType, taskData string) (int64, error) {
 	query := `
-		INSERT INTO scheduler_tasks (chat_id, task_name, cron_expr, task_type, task_data, is_active)
+		INSERT INTO scheduled_tasks (chat_id, task_name, cron_expression, action_type, action_data, is_active)
 		VALUES ($1, $2, $3, $4, $5, true)
 		RETURNING id
 	`
@@ -64,8 +64,8 @@ func (r *SchedulerRepository) CreateTask(chatID int64, taskName, cronExpr, taskT
 // GetTask получает задачу по ID.
 func (r *SchedulerRepository) GetTask(taskID int64) (*ScheduledTask, error) {
 	query := `
-		SELECT id, chat_id, task_name, cron_expr, task_type, task_data, is_active, last_run, created_at, updated_at
-		FROM scheduler_tasks
+		SELECT id, chat_id, task_name, cron_expression, action_type, action_data, is_active, last_run, created_at, updated_at
+		FROM scheduled_tasks
 		WHERE id = $1
 	`
 	task := &ScheduledTask{}
@@ -86,8 +86,8 @@ func (r *SchedulerRepository) GetTask(taskID int64) (*ScheduledTask, error) {
 // GetChatTasks получает все задачи для чата.
 func (r *SchedulerRepository) GetChatTasks(chatID int64) ([]*ScheduledTask, error) {
 	query := `
-		SELECT id, chat_id, task_name, cron_expr, task_type, task_data, is_active, last_run, created_at, updated_at
-		FROM scheduler_tasks
+		SELECT id, chat_id, task_name, cron_expression, action_type, action_data, is_active, last_run, created_at, updated_at
+		FROM scheduled_tasks
 		WHERE chat_id = $1
 		ORDER BY created_at DESC
 	`
@@ -118,8 +118,8 @@ func (r *SchedulerRepository) GetChatTasks(chatID int64) ([]*ScheduledTask, erro
 // GetActiveTasks получает все активные задачи.
 func (r *SchedulerRepository) GetActiveTasks() ([]*ScheduledTask, error) {
 	query := `
-		SELECT id, chat_id, task_name, cron_expr, task_type, task_data, is_active, last_run, created_at, updated_at
-		FROM scheduler_tasks
+		SELECT id, chat_id, task_name, cron_expression, action_type, action_data, is_active, last_run, created_at, updated_at
+		FROM scheduled_tasks
 		WHERE is_active = true
 		ORDER BY chat_id, created_at
 	`
@@ -149,7 +149,7 @@ func (r *SchedulerRepository) GetActiveTasks() ([]*ScheduledTask, error) {
 
 // UpdateLastRun обновляет время последнего запуска задачи.
 func (r *SchedulerRepository) UpdateLastRun(taskID int64, lastRun time.Time) error {
-	query := `UPDATE scheduler_tasks SET last_run = $1, updated_at = NOW() WHERE id = $2`
+	query := `UPDATE scheduled_tasks SET last_run = $1, updated_at = NOW() WHERE id = $2`
 	_, err := r.db.Exec(query, lastRun, taskID)
 	if err != nil {
 		return fmt.Errorf("failed to update last run: %w", err)
@@ -159,7 +159,7 @@ func (r *SchedulerRepository) UpdateLastRun(taskID int64, lastRun time.Time) err
 
 // DeleteTask удаляет задачу.
 func (r *SchedulerRepository) DeleteTask(taskID int64) error {
-	query := `DELETE FROM scheduler_tasks WHERE id = $1`
+	query := `DELETE FROM scheduled_tasks WHERE id = $1`
 	result, err := r.db.Exec(query, taskID)
 	if err != nil {
 		return fmt.Errorf("failed to delete task: %w", err)
