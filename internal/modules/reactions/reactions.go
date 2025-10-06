@@ -133,7 +133,7 @@ func (m *ReactionsModule) loadReactions(chatID int64) ([]KeywordReaction, error)
 	}
 
 	rows, err := m.db.Query(`
-		SELECT id, chat_id, pattern, response, description, is_regex, cooldown_seconds, is_active
+		SELECT id, chat_id, pattern, response, description, is_regex, cooldown, is_active
 		FROM keyword_reactions
 		WHERE chat_id = $1 AND is_active = true
 		ORDER BY id
@@ -204,7 +204,7 @@ func (m *ReactionsModule) handleAddReaction(c telebot.Context) error {
 	chatID := c.Chat().ID
 
 	_, err := m.db.Exec(`
-		INSERT INTO keyword_reactions (chat_id, pattern, response, description, is_regex, cooldown_seconds, is_active)
+		INSERT INTO keyword_reactions (chat_id, pattern, response, description, is_regex, cooldown, is_active)
 		VALUES ($1, $2, $3, $4, false, 30, true)
 	`, chatID, pattern, response, description)
 
