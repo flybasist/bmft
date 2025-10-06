@@ -24,34 +24,27 @@ type ExpectedTable struct {
 // только 001_initial_schema.sql и вайпаем базу при изменениях структуры.
 // В продакшене (когда будут боевые данные) появятся 002, 003 и т.д. миграции.
 var ExpectedSchema = []ExpectedTable{
-	// Core tables (Phase 1)
-	{Name: "chats", Columns: []string{"id", "chat_id", "chat_type", "title", "is_active"}},
-	{Name: "users", Columns: []string{"id", "user_id", "username", "first_name"}},
-	{Name: "chat_admins", Columns: []string{"id", "chat_id", "user_id", "can_manage_modules"}},
-	{Name: "chat_modules", Columns: []string{"id", "chat_id", "module_name", "is_enabled", "config"}},
+	// Core tables
+	{Name: "chats", Columns: []string{"chat_id", "chat_type", "title", "is_active"}},
+	{Name: "users", Columns: []string{"user_id", "username", "first_name"}},
+	{Name: "chat_vips", Columns: []string{"id", "chat_id", "user_id", "granted_at"}},
+	{Name: "chat_modules", Columns: []string{"id", "chat_id", "module_name", "is_enabled"}},
 	{Name: "messages", Columns: []string{"id", "chat_id", "user_id", "message_id", "content_type"}},
 
-	// Limiter Module (Phase 2)
-	{Name: "limiter_config", Columns: []string{"id", "chat_id", "content_type", "daily_limit"}},
-	{Name: "limiter_counters", Columns: []string{"id", "chat_id", "user_id", "content_type", "counter_date"}},
-	{Name: "user_limits", Columns: []string{"user_id", "username", "daily_limit", "monthly_limit", "daily_used", "monthly_used"}},
+	// Limiter Module
+	{Name: "content_limits", Columns: []string{"id", "chat_id", "limit_text", "limit_photo", "limit_banned_words"}},
+	{Name: "content_counters", Columns: []string{"id", "chat_id", "user_id", "counter_date", "count_text"}},
 
-	// Reactions Module (Phase 3)
-	{Name: "reactions_config", Columns: []string{"id", "chat_id", "content_type", "trigger_type", "trigger_pattern", "reaction_type", "reaction_data"}},
-	{Name: "reactions_log", Columns: []string{"id", "chat_id", "user_id", "message_id", "keyword", "violation_code"}},
+	// Reactions Module
+	{Name: "keyword_reactions", Columns: []string{"id", "chat_id", "pattern", "response", "is_active"}},
+	{Name: "reaction_triggers", Columns: []string{"chat_id", "reaction_id", "user_id", "last_triggered_at"}},
+	{Name: "banned_words", Columns: []string{"id", "chat_id", "pattern", "action", "is_active"}},
 
-	// Statistics Module (Phase 4)
-	{Name: "statistics_daily", Columns: []string{"id", "chat_id", "user_id", "stat_date", "message_count"}},
-
-	// Scheduler Module (Phase 5)
-	{Name: "scheduler_tasks", Columns: []string{"id", "chat_id", "task_name", "cron_expression", "task_type", "task_data", "is_enabled"}},
-
-	// AntiSpam Module (Future)
-	{Name: "antispam_config", Columns: []string{"id", "chat_id", "rule_name", "rule_type"}},
+	// Scheduler Module
+	{Name: "scheduled_tasks", Columns: []string{"id", "chat_id", "cron_expression", "action_type", "is_active"}},
 
 	// System tables
-	{Name: "event_log", Columns: []string{"id", "event_type", "chat_id", "user_id", "module_name"}},
-	{Name: "bot_settings", Columns: []string{"id", "key", "value"}},
+	{Name: "bot_settings", Columns: []string{"id", "bot_version", "timezone"}},
 }
 
 // RunMigrationsIfNeeded проверяет схему БД и выполняет миграции если требуется
