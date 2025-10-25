@@ -58,7 +58,7 @@ WORKDIR /app
 COPY --from=builder --chown=bmft:bmft /build/bot /app/bot
 
 # Устанавливаем timezone (опционально, можно переопределить через env)
-ENV TZ=Asia/Almaty
+ENV TZ=Europe/Moscow
 
 # Переключаемся на непривилегированного пользователя
 USER bmft

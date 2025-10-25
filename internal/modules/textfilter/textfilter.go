@@ -18,7 +18,7 @@ type TextFilterModule struct {
 	vipRepo           *repositories.VIPRepository
 	contentLimitsRepo *repositories.ContentLimitsRepository
 	logger            *zap.Logger
-	adminUsers        []int64
+	bot               *telebot.Bot
 	cache             map[int64][]BannedWord
 	lastLoad          time.Time
 }
@@ -37,13 +37,14 @@ func New(
 	vipRepo *repositories.VIPRepository,
 	contentLimitsRepo *repositories.ContentLimitsRepository,
 	logger *zap.Logger,
+	bot *telebot.Bot,
 ) *TextFilterModule {
 	return &TextFilterModule{
 		db:                db,
 		vipRepo:           vipRepo,
 		contentLimitsRepo: contentLimitsRepo,
 		logger:            logger,
-		adminUsers:        []int64{},
+		bot:               bot,
 		cache:             make(map[int64][]BannedWord),
 	}
 }
@@ -179,7 +180,11 @@ func (m *TextFilterModule) RegisterAdminCommands(bot *telebot.Bot) {
 }
 
 func (m *TextFilterModule) handleAddBan(c telebot.Context) error {
-	if !m.isAdmin(c.Sender().ID) {
+	isAdmin, err := core.IsUserAdmin(m.bot, c.Chat(), c.Sender().ID)
+	if err != nil {
+		return c.Send("Ошибка проверки прав администратора")
+	}
+	if !isAdmin {
 		return c.Send("❌ Команда доступна только администраторам")
 	}
 
@@ -197,7 +202,7 @@ func (m *TextFilterModule) handleAddBan(c telebot.Context) error {
 
 	chatID := c.Chat().ID
 
-	_, err := m.db.Exec(`
+	_, err = m.db.Exec(`
 		INSERT INTO banned_words (chat_id, pattern, action, is_regex, is_active)
 		VALUES ($1, $2, $3, false, true)
 	`, chatID, pattern, action)
@@ -212,7 +217,11 @@ func (m *TextFilterModule) handleAddBan(c telebot.Context) error {
 }
 
 func (m *TextFilterModule) handleListBans(c telebot.Context) error {
-	if !m.isAdmin(c.Sender().ID) {
+	isAdmin, err := core.IsUserAdmin(m.bot, c.Chat(), c.Sender().ID)
+	if err != nil {
+		return c.Send("Ошибка проверки прав администратора")
+	}
+	if !isAdmin {
 		return c.Send("❌ Команда доступна только администраторам")
 	}
 
@@ -239,7 +248,11 @@ func (m *TextFilterModule) handleListBans(c telebot.Context) error {
 }
 
 func (m *TextFilterModule) handleRemoveBan(c telebot.Context) error {
-	if !m.isAdmin(c.Sender().ID) {
+	isAdmin, err := core.IsUserAdmin(m.bot, c.Chat(), c.Sender().ID)
+	if err != nil {
+		return c.Send("Ошибка проверки прав администратора")
+	}
+	if !isAdmin {
 		return c.Send("❌ Команда доступна только администраторам")
 	}
 
@@ -266,18 +279,4 @@ func (m *TextFilterModule) handleRemoveBan(c telebot.Context) error {
 
 	delete(m.cache, chatID)
 	return c.Send(fmt.Sprintf("✅ Запрет #%s удалён", banID))
-}
-
-func (m *TextFilterModule) isAdmin(userID int64) bool {
-	for _, id := range m.adminUsers {
-		if id == userID {
-			return true
-		}
-	}
-	return false
-}
-
-func (m *TextFilterModule) SetAdminUsers(adminUsers []int64) {
-	m.adminUsers = adminUsers
-	m.logger.Info("admin users updated", zap.Int("count", len(adminUsers)))
 }

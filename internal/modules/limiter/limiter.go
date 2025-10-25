@@ -16,19 +16,20 @@ type LimiterModule struct {
 	vipRepo           *repositories.VIPRepository
 	contentLimitsRepo *repositories.ContentLimitsRepository
 	logger            *zap.Logger
-	adminUsers        []int64
+	bot               *telebot.Bot
 }
 
 func New(
 	vipRepo *repositories.VIPRepository,
 	contentLimitsRepo *repositories.ContentLimitsRepository,
 	logger *zap.Logger,
+	bot *telebot.Bot,
 ) *LimiterModule {
 	return &LimiterModule{
 		vipRepo:           vipRepo,
 		contentLimitsRepo: contentLimitsRepo,
 		logger:            logger,
-		adminUsers:        []int64{},
+		bot:               bot,
 	}
 }
 
@@ -60,51 +61,72 @@ func (m *LimiterModule) OnMessage(ctx *core.MessageContext) error {
 	chatID := msg.Chat.ID
 	userID := msg.Sender.ID
 
+	m.logger.Debug("limiter: received message",
+		zap.Int64("chat_id", chatID),
+		zap.Int64("user_id", userID),
+		zap.String("username", msg.Sender.Username),
+		zap.String("text", msg.Text),
+	)
+
 	isVIP, err := m.vipRepo.IsVIP(chatID, userID)
 	if err != nil {
-		m.logger.Error("failed to check VIP status", zap.Int64("chat_id", chatID), zap.Int64("user_id", userID), zap.Error(err))
+		m.logger.Error("limiter: failed to check VIP status", zap.Int64("chat_id", chatID), zap.Int64("user_id", userID), zap.Error(err))
 	}
 	if isVIP {
-		m.logger.Debug("user is VIP, skipping limits", zap.Int64("chat_id", chatID), zap.Int64("user_id", userID))
+		m.logger.Debug("limiter: user is VIP, skipping limits", zap.Int64("chat_id", chatID), zap.Int64("user_id", userID))
 		return nil
 	}
 
 	contentType := m.detectContentType(msg)
+	m.logger.Debug("limiter: detected content type", zap.String("content_type", contentType))
 	if contentType == "" {
+		m.logger.Warn("limiter: unknown content type, skipping", zap.Int64("chat_id", chatID), zap.Int64("user_id", userID))
 		return nil
 	}
 
 	limit, err := m.contentLimitsRepo.GetLimitForContentType(chatID, &userID, contentType)
 	if err != nil {
-		m.logger.Error("failed to get limit", zap.Error(err))
+		m.logger.Error("limiter: failed to get limit", zap.Error(err), zap.Int64("chat_id", chatID), zap.Int64("user_id", userID), zap.String("content_type", contentType))
+		return nil
+	}
+	m.logger.Debug("limiter: got limit", zap.Int64("chat_id", chatID), zap.Int64("user_id", userID), zap.String("content_type", contentType), zap.Int("limit", limit))
+
+	if limit == -1 {
+		m.logger.Info("limiter: content type is banned, deleting message", zap.Int64("chat_id", chatID), zap.String("content_type", contentType))
+		if err := ctx.DeleteMessage(); err != nil {
+			m.logger.Error("limiter: failed to delete banned message", zap.Error(err), zap.Int64("chat_id", chatID), zap.Int64("user_id", userID), zap.String("content_type", contentType))
+		} else {
+			m.logger.Info("limiter: banned message deleted successfully", zap.Int64("chat_id", chatID), zap.Int64("user_id", userID), zap.String("content_type", contentType))
+		}
 		return nil
 	}
 
-	if limit == -1 {
-		m.logger.Info("content type is banned", zap.Int64("chat_id", chatID), zap.String("content_type", contentType))
-		return ctx.DeleteMessage()
-	}
-
 	if limit == 0 {
+		m.logger.Debug("limiter: limit is zero, skipping", zap.Int64("chat_id", chatID), zap.Int64("user_id", userID), zap.String("content_type", contentType))
 		return nil
 	}
 
 	counter, err := m.contentLimitsRepo.GetCounter(chatID, userID, contentType)
 	if err != nil {
-		m.logger.Error("failed to get counter", zap.Error(err))
+		m.logger.Error("limiter: failed to get counter", zap.Error(err), zap.Int64("chat_id", chatID), zap.Int64("user_id", userID), zap.String("content_type", contentType))
 		return nil
 	}
+	m.logger.Debug("limiter: got counter", zap.Int64("chat_id", chatID), zap.Int64("user_id", userID), zap.String("content_type", contentType), zap.Int("counter", counter))
 
 	if counter >= limit {
-		m.logger.Info("content limit exceeded", zap.Int("counter", counter), zap.Int("limit", limit))
+		m.logger.Info("limiter: content limit exceeded, deleting message", zap.Int("counter", counter), zap.Int("limit", limit), zap.Int64("chat_id", chatID), zap.Int64("user_id", userID), zap.String("content_type", contentType))
 		if err := ctx.DeleteMessage(); err != nil {
-			m.logger.Error("failed to delete message", zap.Error(err))
+			m.logger.Error("limiter: failed to delete message after limit exceeded", zap.Error(err), zap.Int64("chat_id", chatID), zap.Int64("user_id", userID), zap.String("content_type", contentType))
+		} else {
+			m.logger.Info("limiter: message deleted after limit exceeded", zap.Int64("chat_id", chatID), zap.Int64("user_id", userID), zap.String("content_type", contentType))
 		}
 		return ctx.SendReply(fmt.Sprintf("⛔️ @%s, вы превысили дневной лимит (%d/%d)", msg.Sender.Username, counter, limit))
 	}
 
 	if err := m.contentLimitsRepo.IncrementCounter(chatID, userID, contentType); err != nil {
-		m.logger.Error("failed to increment counter", zap.Error(err))
+		m.logger.Error("limiter: failed to increment counter", zap.Error(err), zap.Int64("chat_id", chatID), zap.Int64("user_id", userID), zap.String("content_type", contentType))
+	} else {
+		m.logger.Debug("limiter: counter incremented", zap.Int64("chat_id", chatID), zap.Int64("user_id", userID), zap.String("content_type", contentType))
 	}
 
 	newCounter := counter + 1
@@ -222,17 +244,17 @@ func (m *LimiterModule) handleMyStats(c telebot.Context) error {
 }
 
 func (m *LimiterModule) handleSetLimit(c telebot.Context) error {
-	if !m.isAdmin(c.Sender().ID) {
-		return c.Send("❌ Команда доступна только администраторам")
+	isAdmin, err := core.IsUserAdmin(m.bot, c.Chat(), c.Sender().ID)
+	if err != nil {
+		return c.Send("Ошибка проверки прав администратора")
 	}
-
-	if c.Message().ReplyTo == nil {
-		return c.Send("❌ Ответьте этой командой на сообщение пользователя")
+	if !isAdmin {
+		return c.Send("❌ Команда доступна только администраторам")
 	}
 
 	args := strings.Fields(c.Text())
 	if len(args) != 3 {
-		return c.Send("Использование: /setlimit <type> <value>\nПример: /setlimit photo 5")
+		return c.Send("Использование: /setlimit <type> <value>\nПример: /setlimit photo 5 (для всех) или /setlimit voice 10 (через ответ на сообщение пользователя)")
 	}
 
 	contentType := args[1]
@@ -242,17 +264,28 @@ func (m *LimiterModule) handleSetLimit(c telebot.Context) error {
 	}
 
 	chatID := c.Chat().ID
-	userID := c.Message().ReplyTo.Sender.ID
+	var userID *int64
+	if c.Message().ReplyTo != nil {
+		id := c.Message().ReplyTo.Sender.ID
+		userID = &id
+	}
 
-	if err := m.contentLimitsRepo.SetLimit(chatID, &userID, contentType, limitValue); err != nil {
+	if err := m.contentLimitsRepo.SetLimit(chatID, userID, contentType, limitValue); err != nil {
 		return c.Send("❌ Не удалось установить лимит")
 	}
 
-	return c.Send(fmt.Sprintf("✅ Лимит установлен: %s = %d", contentType, limitValue))
+	if userID == nil {
+		return c.Send(fmt.Sprintf("✅ Лимит для всех установлен: %s = %d", contentType, limitValue))
+	}
+	return c.Send(fmt.Sprintf("✅ Лимит установлен для пользователя: %s = %d", contentType, limitValue))
 }
 
 func (m *LimiterModule) handleSetVIP(c telebot.Context) error {
-	if !m.isAdmin(c.Sender().ID) {
+	isAdmin, err := core.IsUserAdmin(m.bot, c.Chat(), c.Sender().ID)
+	if err != nil {
+		return c.Send("Ошибка проверки прав администратора")
+	}
+	if !isAdmin {
 		return c.Send("❌ Команда доступна только администраторам")
 	}
 
@@ -273,7 +306,18 @@ func (m *LimiterModule) handleSetVIP(c telebot.Context) error {
 }
 
 func (m *LimiterModule) handleRemoveVIP(c telebot.Context) error {
-	if !m.isAdmin(c.Sender().ID) {
+	admins, err := m.bot.AdminsOf(c.Chat())
+	if err != nil {
+		return c.Send("Ошибка проверки прав администратора")
+	}
+	isAdmin := false
+	for _, admin := range admins {
+		if admin.User.ID == c.Sender().ID {
+			isAdmin = true
+			break
+		}
+	}
+	if !isAdmin {
 		return c.Send("❌ Команда доступна только администраторам")
 	}
 
@@ -295,7 +339,18 @@ func (m *LimiterModule) handleRemoveVIP(c telebot.Context) error {
 }
 
 func (m *LimiterModule) handleListVIPs(c telebot.Context) error {
-	if !m.isAdmin(c.Sender().ID) {
+	admins, err := m.bot.AdminsOf(c.Chat())
+	if err != nil {
+		return c.Send("Ошибка проверки прав администратора")
+	}
+	isAdmin := false
+	for _, admin := range admins {
+		if admin.User.ID == c.Sender().ID {
+			isAdmin = true
+			break
+		}
+	}
+	if !isAdmin {
 		return c.Send("❌ Команда доступна только администраторам")
 	}
 
@@ -315,18 +370,4 @@ func (m *LimiterModule) handleListVIPs(c telebot.Context) error {
 	}
 
 	return c.Send(text, &telebot.SendOptions{ParseMode: telebot.ModeMarkdown})
-}
-
-func (m *LimiterModule) isAdmin(userID int64) bool {
-	for _, id := range m.adminUsers {
-		if id == userID {
-			return true
-		}
-	}
-	return false
-}
-
-func (m *LimiterModule) SetAdminUsers(adminUsers []int64) {
-	m.adminUsers = adminUsers
-	m.logger.Info("admin users updated", zap.Int("count", len(adminUsers)))
 }

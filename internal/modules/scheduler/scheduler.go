@@ -23,27 +23,23 @@ type SchedulerModule struct {
 	schedulerRepo *repositories.SchedulerRepository
 	moduleRepo    *repositories.ModuleRepository
 	eventRepo     *repositories.EventRepository
-	adminUsers    []int64
 	cron          *cron.Cron
 }
 
 // New создаёт новый инстанс модуля планировщика.
-func New(db *sql.DB, schedulerRepo *repositories.SchedulerRepository, moduleRepo *repositories.ModuleRepository, eventRepo *repositories.EventRepository, logger *zap.Logger) *SchedulerModule {
+func New(db *sql.DB, schedulerRepo *repositories.SchedulerRepository, moduleRepo *repositories.ModuleRepository, eventRepo *repositories.EventRepository, logger *zap.Logger, bot *tele.Bot) *SchedulerModule {
 	return &SchedulerModule{
 		db:            db,
 		schedulerRepo: schedulerRepo,
 		moduleRepo:    moduleRepo,
 		eventRepo:     eventRepo,
 		logger:        logger,
-		adminUsers:    []int64{},
+		bot:           bot,
 		cron:          cron.New(),
 	}
 }
 
 // SetAdminUsers устанавливает список администраторов.
-func (m *SchedulerModule) SetAdminUsers(adminUsers []int64) {
-	m.adminUsers = adminUsers
-}
 
 // Init инициализирует модуль планировщика.
 func (m *SchedulerModule) Init(deps core.ModuleDependencies) error {
@@ -233,7 +229,18 @@ func (m *SchedulerModule) handleListTasks(c tele.Context) error {
 }
 
 func (m *SchedulerModule) handleAddTask(c tele.Context) error {
-	if !m.isAdmin(c.Sender().ID) {
+	admins, err := m.bot.AdminsOf(c.Chat())
+	if err != nil {
+		return c.Send("Ошибка проверки прав администратора")
+	}
+	isAdmin := false
+	for _, admin := range admins {
+		if admin.User.ID == c.Sender().ID {
+			isAdmin = true
+			break
+		}
+	}
+	if !isAdmin {
 		return c.Send("❌ Эта команда доступна только администраторам")
 	}
 
@@ -294,7 +301,18 @@ func (m *SchedulerModule) handleAddTask(c tele.Context) error {
 }
 
 func (m *SchedulerModule) handleDeleteTask(c tele.Context) error {
-	if !m.isAdmin(c.Sender().ID) {
+	admins, err := m.bot.AdminsOf(c.Chat())
+	if err != nil {
+		return c.Send("Ошибка проверки прав администратора")
+	}
+	isAdmin := false
+	for _, admin := range admins {
+		if admin.User.ID == c.Sender().ID {
+			isAdmin = true
+			break
+		}
+	}
+	if !isAdmin {
 		return c.Send("❌ Эта команда доступна только администраторам")
 	}
 
@@ -329,7 +347,18 @@ func (m *SchedulerModule) handleDeleteTask(c tele.Context) error {
 }
 
 func (m *SchedulerModule) handleRunTask(c tele.Context) error {
-	if !m.isAdmin(c.Sender().ID) {
+	admins, err := m.bot.AdminsOf(c.Chat())
+	if err != nil {
+		return c.Send("Ошибка проверки прав администратора")
+	}
+	isAdmin := false
+	for _, admin := range admins {
+		if admin.User.ID == c.Sender().ID {
+			isAdmin = true
+			break
+		}
+	}
+	if !isAdmin {
 		return c.Send("❌ Эта команда доступна только администраторам")
 	}
 
@@ -355,13 +384,4 @@ func (m *SchedulerModule) handleRunTask(c tele.Context) error {
 	go m.executeTask(task)
 
 	return c.Send(fmt.Sprintf("✅ Задача %s запущена", task.TaskName))
-}
-
-func (m *SchedulerModule) isAdmin(userID int64) bool {
-	for _, adminID := range m.adminUsers {
-		if adminID == userID {
-			return true
-		}
-	}
-	return false
 }

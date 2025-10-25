@@ -1,83 +1,39 @@
-# ============================================================================
-# docker-compose.bot.yaml — только бот BMFT (подключается к внешней БД)
-# ============================================================================
-# Использование:
-#   1. Запусти окружение: docker-compose -f docker-compose.env.yaml up -d
-#   2. Примени миграции: make migrate-up (или вручную через golang-migrate)
-#   3. Запусти бота: docker-compose -f docker-compose.bot.yaml up -d
-# ============================================================================
-# Подключение к БД:
-# - Локально (docker-compose.env.yaml): POSTGRES_DSN=postgres://bmft:secret@postgres:5432/bmft?sslmode=disable
-# - Внешняя БД: Переопредели POSTGRES_DSN в .env файле
-# ============================================================================
+version: '3.8'
 
 services:
-  # ============================================================================
-  # BMFT Bot
-  # ============================================================================
   bot:
     build:
       context: .
       dockerfile: Dockerfile
     container_name: bmft_bot
     restart: unless-stopped
-    
-    # Автоматически читаем .env файл (для локальной разработки)
     env_file:
       - .env
-    
     environment:
-      # Telegram Bot Token (ОБЯЗАТЕЛЬНО задать в .env файле!)
-      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
-      
-      # PostgreSQL Connection
-      # По умолчанию подключаемся к контейнеру postgres из docker-compose.env.yaml
-      # Для внешней БД переопредели POSTGRES_DSN в .env файле
-      POSTGRES_DSN: ${POSTGRES_DSN:-postgres://bmft:secret@postgres:5432/bmft?sslmode=disable}
-      
-      # Logging
-      LOG_LEVEL: ${LOG_LEVEL:-info}
-      LOGGER_PRETTY: ${LOGGER_PRETTY:-false}
-      
-      # Bot Configuration
-      POLLING_TIMEOUT: ${POLLING_TIMEOUT:-60}
-      SHUTDOWN_TIMEOUT: ${SHUTDOWN_TIMEOUT:-15s}
-      
-      # Metrics / Health
-      METRICS_ADDR: :9090
-    
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+      - POSTGRES_DSN=${POSTGRES_DSN:-postgres://bmft:secret@postgres:5432/bmft?sslmode=disable}
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+      - LOGGER_PRETTY=${LOGGER_PRETTY:-false}
+      - TZ=Europe/Moscow
     volumes:
-      # Логи бота в локальной папке data/logs
-      # Для переноса между нодами копируй всю папку ./data
       - ./data/logs:/app/logs
-      # Миграции для инициализации БД
       - ./migrations:/app/migrations:ro
-    
     ports:
-      # Metrics / Health endpoint (опционально, можно закомментировать)
       - "9090:9090"
-    
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:9090/healthz"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 10s
-    
     networks:
       - bmft_network
-    
-    # Логирование (ограничиваем размер)
     logging:
       driver: "json-file"
       options:
         max-size: "10m"
         max-file: "3"
 
-# ============================================================================
-# Networks
-# ============================================================================
 networks:
   bmft_network:
-    external: true # Подключаемся к внешней сети созданной docker-compose.env.yaml
-    name: bmft_network
+    driver: bridge

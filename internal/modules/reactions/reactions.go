@@ -14,12 +14,12 @@ import (
 )
 
 type ReactionsModule struct {
-	db         *sql.DB
-	vipRepo    *repositories.VIPRepository
-	logger     *zap.Logger
-	adminUsers []int64
-	cache      map[int64][]KeywordReaction
-	lastLoad   time.Time
+	db       *sql.DB
+	vipRepo  *repositories.VIPRepository
+	logger   *zap.Logger
+	bot      *telebot.Bot
+	cache    map[int64][]KeywordReaction
+	lastLoad time.Time
 }
 
 type KeywordReaction struct {
@@ -37,13 +37,14 @@ func New(
 	db *sql.DB,
 	vipRepo *repositories.VIPRepository,
 	logger *zap.Logger,
+	bot *telebot.Bot,
 ) *ReactionsModule {
 	return &ReactionsModule{
-		db:         db,
-		vipRepo:    vipRepo,
-		logger:     logger,
-		adminUsers: []int64{},
-		cache:      make(map[int64][]KeywordReaction),
+		db:      db,
+		vipRepo: vipRepo,
+		logger:  logger,
+		bot:     bot,
+		cache:   make(map[int64][]KeywordReaction),
 	}
 }
 
@@ -188,7 +189,11 @@ func (m *ReactionsModule) RegisterAdminCommands(bot *telebot.Bot) {
 }
 
 func (m *ReactionsModule) handleAddReaction(c telebot.Context) error {
-	if !m.isAdmin(c.Sender().ID) {
+	isAdmin, err := core.IsUserAdmin(m.bot, c.Chat(), c.Sender().ID)
+	if err != nil {
+		return c.Send("Ошибка проверки прав администратора")
+	}
+	if !isAdmin {
 		return c.Send("❌ Команда доступна только администраторам")
 	}
 
@@ -203,7 +208,7 @@ func (m *ReactionsModule) handleAddReaction(c telebot.Context) error {
 
 	chatID := c.Chat().ID
 
-	_, err := m.db.Exec(`
+	_, err = m.db.Exec(`
 		INSERT INTO keyword_reactions (chat_id, pattern, response, description, is_regex, cooldown, is_active)
 		VALUES ($1, $2, $3, $4, false, 30, true)
 	`, chatID, pattern, response, description)
@@ -218,7 +223,11 @@ func (m *ReactionsModule) handleAddReaction(c telebot.Context) error {
 }
 
 func (m *ReactionsModule) handleListReactions(c telebot.Context) error {
-	if !m.isAdmin(c.Sender().ID) {
+	isAdmin, err := core.IsUserAdmin(m.bot, c.Chat(), c.Sender().ID)
+	if err != nil {
+		return c.Send("Ошибка проверки прав администратора")
+	}
+	if !isAdmin {
 		return c.Send("❌ Команда доступна только администраторам")
 	}
 
@@ -245,7 +254,11 @@ func (m *ReactionsModule) handleListReactions(c telebot.Context) error {
 }
 
 func (m *ReactionsModule) handleRemoveReaction(c telebot.Context) error {
-	if !m.isAdmin(c.Sender().ID) {
+	isAdmin, err := core.IsUserAdmin(m.bot, c.Chat(), c.Sender().ID)
+	if err != nil {
+		return c.Send("Ошибка проверки прав администратора")
+	}
+	if !isAdmin {
 		return c.Send("❌ Команда доступна только администраторам")
 	}
 
@@ -272,18 +285,4 @@ func (m *ReactionsModule) handleRemoveReaction(c telebot.Context) error {
 
 	delete(m.cache, chatID)
 	return c.Send(fmt.Sprintf("✅ Реакция #%s удалена", reactionID))
-}
-
-func (m *ReactionsModule) isAdmin(userID int64) bool {
-	for _, id := range m.adminUsers {
-		if id == userID {
-			return true
-		}
-	}
-	return false
-}
-
-func (m *ReactionsModule) SetAdminUsers(adminUsers []int64) {
-	m.adminUsers = adminUsers
-	m.logger.Info("admin users updated", zap.Int("count", len(adminUsers)))
 }

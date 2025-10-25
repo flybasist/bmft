@@ -57,6 +57,17 @@ func run() error {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
 
+	// Устанавливаем временную зону для Go-приложения
+	tz := os.Getenv("TZ")
+	if tz == "" {
+		tz = "Europe/Moscow"
+	}
+	loc, err := time.LoadLocation(tz)
+	if err != nil {
+		return fmt.Errorf("failed to load timezone %s: %w", tz, err)
+	}
+	time.Local = loc
+
 	// Инициализируем structured logger (zap)
 	logger, err := logx.NewLogger(cfg.LogLevel, cfg.LogPretty)
 	if err != nil {
@@ -67,6 +78,7 @@ func run() error {
 	logger.Info("starting bmft bot",
 		zap.String("log_level", cfg.LogLevel),
 		zap.Bool("log_pretty", cfg.LogPretty),
+		zap.String("timezone", tz),
 		zap.Duration("shutdown_timeout", cfg.ShutdownTimeout),
 		zap.Int("polling_timeout", cfg.PollingTimeout),
 	)
@@ -83,6 +95,14 @@ func run() error {
 		return fmt.Errorf("failed to ping postgres: %w", err)
 	}
 	logger.Info("connected to postgresql")
+
+	// Явно устанавливаем timezone для PostgreSQL-сессии
+	_, err = db.Exec("SET TIME ZONE 'Europe/Moscow';")
+	if err != nil {
+		logger.Warn("failed to set timezone in PostgreSQL session", zap.Error(err))
+	} else {
+		logger.Info("PostgreSQL session timezone set to Europe/Moscow")
+	}
 
 	// Автоматически применяем миграции (или валидируем существующую схему)
 	if err := migrations.RunMigrationsIfNeeded(db, logger); err != nil {
@@ -130,10 +150,7 @@ func run() error {
 	contentLimitsRepo := repositories.NewContentLimitsRepository(db, logger)
 
 	// Создаём и регистрируем модуль лимитов (v0.6.0 - с VIP и content limits)
-	limiterModule := limiter.New(vipRepo, contentLimitsRepo, logger)
-	// TODO: Загружать список админов из конфига
-	adminUsers := []int64{} // Пока пустой список, заполнить потом
-	limiterModule.SetAdminUsers(adminUsers)
+	limiterModule := limiter.New(vipRepo, contentLimitsRepo, logger, bot)
 
 	registry.Register("limiter", limiterModule)
 
@@ -142,8 +159,7 @@ func run() error {
 	limiterModule.RegisterAdminCommands(bot)
 
 	// Создаём и регистрируем модуль реакций (v0.6.0 - keyword_reactions)
-	reactionsModule := reactions.New(db, vipRepo, logger)
-	reactionsModule.SetAdminUsers(adminUsers)
+	reactionsModule := reactions.New(db, vipRepo, logger, bot)
 
 	registry.Register("reactions", reactionsModule)
 
@@ -151,8 +167,7 @@ func run() error {
 	reactionsModule.RegisterAdminCommands(bot)
 
 	// Создаём и регистрируем модуль фильтра текста (v0.6.0 - banned_words)
-	textFilterModule := textfilter.New(db, vipRepo, contentLimitsRepo, logger)
-	textFilterModule.SetAdminUsers(adminUsers)
+	textFilterModule := textfilter.New(db, vipRepo, contentLimitsRepo, logger, bot)
 
 	registry.Register("textfilter", textFilterModule)
 
@@ -161,8 +176,7 @@ func run() error {
 
 	// Создаём и регистрируем модуль статистики (Phase 4)
 	statsRepo := repositories.NewStatisticsRepository(db, logger)
-	statisticsModule := statistics.New(db, statsRepo, moduleRepo, eventRepo, logger)
-	statisticsModule.SetAdminUsers(adminUsers)
+	statisticsModule := statistics.New(db, statsRepo, moduleRepo, eventRepo, logger, bot)
 
 	registry.Register("statistics", statisticsModule)
 
@@ -172,8 +186,7 @@ func run() error {
 
 	// Создаём и регистрируем модуль планировщика (Phase 5)
 	schedulerRepo := repositories.NewSchedulerRepository(db, logger)
-	schedulerModule := scheduler.New(db, schedulerRepo, moduleRepo, eventRepo, logger)
-	schedulerModule.SetAdminUsers(adminUsers)
+	schedulerModule := scheduler.New(db, schedulerRepo, moduleRepo, eventRepo, logger, bot)
 
 	registry.Register("scheduler", schedulerModule)
 
@@ -332,8 +345,18 @@ func registerCommands(
 				return c.Send("Не удалось проверить права администратора.")
 			}
 
+			logger.Info("admin check",
+				zap.Int64("chat_id", c.Chat().ID),
+				zap.Int64("user_id", c.Sender().ID),
+				zap.Int("admins_count", len(admins)),
+			)
+
 			isAdmin := false
 			for _, admin := range admins {
+				logger.Info("checking admin",
+					zap.Int64("admin_id", admin.User.ID),
+					zap.String("admin_username", admin.User.Username),
+				)
 				if admin.User.ID == c.Sender().ID {
 					isAdmin = true
 					break
@@ -341,6 +364,10 @@ func registerCommands(
 			}
 
 			if !isAdmin {
+				logger.Warn("user is not admin",
+					zap.Int64("chat_id", c.Chat().ID),
+					zap.Int64("user_id", c.Sender().ID),
+				)
 				return c.Send("❌ Эта команда доступна только администраторам чата.")
 			}
 		}
@@ -477,9 +504,8 @@ func registerCommands(
 		return c.Send(fmt.Sprintf("❌ Модуль '%s' выключен для этого чата.", moduleName))
 	})
 
-	// Обработчик всех остальных сообщений — передаём модулям
-	bot.Handle(tele.OnText, func(c tele.Context) error {
-		// Создаём MessageContext для модулей
+	// Универсальный обработчик для всех типов сообщений
+	handleAll := func(c tele.Context) error {
 		ctx := &core.MessageContext{
 			Message: c.Message(),
 			Bot:     bot,
@@ -488,14 +514,24 @@ func registerCommands(
 			Chat:    c.Chat(),
 			Sender:  c.Sender(),
 		}
-
-		// Передаём сообщение всем активным модулям
 		if err := registry.OnMessage(ctx); err != nil {
 			logger.Error("failed to process message in modules", zap.Error(err))
 		}
-
 		return nil
-	})
+	}
+
+	bot.Handle(tele.OnText, handleAll)
+	bot.Handle(tele.OnVoice, handleAll)
+	bot.Handle(tele.OnPhoto, handleAll)
+	bot.Handle(tele.OnVideo, handleAll)
+	bot.Handle(tele.OnSticker, handleAll)
+	bot.Handle(tele.OnDocument, handleAll)
+	bot.Handle(tele.OnAudio, handleAll)
+	bot.Handle(tele.OnAnimation, handleAll)
+	bot.Handle(tele.OnVideoNote, handleAll)
+	bot.Handle(tele.OnLocation, handleAll)
+	bot.Handle(tele.OnContact, handleAll)
+	bot.Handle(tele.OnPoll, handleAll)
 
 	// Обработчик отредактированных сообщений
 	// Русский комментарий: Аналог Python @bot.edited_message_handler()

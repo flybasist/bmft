@@ -18,13 +18,13 @@ import (
 // При каждом сообщении инкрементирует счётчики по типам контента (text, photo, video и т.д.).
 // Предоставляет команды: /mystats (личная статистика), /chatstats (статистика чата), /topchat (топ активных).
 type StatisticsModule struct {
-	db         *sql.DB
-	bot        *tele.Bot
-	logger     *zap.Logger
-	statsRepo  *repositories.StatisticsRepository
-	moduleRepo *repositories.ModuleRepository
-	eventRepo  *repositories.EventRepository
-	adminUsers []int64 // Список user_id администраторов
+	db          *sql.DB
+	bot         *tele.Bot
+	logger      *zap.Logger
+	statsRepo   *repositories.StatisticsRepository
+	moduleRepo  *repositories.ModuleRepository
+	eventRepo   *repositories.EventRepository
+	userMsgRepo *repositories.UserMessageRepository
 }
 
 // New создаёт новый экземпляр модуля статистики.
@@ -34,21 +34,20 @@ func New(
 	moduleRepo *repositories.ModuleRepository,
 	eventRepo *repositories.EventRepository,
 	logger *zap.Logger,
+	bot *tele.Bot,
 ) *StatisticsModule {
 	return &StatisticsModule{
-		db:         db,
-		logger:     logger,
-		statsRepo:  statsRepo,
-		moduleRepo: moduleRepo,
-		eventRepo:  eventRepo,
-		adminUsers: []int64{},
+		db:          db,
+		logger:      logger,
+		statsRepo:   statsRepo,
+		moduleRepo:  moduleRepo,
+		eventRepo:   eventRepo,
+		bot:         bot,
+		userMsgRepo: repositories.NewUserMessageRepository(db, logger),
 	}
 }
 
 // SetAdminUsers устанавливает список администраторов модуля.
-func (m *StatisticsModule) SetAdminUsers(adminUsers []int64) {
-	m.adminUsers = adminUsers
-}
 
 // Init инициализирует модуль.
 func (m *StatisticsModule) Init(deps core.ModuleDependencies) error {
@@ -61,21 +60,53 @@ func (m *StatisticsModule) Init(deps core.ModuleDependencies) error {
 // Русский комментарий: При каждом сообщении инкрементим счётчик в БД.
 func (m *StatisticsModule) OnMessage(ctx *core.MessageContext) error {
 	if ctx.Message == nil || ctx.Sender == nil {
+		m.logger.Warn("statistics: empty message or sender", zap.Any("ctx", ctx))
 		return nil
 	}
 
-	// Определяем тип контента
-	contentType := m.detectContentType(ctx.Message)
+	m.logger.Debug("statistics: received message",
+		zap.Int64("chat_id", ctx.Chat.ID),
+		zap.Int64("user_id", ctx.Sender.ID),
+		zap.String("username", ctx.Sender.Username),
+		zap.String("text", ctx.Message.Text),
+	)
 
-	// Инкрементируем счётчик в БД
-	err := m.statsRepo.IncrementCounter(ctx.Chat.ID, ctx.Sender.ID, contentType)
+	contentType := m.detectContentType(ctx.Message)
+	m.logger.Debug("statistics: detected content type", zap.String("content_type", contentType))
+
+	// Сохраняем пользователя (upsert)
+	err := m.userMsgRepo.UpsertUser(ctx.Sender.ID, ctx.Sender.Username, ctx.Sender.FirstName)
 	if err != nil {
-		m.logger.Error("failed to increment statistics",
+		m.logger.Error("statistics: failed to upsert user",
+			zap.Int64("user_id", ctx.Sender.ID),
+			zap.String("username", ctx.Sender.Username),
+			zap.Error(err))
+	}
+
+	// Сохраняем сообщение
+	err = m.userMsgRepo.InsertMessage(ctx.Chat.ID, ctx.Sender.ID, ctx.Message.ID, contentType)
+	if err != nil {
+		m.logger.Error("statistics: failed to insert message",
+			zap.Int64("chat_id", ctx.Chat.ID),
+			zap.Int64("user_id", ctx.Sender.ID),
+			zap.Int("message_id", ctx.Message.ID),
+			zap.Error(err))
+	}
+
+	err = m.statsRepo.IncrementCounter(ctx.Chat.ID, ctx.Sender.ID, contentType)
+	if err != nil {
+		m.logger.Error("statistics: failed to increment statistics",
 			zap.Int64("chat_id", ctx.Chat.ID),
 			zap.Int64("user_id", ctx.Sender.ID),
 			zap.String("content_type", contentType),
 			zap.Error(err))
 		return err
+	} else {
+		m.logger.Debug("statistics: counter incremented",
+			zap.Int64("chat_id", ctx.Chat.ID),
+			zap.Int64("user_id", ctx.Sender.ID),
+			zap.String("content_type", contentType),
+		)
 	}
 
 	return nil
@@ -151,7 +182,14 @@ func (m *StatisticsModule) Shutdown() error {
 func (m *StatisticsModule) RegisterCommands(bot *tele.Bot) {
 	// /mystats — личная статистика за сегодня
 	bot.Handle("/mystats", func(c tele.Context) error {
-		return m.handleMyStats(c, time.Now())
+		// Получаем текущую дату из PostgreSQL
+		var today time.Time
+		err := m.db.QueryRow("SELECT CURRENT_DATE").Scan(&today)
+		if err != nil {
+			m.logger.Error("failed to get CURRENT_DATE from PostgreSQL", zap.Error(err))
+			today = time.Now().Truncate(24 * time.Hour)
+		}
+		return m.handleMyStats(c, today)
 	})
 
 	// /myweek — личная статистика за неделю
@@ -164,18 +202,30 @@ func (m *StatisticsModule) RegisterCommands(bot *tele.Bot) {
 func (m *StatisticsModule) RegisterAdminCommands(bot *tele.Bot) {
 	// /chatstats — статистика чата (только админы)
 	bot.Handle("/chatstats", func(c tele.Context) error {
-		if !m.isAdmin(c.Sender().ID) && !m.isChatAdmin(c) {
+		if !m.isChatAdmin(c) {
 			return c.Reply("❌ Эта команда доступна только администраторам.")
 		}
-		return m.handleChatStats(c, time.Now())
+		var today time.Time
+		err := m.db.QueryRow("SELECT CURRENT_DATE").Scan(&today)
+		if err != nil {
+			m.logger.Error("failed to get CURRENT_DATE from PostgreSQL", zap.Error(err))
+			today = time.Now()
+		}
+		return m.handleChatStats(c, today)
 	})
 
 	// /topchat — топ активных пользователей (только админы)
 	bot.Handle("/topchat", func(c tele.Context) error {
-		if !m.isAdmin(c.Sender().ID) && !m.isChatAdmin(c) {
+		if !m.isChatAdmin(c) {
 			return c.Reply("❌ Эта команда доступна только администраторам.")
 		}
-		return m.handleTopChat(c, time.Now())
+		var today time.Time
+		err := m.db.QueryRow("SELECT CURRENT_DATE").Scan(&today)
+		if err != nil {
+			m.logger.Error("failed to get CURRENT_DATE from PostgreSQL", zap.Error(err))
+			today = time.Now()
+		}
+		return m.handleTopChat(c, today)
 	})
 }
 
@@ -195,7 +245,9 @@ func (m *StatisticsModule) handleMyStats(c tele.Context, date time.Time) error {
 	}
 
 	// Получаем статистику
-	stats, err := m.statsRepo.GetUserStats(userID, chatID, date)
+	// Передаём только дату (без времени)
+	dateOnly := date.Truncate(24 * time.Hour)
+	stats, err := m.statsRepo.GetUserStats(userID, chatID, dateOnly)
 	if err != nil {
 		m.logger.Error("failed to get user stats", zap.Error(err))
 		return c.Reply("Произошла ошибка при получении статистики.")
@@ -435,16 +487,6 @@ func (m *StatisticsModule) formatTopUsers(topUsers []repositories.TopUser, date 
 	}
 
 	return sb.String()
-}
-
-// isAdmin проверяет, является ли пользователь администратором модуля.
-func (m *StatisticsModule) isAdmin(userID int64) bool {
-	for _, adminID := range m.adminUsers {
-		if adminID == userID {
-			return true
-		}
-	}
-	return false
 }
 
 // isChatAdmin проверяет, является ли пользователь админом чата в Telegram.
