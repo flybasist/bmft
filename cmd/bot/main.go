@@ -19,8 +19,10 @@ import (
 	"github.com/flybasist/bmft/internal/logx"
 	"github.com/flybasist/bmft/internal/migrations"
 	"github.com/flybasist/bmft/internal/modules/limiter"
+	"github.com/flybasist/bmft/internal/modules/reactions"
 	"github.com/flybasist/bmft/internal/modules/scheduler"
 	"github.com/flybasist/bmft/internal/modules/statistics"
+	"github.com/flybasist/bmft/internal/modules/textfilter"
 	"github.com/flybasist/bmft/internal/postgresql"
 	"github.com/flybasist/bmft/internal/postgresql/repositories"
 )
@@ -176,6 +178,24 @@ func run() error {
 	schedulerModule.RegisterCommands(bot)
 	schedulerModule.RegisterAdminCommands(bot)
 
+	// Создаём и регистрируем модуль реакций
+	reactionsModule := reactions.New(db, vipRepo, logger, bot)
+
+	registry.Register("reactions", reactionsModule)
+
+	// Регистрируем команды модуля реакций
+	reactionsModule.RegisterCommands(bot)
+	reactionsModule.RegisterAdminCommands(bot)
+
+	// Создаём и регистрируем модуль фильтра текста
+	textfilterModule := textfilter.New(db, vipRepo, contentLimitsRepo, logger, bot)
+
+	registry.Register("textfilter", textfilterModule)
+
+	// Регистрируем команды модуля фильтра текста
+	textfilterModule.RegisterCommands(bot)
+	textfilterModule.RegisterAdminCommands(bot)
+
 	// Welcome Module (версия из БД)
 	botVersion, err := settingsRepo.GetVersion()
 	if err != nil {
@@ -272,11 +292,7 @@ func registerCommands(
 
 		welcomeMsg := `🤖 Привет! Я BMFT — модульный бот для управления Telegram-чатами.
 
-📋 Основные команды:
 /help — список всех команд
-/modules — показать доступные модули (только админы)
-/enable <module> — включить модуль (только админы)
-/disable <module> — выключить модуль (только админы)
 
 Добавьте меня в группу и дайте права администратора для полной функциональности!`
 
@@ -302,12 +318,7 @@ func registerCommands(
 /enable <module> — включить модуль
 /disable <module> — выключить модуль
 
-🔹 Доступные модули:
-- limiter — лимиты на запросы (daily/monthly) + типы контента (photo/video/sticker)
-- reactions — автоматические реакции + счётчик текстовых нарушений
-- statistics — статистика активности пользователей
-- scheduler — задачи по расписанию (cron)
-- antispam — антиспам фильтры (в разработке)`
+🔹 Доступные модули: используйте /modules для подробностей`
 
 		return c.Send(helpMsg)
 	})
@@ -368,16 +379,74 @@ func registerCommands(
 				status = "✅ Включен"
 			}
 
-			msg += fmt.Sprintf("🔹 **%s** — %s\n", name, status)
+			// Описание модуля
+			var description string
+			switch name {
+			case "statistics":
+				description = "статистика активности пользователей"
+			case "limiter":
+				description = "лимиты на контент с предупреждениями"
+			case "scheduler":
+				description = "задачи по расписанию"
+			case "reactions":
+				description = "автоматические реакции на ключевые слова"
+			case "textfilter":
+				description = "фильтр запрещённых слов"
+			default:
+				description = "модуль"
+			}
+
+			msg += fmt.Sprintf("🔹 **%s** — %s\n  %s\n", name, status, description)
 			if len(commands) > 0 {
-				msg += "  Команды: "
-				for i, cmd := range commands {
-					if i > 0 {
-						msg += ", "
+				msg += "  Команды:\n"
+				for _, cmd := range commands {
+					var help string
+					switch cmd.Command {
+					case "/mystats":
+						help = "показать вашу статистику"
+					case "/myweek":
+						help = "статистика за неделю"
+					case "/mymonth":
+						help = "статистика за месяц"
+					case "/topweek":
+						help = "топ пользователей за неделю"
+					case "/topmonth":
+						help = "топ пользователей за месяц"
+					case "/resetstats":
+						help = "сбросить статистику (админ)"
+					case "/setlimit":
+						help = "установить лимит (type: text/photo/video/sticker/animation/voice/document/audio/location/contact)"
+					case "/mylimits":
+						help = "показать ваши лимиты"
+					case "/resetlimits":
+						help = "сбросить лимиты (админ)"
+					case "/addtask":
+						help = "добавить задачу (cron)"
+					case "/listtasks":
+						help = "список задач"
+					case "/removetask":
+						help = "удалить задачу"
+					case "/addreaction":
+						help = "добавить реакцию на слово"
+					case "/listreactions":
+						help = "список реакций"
+					case "/removereaction":
+						help = "удалить реакцию"
+					case "/addban":
+						help = "добавить запрещённое слово"
+					case "/listbans":
+						help = "список запрещённых слов"
+					case "/removeban":
+						help = "удалить запрещённое слово"
+					default:
+						help = ""
 					}
-					msg += cmd.Command
+					if help != "" {
+						msg += fmt.Sprintf("    %s - %s\n", cmd.Command, help)
+					} else {
+						msg += fmt.Sprintf("    %s\n", cmd.Command)
+					}
 				}
-				msg += "\n"
 			}
 			msg += "\n"
 		}

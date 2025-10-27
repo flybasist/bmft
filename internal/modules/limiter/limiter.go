@@ -47,7 +47,7 @@ func (m *LimiterModule) Init(deps core.ModuleDependencies) error {
 func (m *LimiterModule) Commands() []core.BotCommand {
 	return []core.BotCommand{
 		{Command: "/mystats", Description: "Показать статистику использования контента"},
-		{Command: "/setlimit", Description: "Установить лимит на тип контента (админы)"},
+		{Command: "/setlimit", Description: "Установить лимит на тип контента: text/photo/video/sticker/animation/voice/document/audio/location/contact (админы)"},
 		{Command: "/setvip", Description: "Установить VIP-статус пользователю (админы)"},
 		{Command: "/removevip", Description: "Снять VIP-статус с пользователя (админы)"},
 		{Command: "/listvips", Description: "Показать список VIP-пользователей (админы)"},
