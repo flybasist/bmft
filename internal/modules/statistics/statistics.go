@@ -123,20 +123,24 @@ func (m *StatisticsModule) detectContentType(msg *tele.Message) string {
 	if msg.Sticker != nil {
 		return "sticker"
 	}
+	if msg.Animation != nil {
+		return "animation"
+	}
 	if msg.Voice != nil {
 		return "voice"
 	}
-	if msg.Document != nil {
-		return "document"
+	if msg.VideoNote != nil {
+		return "video_note"
 	}
 	if msg.Audio != nil {
 		return "audio"
 	}
-	if msg.Animation != nil {
-		return "animation"
-	}
-	if msg.VideoNote != nil {
-		return "video_note"
+	if msg.Document != nil {
+		// Специальная проверка для гифок, отправленных как файлы
+		if msg.Document.MIME == "image/gif" {
+			return "animation"
+		}
+		return "document"
 	}
 	if msg.Location != nil {
 		return "location"
@@ -156,7 +160,6 @@ func (m *StatisticsModule) detectContentType(msg *tele.Message) string {
 // Commands возвращает список команд модуля.
 func (m *StatisticsModule) Commands() []core.BotCommand {
 	return []core.BotCommand{
-		{Command: "/mystats", Description: "Моя статистика за сегодня"},
 		{Command: "/myweek", Description: "Моя статистика за неделю"},
 		{Command: "/chatstats", Description: "Статистика чата (админ)"},
 		{Command: "/topchat", Description: "Топ активных пользователей (админ)"},
@@ -180,18 +183,6 @@ func (m *StatisticsModule) Shutdown() error {
 
 // RegisterCommands регистрирует команды модуля в боте.
 func (m *StatisticsModule) RegisterCommands(bot *tele.Bot) {
-	// /mystats — личная статистика за сегодня
-	bot.Handle("/mystats", func(c tele.Context) error {
-		// Получаем текущую дату из PostgreSQL
-		var today time.Time
-		err := m.db.QueryRow("SELECT CURRENT_DATE").Scan(&today)
-		if err != nil {
-			m.logger.Error("failed to get CURRENT_DATE from PostgreSQL", zap.Error(err))
-			today = time.Now().Truncate(24 * time.Hour)
-		}
-		return m.handleMyStats(c, today)
-	})
-
 	// /myweek — личная статистика за неделю
 	bot.Handle("/myweek", func(c tele.Context) error {
 		return m.handleMyWeekStats(c)

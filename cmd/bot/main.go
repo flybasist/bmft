@@ -19,10 +19,8 @@ import (
 	"github.com/flybasist/bmft/internal/logx"
 	"github.com/flybasist/bmft/internal/migrations"
 	"github.com/flybasist/bmft/internal/modules/limiter"
-	"github.com/flybasist/bmft/internal/modules/reactions"
 	"github.com/flybasist/bmft/internal/modules/scheduler"
 	"github.com/flybasist/bmft/internal/modules/statistics"
-	"github.com/flybasist/bmft/internal/modules/textfilter"
 	"github.com/flybasist/bmft/internal/postgresql"
 	"github.com/flybasist/bmft/internal/postgresql/repositories"
 )
@@ -149,31 +147,6 @@ func run() error {
 	vipRepo := repositories.NewVIPRepository(db, logger)
 	contentLimitsRepo := repositories.NewContentLimitsRepository(db, logger)
 
-	// Создаём и регистрируем модуль лимитов (v0.6.0 - с VIP и content limits)
-	limiterModule := limiter.New(vipRepo, contentLimitsRepo, logger, bot)
-
-	registry.Register("limiter", limiterModule)
-
-	// Регистрируем команды модуля лимитов
-	limiterModule.RegisterCommands(bot)
-	limiterModule.RegisterAdminCommands(bot)
-
-	// Создаём и регистрируем модуль реакций (v0.6.0 - keyword_reactions)
-	reactionsModule := reactions.New(db, vipRepo, logger, bot)
-
-	registry.Register("reactions", reactionsModule)
-
-	// Регистрируем команды модуля реакций
-	reactionsModule.RegisterAdminCommands(bot)
-
-	// Создаём и регистрируем модуль фильтра текста (v0.6.0 - banned_words)
-	textFilterModule := textfilter.New(db, vipRepo, contentLimitsRepo, logger, bot)
-
-	registry.Register("textfilter", textFilterModule)
-
-	// Регистрируем команды модуля фильтра текста
-	textFilterModule.RegisterAdminCommands(bot)
-
 	// Создаём и регистрируем модуль статистики (Phase 4)
 	statsRepo := repositories.NewStatisticsRepository(db, logger)
 	statisticsModule := statistics.New(db, statsRepo, moduleRepo, eventRepo, logger, bot)
@@ -183,6 +156,15 @@ func run() error {
 	// Регистрируем команды модуля статистики
 	statisticsModule.RegisterCommands(bot)
 	statisticsModule.RegisterAdminCommands(bot)
+
+	// Создаём и регистрируем модуль лимитов (v0.6.0 - с VIP и content limits)
+	limiterModule := limiter.New(vipRepo, contentLimitsRepo, moduleRepo, logger, bot)
+
+	registry.Register("limiter", limiterModule)
+
+	// Регистрируем команды модуля лимитов
+	limiterModule.RegisterCommands(bot)
+	limiterModule.RegisterAdminCommands(bot)
 
 	// Создаём и регистрируем модуль планировщика (Phase 5)
 	schedulerRepo := repositories.NewSchedulerRepository(db, logger)
