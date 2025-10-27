@@ -60,16 +60,6 @@ docker-compose -f docker-compose.bot.yaml up -d  # Бот
 docker logs -f bmft_bot
 ```
 
-## 📚 Документация
-
-Подробная информация в [docs/](docs/):
-- [Быстрый старт](docs/QUICK_START.md)
-- [Архитектура](docs/ARCHITECTURE.md)
-- [Модули](docs/MODULES.md)
-- [Тестирование](docs/TESTING_SHORT.md)
-
-История изменений: [CHANGELOG.md](CHANGELOG.md)
-
 ## 📧 Контакты
 
 - GitHub: [@flybasist](https://github.com/flybasist)
