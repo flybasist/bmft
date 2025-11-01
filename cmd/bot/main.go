@@ -387,7 +387,7 @@ func registerCommands(
 			case "limiter":
 				description = "лимиты на контент с предупреждениями"
 			case "scheduler":
-				description = "задачи по расписанию"
+				description = "задачи по расписанию (автоматическая отправка сообщений по cron)"
 			case "reactions":
 				description = "автоматические реакции на ключевые слова"
 			case "textfilter":
@@ -421,7 +421,7 @@ func registerCommands(
 					case "/resetlimits":
 						help = "сбросить лимиты (админ)"
 					case "/addtask":
-						help = "добавить задачу (cron)"
+						help = "добавить задачу (cron) - /addtask <cron> <текст> или ответьте на сообщение с /addtask <cron>"
 					case "/listtasks":
 						help = "список задач"
 					case "/removetask":
@@ -446,6 +446,11 @@ func registerCommands(
 					} else {
 						msg += fmt.Sprintf("    %s\n", cmd.Command)
 					}
+				}
+				// Дополнительная подсказка для scheduler
+				if name == "scheduler" {
+					msg += "  Подсказка: /addtask <cron> <текст> или reply на сообщение с /addtask <cron>\n"
+					msg += "  Примеры cron: '0 9 * * *' (каждый день в 9:00), '*/30 * * * *' (каждые 30 мин)\n"
 				}
 			}
 			msg += "\n"

@@ -37,18 +37,3 @@ func (r *ChatRepository) GetOrCreate(chatID int64, chatType, title, username str
 	}
 	return nil
 }
-
-// IsActive проверяет активен ли чат.
-// FUTURE(Phase3): Будет использоваться в Reactions Module для проверки заблокированных чатов
-func (r *ChatRepository) IsActive(chatID int64) (bool, error) {
-	var isActive bool
-	query := `SELECT is_active FROM chats WHERE chat_id = $1`
-	err := r.db.QueryRow(query, chatID).Scan(&isActive)
-	if err == sql.ErrNoRows {
-		return false, nil // Чат не найден = не активен
-	}
-	if err != nil {
-		return false, fmt.Errorf("failed to check chat active status: %w", err)
-	}
-	return isActive, nil
-}

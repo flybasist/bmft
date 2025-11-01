@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"fmt"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -23,14 +24,17 @@ type ReactionsModule struct {
 }
 
 type KeywordReaction struct {
-	ID          int64
-	ChatID      int64
-	Pattern     string
-	Response    string
-	Description string
-	IsRegex     bool
-	Cooldown    int
-	IsActive    bool
+	ID              int64
+	ChatID          int64
+	Pattern         string
+	ResponseType    string // "text", "sticker", "photo", etc.
+	ResponseContent string // text content or file_id
+	Description     string
+	IsRegex         bool
+	Cooldown        int
+	DailyLimit      int
+	DeleteOnLimit   bool
+	IsActive        bool
 }
 
 func New(
@@ -58,7 +62,11 @@ func (m *ReactionsModule) Init(deps core.ModuleDependencies) error {
 }
 
 func (m *ReactionsModule) Commands() []core.BotCommand {
-	return []core.BotCommand{}
+	return []core.BotCommand{
+		{Command: "/addreaction", Description: "добавить реакцию на слово (reply или text) с опциональным дневным лимитом"},
+		{Command: "/listreactions", Description: "список реакций"},
+		{Command: "/removereaction", Description: "удалить реакцию"},
+	}
 }
 
 func (m *ReactionsModule) Enabled(chatID int64) (bool, error) {
@@ -111,11 +119,58 @@ func (m *ReactionsModule) OnMessage(ctx *core.MessageContext) error {
 				}
 			}
 
-			if err := ctx.SendReply(reaction.Response); err != nil {
+			if reaction.DailyLimit > 0 {
+				count, err := m.getDailyCount(chatID, reaction.ID)
+				if err != nil {
+					m.logger.Error("failed to get daily count", zap.Error(err))
+					continue
+				}
+				if count >= reaction.DailyLimit {
+					if reaction.DeleteOnLimit {
+						// Delete the message and send warning
+						err := ctx.Bot.Delete(ctx.Message)
+						if err != nil {
+							m.logger.Error("failed to delete message", zap.Error(err))
+						}
+						warning := fmt.Sprintf("Достигнут дневной лимит для реакции на '%s'", reaction.Pattern)
+						err = ctx.Send(warning)
+						if err != nil {
+							m.logger.Error("failed to send warning", zap.Error(err))
+						}
+					}
+					continue
+				}
+			}
+
+			var err error
+			switch reaction.ResponseType {
+			case "text":
+				err = ctx.SendReply(reaction.ResponseContent)
+			case "sticker":
+				_, err = ctx.Bot.Send(ctx.Chat, &telebot.Sticker{File: telebot.File{FileID: reaction.ResponseContent}}, &telebot.SendOptions{ReplyTo: ctx.Message})
+			case "photo":
+				_, err = ctx.Bot.Send(ctx.Chat, &telebot.Photo{File: telebot.File{FileID: reaction.ResponseContent}}, &telebot.SendOptions{ReplyTo: ctx.Message})
+			case "animation":
+				_, err = ctx.Bot.Send(ctx.Chat, &telebot.Animation{File: telebot.File{FileID: reaction.ResponseContent}}, &telebot.SendOptions{ReplyTo: ctx.Message})
+			case "video":
+				_, err = ctx.Bot.Send(ctx.Chat, &telebot.Video{File: telebot.File{FileID: reaction.ResponseContent}}, &telebot.SendOptions{ReplyTo: ctx.Message})
+			case "voice":
+				_, err = ctx.Bot.Send(ctx.Chat, &telebot.Voice{File: telebot.File{FileID: reaction.ResponseContent}}, &telebot.SendOptions{ReplyTo: ctx.Message})
+			case "document":
+				_, err = ctx.Bot.Send(ctx.Chat, &telebot.Document{File: telebot.File{FileID: reaction.ResponseContent}}, &telebot.SendOptions{ReplyTo: ctx.Message})
+			case "audio":
+				_, err = ctx.Bot.Send(ctx.Chat, &telebot.Audio{File: telebot.File{FileID: reaction.ResponseContent}}, &telebot.SendOptions{ReplyTo: ctx.Message})
+			default:
+				err = ctx.SendReply(reaction.ResponseContent)
+			}
+			if err != nil {
 				m.logger.Error("failed to send reaction", zap.Error(err))
 			}
 
 			m.recordTrigger(chatID, reaction.ID, userID)
+			if reaction.DailyLimit > 0 {
+				m.incrementDailyCount(chatID, reaction.ID)
+			}
 			break
 		}
 	}
@@ -134,7 +189,7 @@ func (m *ReactionsModule) loadReactions(chatID int64) ([]KeywordReaction, error)
 	}
 
 	rows, err := m.db.Query(`
-		SELECT id, chat_id, pattern, response, description, is_regex, cooldown, is_active
+		SELECT id, chat_id, pattern, response_type, response_content, description, is_regex, cooldown, daily_limit, delete_on_limit, is_active
 		FROM keyword_reactions
 		WHERE chat_id = $1 AND is_active = true
 		ORDER BY id
@@ -147,7 +202,7 @@ func (m *ReactionsModule) loadReactions(chatID int64) ([]KeywordReaction, error)
 	var reactions []KeywordReaction
 	for rows.Next() {
 		var r KeywordReaction
-		if err := rows.Scan(&r.ID, &r.ChatID, &r.Pattern, &r.Response, &r.Description, &r.IsRegex, &r.Cooldown, &r.IsActive); err != nil {
+		if err := rows.Scan(&r.ID, &r.ChatID, &r.Pattern, &r.ResponseType, &r.ResponseContent, &r.Description, &r.IsRegex, &r.Cooldown, &r.DailyLimit, &r.DeleteOnLimit, &r.IsActive); err != nil {
 			m.logger.Error("failed to scan reaction", zap.Error(err))
 			continue
 		}
@@ -180,6 +235,30 @@ func (m *ReactionsModule) recordTrigger(chatID, reactionID, userID int64) {
 	}
 }
 
+func (m *ReactionsModule) getDailyCount(chatID, reactionID int64) (int, error) {
+	var count int
+	err := m.db.QueryRow(`
+		SELECT count FROM reaction_daily_counters
+		WHERE chat_id = $1 AND reaction_id = $2 AND counter_date = CURRENT_DATE
+	`, chatID, reactionID).Scan(&count)
+	if err != nil && err != sql.ErrNoRows {
+		return 0, err
+	}
+	return count, nil
+}
+
+func (m *ReactionsModule) incrementDailyCount(chatID, reactionID int64) {
+	_, err := m.db.Exec(`
+		INSERT INTO reaction_daily_counters (chat_id, reaction_id, counter_date, count)
+		VALUES ($1, $2, CURRENT_DATE, 1)
+		ON CONFLICT (chat_id, reaction_id, counter_date) DO UPDATE
+		SET count = reaction_daily_counters.count + 1
+	`, chatID, reactionID)
+	if err != nil {
+		m.logger.Error("failed to increment daily count", zap.Error(err))
+	}
+}
+
 func (m *ReactionsModule) RegisterCommands(bot *telebot.Bot) {}
 
 func (m *ReactionsModule) RegisterAdminCommands(bot *telebot.Bot) {
@@ -197,21 +276,88 @@ func (m *ReactionsModule) handleAddReaction(c telebot.Context) error {
 		return c.Send("❌ Команда доступна только администраторам")
 	}
 
-	args := strings.SplitN(c.Text(), " ", 4)
-	if len(args) < 4 {
-		return c.Send("Использование: /addreaction <pattern> <response> <description>\nПример: /addreaction привет Привет! Приветствие")
-	}
+	args := c.Args()
 
-	pattern := args[1]
-	response := args[2]
-	description := args[3]
+	var responseType, responseContent, description string
+	var pattern string
+	var dailyLimit int
+	var deleteOnLimit bool
+
+	if c.Message().ReplyTo != nil {
+		// Reply mode: get response from replied message
+		if len(args) < 1 {
+			return c.Send("Использование: /addreaction <pattern> [limit] [delete] (reply на сообщение со стикером/фото/etc.)\nПример: /addreaction привет 5 delete")
+		}
+		pattern = args[0]
+		dailyLimit = 0
+		deleteOnLimit = false
+		remainingArgs := args[1:]
+		if len(remainingArgs) > 0 && remainingArgs[len(remainingArgs)-1] == "delete" {
+			deleteOnLimit = true
+			remainingArgs = remainingArgs[:len(remainingArgs)-1]
+		}
+		if len(remainingArgs) > 0 {
+			if l, err := strconv.Atoi(remainingArgs[0]); err == nil {
+				dailyLimit = l
+			}
+		}
+		description = strings.Join(remainingArgs, " ")
+
+		replyMsg := c.Message().ReplyTo
+		if replyMsg.Sticker != nil {
+			responseType = "sticker"
+			responseContent = replyMsg.Sticker.FileID
+		} else if replyMsg.Photo != nil {
+			responseType = "photo"
+			responseContent = replyMsg.Photo.FileID
+		} else if replyMsg.Animation != nil {
+			responseType = "animation"
+			responseContent = replyMsg.Animation.FileID
+		} else if replyMsg.Video != nil {
+			responseType = "video"
+			responseContent = replyMsg.Video.FileID
+		} else if replyMsg.Voice != nil {
+			responseType = "voice"
+			responseContent = replyMsg.Voice.FileID
+		} else if replyMsg.Document != nil {
+			responseType = "document"
+			responseContent = replyMsg.Document.FileID
+		} else if replyMsg.Audio != nil {
+			responseType = "audio"
+			responseContent = replyMsg.Audio.FileID
+		} else {
+			responseType = "text"
+			responseContent = replyMsg.Text
+		}
+	} else {
+		// Text mode
+		if len(args) < 3 {
+			return c.Send("Использование: /addreaction <pattern> <response> <description> [limit] [delete]\nИли reply на сообщение со стикером/фото/etc.\nПример: /addreaction привет Привет! Приветствие 10 delete")
+		}
+		pattern = args[0]
+		responseType = "text"
+		responseContent = args[1]
+		description = args[2]
+		dailyLimit = 0
+		deleteOnLimit = false
+		remainingArgs := args[3:]
+		if len(remainingArgs) > 0 && remainingArgs[len(remainingArgs)-1] == "delete" {
+			deleteOnLimit = true
+			remainingArgs = remainingArgs[:len(remainingArgs)-1]
+		}
+		if len(remainingArgs) > 0 {
+			if l, err := strconv.Atoi(remainingArgs[0]); err == nil {
+				dailyLimit = l
+			}
+		}
+	}
 
 	chatID := c.Chat().ID
 
 	_, err = m.db.Exec(`
-		INSERT INTO keyword_reactions (chat_id, pattern, response, description, is_regex, cooldown, is_active)
-		VALUES ($1, $2, $3, $4, false, 30, true)
-	`, chatID, pattern, response, description)
+		INSERT INTO keyword_reactions (chat_id, pattern, response_type, response_content, description, is_regex, cooldown, daily_limit, delete_on_limit, is_active)
+		VALUES ($1, $2, $3, $4, $5, false, 30, $6, $7, true)
+	`, chatID, pattern, responseType, responseContent, description, dailyLimit, deleteOnLimit)
 
 	if err != nil {
 		m.logger.Error("failed to add reaction", zap.Error(err))
@@ -219,7 +365,11 @@ func (m *ReactionsModule) handleAddReaction(c telebot.Context) error {
 	}
 
 	delete(m.cache, chatID)
-	return c.Send(fmt.Sprintf("✅ Реакция добавлена\n\nПаттерн: %s\nОтвет: %s\nОписание: %s", pattern, response, description))
+	deleteMsg := ""
+	if deleteOnLimit {
+		deleteMsg = "\nУдалять при превышении лимита: да"
+	}
+	return c.Send(fmt.Sprintf("✅ Реакция добавлена\n\nПаттерн: %s\nТип ответа: %s\nСодержимое: %s\nОписание: %s\nДневной лимит: %d%s", pattern, responseType, responseContent, description, dailyLimit, deleteMsg))
 }
 
 func (m *ReactionsModule) handleListReactions(c telebot.Context) error {
@@ -247,7 +397,11 @@ func (m *ReactionsModule) handleListReactions(c telebot.Context) error {
 		if !r.IsActive {
 			status = "❌"
 		}
-		text += fmt.Sprintf("%d. %s ID: %d\n   Паттерн: `%s`\n   Ответ: %s\n   Описание: %s\n\n", i+1, status, r.ID, r.Pattern, r.Response, r.Description)
+		deleteMsg := "нет"
+		if r.DeleteOnLimit {
+			deleteMsg = "да"
+		}
+		text += fmt.Sprintf("%d. %s ID: %d\n   Паттерн: `%s`\n   Тип ответа: %s\n   Содержимое: %s\n   Описание: %s\n   Дневной лимит: %d\n   Удалять при превышении лимита: %s\n\n", i+1, status, r.ID, r.Pattern, r.ResponseType, r.ResponseContent, r.Description, r.DailyLimit, deleteMsg)
 	}
 
 	return c.Send(text, &telebot.SendOptions{ParseMode: telebot.ModeMarkdown})

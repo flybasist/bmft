@@ -59,7 +59,11 @@ func (m *TextFilterModule) Init(deps core.ModuleDependencies) error {
 }
 
 func (m *TextFilterModule) Commands() []core.BotCommand {
-	return []core.BotCommand{}
+	return []core.BotCommand{
+		{Command: "/addban", Description: "добавить запрещённое слово"},
+		{Command: "/listbans", Description: "список запрещённых слов"},
+		{Command: "/removeban", Description: "удалить запрещённое слово"},
+	}
 }
 
 func (m *TextFilterModule) Enabled(chatID int64) (bool, error) {

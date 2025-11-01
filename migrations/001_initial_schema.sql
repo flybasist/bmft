@@ -122,9 +122,12 @@ CREATE TABLE keyword_reactions (
     chat_id BIGINT NOT NULL REFERENCES chats(chat_id) ON DELETE CASCADE,
     pattern TEXT NOT NULL,
     is_regex BOOLEAN DEFAULT TRUE,
-    response TEXT NOT NULL,
+    response_type TEXT DEFAULT 'text',
+    response_content TEXT NOT NULL,
     description TEXT,
     cooldown INTEGER DEFAULT 3600,
+    daily_limit INTEGER DEFAULT 0,
+    delete_on_limit BOOLEAN DEFAULT FALSE,
     is_active BOOLEAN DEFAULT TRUE,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
@@ -140,6 +143,19 @@ CREATE TABLE reaction_triggers (
     trigger_count INTEGER DEFAULT 0,
     PRIMARY KEY (chat_id, reaction_id, user_id)
 );
+
+CREATE TABLE reaction_daily_counters (
+    id BIGSERIAL PRIMARY KEY,
+    chat_id BIGINT NOT NULL,
+    reaction_id BIGINT NOT NULL,
+    counter_date DATE NOT NULL DEFAULT CURRENT_DATE,
+    count INTEGER DEFAULT 0,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE(chat_id, reaction_id, counter_date)
+);
+
+CREATE INDEX idx_reaction_daily_counters_lookup ON reaction_daily_counters(chat_id, reaction_id, counter_date);
 
 CREATE TABLE banned_words (
     id BIGSERIAL PRIMARY KEY,
@@ -157,6 +173,7 @@ CREATE INDEX idx_banned_words_chat ON banned_words(chat_id, is_active);
 CREATE TABLE scheduled_tasks (
     id BIGSERIAL PRIMARY KEY,
     chat_id BIGINT NOT NULL REFERENCES chats(chat_id) ON DELETE CASCADE,
+    task_name VARCHAR(100) NOT NULL,
     cron_expression VARCHAR(100) NOT NULL,
     action_type VARCHAR(50) NOT NULL,
     action_data JSONB NOT NULL DEFAULT '{}',

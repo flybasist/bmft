@@ -150,6 +150,15 @@ func (m *LimiterModule) OnMessage(ctx *core.MessageContext) error {
 		return nil
 	}
 
+	// Увеличиваем счётчик
+	if err := m.contentLimitsRepo.IncrementCounter(chatID, userID, contentType); err != nil {
+		m.logger.Error("failed to increment counter", zap.Error(err))
+		return nil
+	}
+
+	// Теперь counter - это новый счётчик после увеличения
+	counter++
+
 	// Проверяем лимит
 	var limitValue int
 	switch contentType {
@@ -213,11 +222,6 @@ func (m *LimiterModule) OnMessage(ctx *core.MessageContext) error {
 		}
 		return nil
 	}
-
-	// Счётчик уже увеличен модулем statistics, не увеличиваем повторно
-	// if err := m.contentLimitsRepo.IncrementCounter(chatID, userID, contentType); err != nil {
-	//     m.logger.Error("failed to increment counter", zap.Error(err))
-	// }
 
 	return nil
 }
