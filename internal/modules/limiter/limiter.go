@@ -31,18 +31,6 @@ func New(vipRepo *repositories.VIPRepository, contentLimitsRepo *repositories.Co
 	}
 }
 
-// Shutdown завершает работу модуля
-func (m *LimiterModule) Shutdown() error {
-	m.logger.Info("limiter module shutdown")
-	return nil
-}
-
-// Init инициализирует модуль
-func (m *LimiterModule) Init(deps core.ModuleDependencies) error {
-	m.logger.Info("limiter module initialized")
-	return nil
-}
-
 // Commands возвращает список команд модуля
 func (m *LimiterModule) Commands() []core.BotCommand {
 	return []core.BotCommand{
@@ -52,11 +40,6 @@ func (m *LimiterModule) Commands() []core.BotCommand {
 		{Command: "/removevip", Description: "Снять VIP-статус с пользователя (админы)"},
 		{Command: "/listvips", Description: "Показать список VIP-пользователей (админы)"},
 	}
-}
-
-// Enabled проверяет, включен ли модуль для данного чата
-func (m *LimiterModule) Enabled(chatID int64) (bool, error) {
-	return m.moduleRepo.IsEnabled(chatID, "limiter")
 }
 
 // detectContentType определяет тип контента сообщения
@@ -104,7 +87,6 @@ func (m *LimiterModule) detectContentType(msg *tele.Message) string {
 // RegisterCommands регистрирует пользовательские команды
 func (m *LimiterModule) RegisterCommands(bot *tele.Bot) {
 	bot.Handle("/mystats", m.handleMyStats)
-	// bot.Handle("/myweek", m.handleMyWeek) // TODO: реализовать статистику за неделю
 }
 
 // RegisterAdminCommands регистрирует административные команды

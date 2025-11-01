@@ -49,13 +49,6 @@ func New(
 
 // SetAdminUsers устанавливает список администраторов модуля.
 
-// Init инициализирует модуль.
-func (m *StatisticsModule) Init(deps core.ModuleDependencies) error {
-	m.bot = deps.Bot
-	m.logger.Info("statistics module initialized")
-	return nil
-}
-
 // OnMessage обрабатывает входящее сообщение.
 // Русский комментарий: При каждом сообщении инкрементим счётчик в БД.
 func (m *StatisticsModule) OnMessage(ctx *core.MessageContext) error {
@@ -166,21 +159,6 @@ func (m *StatisticsModule) Commands() []core.BotCommand {
 	}
 }
 
-// Enabled проверяет, включен ли модуль для данного чата.
-func (m *StatisticsModule) Enabled(chatID int64) (bool, error) {
-	enabled, err := m.moduleRepo.IsEnabled(chatID, "statistics")
-	if err != nil {
-		return false, err
-	}
-	return enabled, nil
-}
-
-// Shutdown выполняет graceful shutdown модуля.
-func (m *StatisticsModule) Shutdown() error {
-	m.logger.Info("shutting down statistics module")
-	return nil
-}
-
 // RegisterCommands регистрирует команды модуля в боте.
 func (m *StatisticsModule) RegisterCommands(bot *tele.Bot) {
 	// /myweek — личная статистика за неделю
@@ -226,7 +204,7 @@ func (m *StatisticsModule) handleMyStats(c tele.Context, date time.Time) error {
 	userID := c.Sender().ID
 
 	// Проверяем что модуль включён
-	enabled, err := m.Enabled(chatID)
+	enabled, err := m.moduleRepo.IsEnabled(chatID, "statistics")
 	if err != nil {
 		m.logger.Error("failed to check if module enabled", zap.Error(err))
 		return c.Reply("Произошла ошибка при проверке модуля.")
@@ -263,7 +241,7 @@ func (m *StatisticsModule) handleMyWeekStats(c tele.Context) error {
 	userID := c.Sender().ID
 
 	// Проверяем что модуль включён
-	enabled, err := m.Enabled(chatID)
+	enabled, err := m.moduleRepo.IsEnabled(chatID, "statistics")
 	if err != nil {
 		m.logger.Error("failed to check if module enabled", zap.Error(err))
 		return c.Reply("Произошла ошибка при проверке модуля.")
@@ -298,7 +276,7 @@ func (m *StatisticsModule) handleChatStats(c tele.Context, date time.Time) error
 	userID := c.Sender().ID
 
 	// Проверяем что модуль включён
-	enabled, err := m.Enabled(chatID)
+	enabled, err := m.moduleRepo.IsEnabled(chatID, "statistics")
 	if err != nil {
 		m.logger.Error("failed to check if module enabled", zap.Error(err))
 		return c.Reply("Произошла ошибка при проверке модуля.")
@@ -333,7 +311,7 @@ func (m *StatisticsModule) handleTopChat(c tele.Context, date time.Time) error {
 	userID := c.Sender().ID
 
 	// Проверяем что модуль включён
-	enabled, err := m.Enabled(chatID)
+	enabled, err := m.moduleRepo.IsEnabled(chatID, "statistics")
 	if err != nil {
 		m.logger.Error("failed to check if module enabled", zap.Error(err))
 		return c.Reply("Произошла ошибка при проверке модуля.")

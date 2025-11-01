@@ -60,17 +60,3 @@ func PanicRecoveryMiddleware(logger *zap.Logger) tele.MiddlewareFunc {
 		}
 	}
 }
-
-// RateLimitMiddleware ограничивает количество сообщений от одного пользователя.
-// Русский комментарий: Простой rate limiter на уровне пользователя.
-// TODO: Реализовать полноценный rate limiting с Redis/Memory cache
-func RateLimitMiddleware(logger *zap.Logger) tele.MiddlewareFunc {
-	// Пока заглушка, в будущем можно добавить полноценный rate limiting
-	return func(next tele.HandlerFunc) tele.HandlerFunc {
-		return func(c tele.Context) error {
-			// TODO: Check rate limits here
-			// For now, just pass through
-			return next(c)
-		}
-	}
-}

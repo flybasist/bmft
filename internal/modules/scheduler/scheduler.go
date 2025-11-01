@@ -28,7 +28,7 @@ type SchedulerModule struct {
 
 // New создаёт новый инстанс модуля планировщика.
 func New(db *sql.DB, schedulerRepo *repositories.SchedulerRepository, moduleRepo *repositories.ModuleRepository, eventRepo *repositories.EventRepository, logger *zap.Logger, bot *tele.Bot) *SchedulerModule {
-	return &SchedulerModule{
+	m := &SchedulerModule{
 		db:            db,
 		schedulerRepo: schedulerRepo,
 		moduleRepo:    moduleRepo,
@@ -37,24 +37,31 @@ func New(db *sql.DB, schedulerRepo *repositories.SchedulerRepository, moduleRepo
 		bot:           bot,
 		cron:          cron.New(),
 	}
+
+	logger.Info("scheduler module created")
+	return m
 }
 
-// SetAdminUsers устанавливает список администраторов.
+// Start запускает планировщик задач.
+// Русский комментарий: Явный метод для управления жизненным циклом.
+// Загружает активные задачи из БД и запускает cron scheduler.
+func (m *SchedulerModule) Start() error {
+	m.logger.Info("starting scheduler module")
 
-// Init инициализирует модуль планировщика.
-func (m *SchedulerModule) Init(deps core.ModuleDependencies) error {
-	m.bot = deps.Bot
-	m.logger.Info("initializing scheduler module")
-
+	// Загружаем активные задачи из БД
 	if err := m.loadActiveTasks(); err != nil {
+		m.logger.Error("failed to load active tasks", zap.Error(err))
 		return fmt.Errorf("failed to load active tasks: %w", err)
 	}
 
+	// Запускаем cron scheduler
 	m.cron.Start()
-	m.logger.Info("cron scheduler started")
+	m.logger.Info("cron scheduler started successfully")
 
 	return nil
 }
+
+// SetAdminUsers устанавливает список администраторов.
 
 // OnMessage обрабатывает входящие сообщения.
 func (m *SchedulerModule) OnMessage(ctx *core.MessageContext) error {
@@ -68,15 +75,6 @@ func (m *SchedulerModule) Commands() []core.BotCommand {
 		{Command: "/listtasks", Description: "Список задач планировщика"},
 		{Command: "/removetask", Description: "Удалить задачу"},
 	}
-}
-
-// Enabled проверяет, включен ли модуль для данного чата.
-func (m *SchedulerModule) Enabled(chatID int64) (bool, error) {
-	enabled, err := m.moduleRepo.IsEnabled(chatID, "scheduler")
-	if err != nil {
-		return false, err
-	}
-	return enabled, nil
 }
 
 // Shutdown выполняет graceful shutdown модуля.
@@ -142,7 +140,8 @@ func (m *SchedulerModule) executeTask(task *repositories.ScheduledTask) {
 		zap.String("task_type", task.TaskType),
 	)
 
-	enabled, err := m.Enabled(task.ChatID)
+	// Проверяем включен ли scheduler для этого чата
+	enabled, err := m.moduleRepo.IsEnabled(task.ChatID, "scheduler")
 	if err != nil {
 		m.logger.Error("failed to check if module enabled", zap.Error(err))
 		return

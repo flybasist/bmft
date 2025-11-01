@@ -11,9 +11,12 @@
 *.out
 bin/
 
-# Compiled bot binary (используется для тестовой компиляции)
-bot
-bmft
+# Compiled bot binaries (любые варианты: bot, bot_test, bmft, bmft_debug, etc.)
+# Исключаем папки cmd/bot/ и internal/
+/bot*
+/bmft*
+!cmd/bot/
+!internal/
 
 ##############################
 # Go workspace files

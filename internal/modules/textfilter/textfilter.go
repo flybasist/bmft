@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
-	"time"
 
 	"github.com/flybasist/bmft/internal/core"
 	"github.com/flybasist/bmft/internal/postgresql/repositories"
@@ -19,8 +18,6 @@ type TextFilterModule struct {
 	contentLimitsRepo *repositories.ContentLimitsRepository
 	logger            *zap.Logger
 	bot               *telebot.Bot
-	cache             map[int64][]BannedWord
-	lastLoad          time.Time
 }
 
 type BannedWord struct {
@@ -45,17 +42,11 @@ func New(
 		contentLimitsRepo: contentLimitsRepo,
 		logger:            logger,
 		bot:               bot,
-		cache:             make(map[int64][]BannedWord),
 	}
 }
 
 func (m *TextFilterModule) Name() string {
 	return "textfilter"
-}
-
-func (m *TextFilterModule) Init(deps core.ModuleDependencies) error {
-	m.logger.Info("textfilter module initialized")
-	return nil
 }
 
 func (m *TextFilterModule) Commands() []core.BotCommand {
@@ -64,10 +55,6 @@ func (m *TextFilterModule) Commands() []core.BotCommand {
 		{Command: "/listbans", Description: "список запрещённых слов"},
 		{Command: "/removeban", Description: "удалить запрещённое слово"},
 	}
-}
-
-func (m *TextFilterModule) Enabled(chatID int64) (bool, error) {
-	return true, nil
 }
 
 func (m *TextFilterModule) OnMessage(ctx *core.MessageContext) error {
@@ -139,16 +126,9 @@ func (m *TextFilterModule) OnMessage(ctx *core.MessageContext) error {
 	return nil
 }
 
-func (m *TextFilterModule) Shutdown() error {
-	m.logger.Info("textfilter module shutdown")
-	return nil
-}
-
 func (m *TextFilterModule) loadBannedWords(chatID int64) ([]BannedWord, error) {
-	if words, ok := m.cache[chatID]; ok && time.Since(m.lastLoad) < 5*time.Minute {
-		return words, nil
-	}
-
+	// Русский комментарий: Читаем запрещённые слова напрямую из БД (без кеша).
+	// Чтение ~1-2ms, не критично для производительности.
 	rows, err := m.db.Query(`
 		SELECT id, chat_id, pattern, action, is_regex, is_active
 		FROM banned_words
@@ -170,8 +150,6 @@ func (m *TextFilterModule) loadBannedWords(chatID int64) ([]BannedWord, error) {
 		words = append(words, w)
 	}
 
-	m.cache[chatID] = words
-	m.lastLoad = time.Now()
 	return words, nil
 }
 
@@ -216,7 +194,6 @@ func (m *TextFilterModule) handleAddBan(c telebot.Context) error {
 		return c.Send("❌ Не удалось добавить запрещённое слово")
 	}
 
-	delete(m.cache, chatID)
 	return c.Send(fmt.Sprintf("✅ Запрещённое слово добавлено\n\nПаттерн: %s\nДействие: %s", pattern, action))
 }
 
@@ -281,6 +258,5 @@ func (m *TextFilterModule) handleRemoveBan(c telebot.Context) error {
 		return c.Send("ℹ️ Запись не найдена")
 	}
 
-	delete(m.cache, chatID)
 	return c.Send(fmt.Sprintf("✅ Запрет #%s удалён", banID))
 }

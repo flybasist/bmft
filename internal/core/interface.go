@@ -5,49 +5,21 @@ import (
 
 	"go.uber.org/zap"
 	tele "gopkg.in/telebot.v3"
-
-	"github.com/flybasist/bmft/internal/config"
 )
 
-// Module интерфейс, который должен реализовать каждый модуль бота.
-// Русский комментарий: Каждая фича (limiter, reactions, statistics и т.д.) = отдельный модуль.
-// Модуль регистрируется в Registry и получает доступ к БД, боту и логгеру через Dependencies.
-type Module interface {
-	// Init вызывается при старте бота для инициализации модуля
-	Init(deps ModuleDependencies) error
-
-	// OnMessage вызывается для каждого входящего сообщения
-	// Модуль решает сам, обрабатывать это сообщение или нет
-	OnMessage(ctx *MessageContext) error
-
-	// Commands возвращает список команд, которые регистрирует этот модуль
-	Commands() []BotCommand
-
-	// Enabled проверяет, включен ли модуль для данного чата
-	Enabled(chatID int64) (bool, error)
-
-	// Shutdown вызывается при graceful shutdown для очистки ресурсов
-	Shutdown() error
-}
-
-// ModuleDependencies — зависимости, которые получает каждый модуль при Init.
-// Русский комментарий: DI (Dependency Injection) контейнер.
-// Все модули получают доступ к одним и тем же ресурсам: БД, бот, логгер, конфиг.
-type ModuleDependencies struct {
-	DB     *sql.DB        // Подключение к PostgreSQL
-	Bot    *tele.Bot      // Инстанс Telegram бота (telebot.v3)
-	Logger *zap.Logger    // Структурированный логгер
-	Config *config.Config // Конфигурация приложения
-}
-
 // BotCommand описывает команду бота для регистрации в Telegram.
+// Русский комментарий: Используется модулями для объявления своих команд.
 type BotCommand struct {
 	Command     string // Команда (например: "/start", "/help")
 	Description string // Описание команды (на русском)
 }
 
-// MessageContext — контекст входящего сообщения для модулей.
-// Русский комментарий: Обёртка над tele.Message с дополнительными helper-методами.
+// MessageContext — контекст входящего сообщения для модулей pipeline.
+// Русский комментарий: Передаётся модулям в явном pipeline:
+//
+//	limiter → textfilter → statistics → reactions
+//
+// Содержит всё необходимое: Message, Bot, DB, Logger, Chat, Sender.
 // Модули могут отправлять ответы, удалять сообщения, логировать события.
 type MessageContext struct {
 	Message *tele.Message // Оригинальное сообщение от telebot.v3

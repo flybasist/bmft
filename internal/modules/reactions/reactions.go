@@ -15,12 +15,10 @@ import (
 )
 
 type ReactionsModule struct {
-	db       *sql.DB
-	vipRepo  *repositories.VIPRepository
-	logger   *zap.Logger
-	bot      *telebot.Bot
-	cache    map[int64][]KeywordReaction
-	lastLoad time.Time
+	db      *sql.DB
+	vipRepo *repositories.VIPRepository
+	logger  *zap.Logger
+	bot     *telebot.Bot
 }
 
 type KeywordReaction struct {
@@ -48,17 +46,11 @@ func New(
 		vipRepo: vipRepo,
 		logger:  logger,
 		bot:     bot,
-		cache:   make(map[int64][]KeywordReaction),
 	}
 }
 
 func (m *ReactionsModule) Name() string {
 	return "reactions"
-}
-
-func (m *ReactionsModule) Init(deps core.ModuleDependencies) error {
-	m.logger.Info("reactions module initialized")
-	return nil
 }
 
 func (m *ReactionsModule) Commands() []core.BotCommand {
@@ -67,10 +59,6 @@ func (m *ReactionsModule) Commands() []core.BotCommand {
 		{Command: "/listreactions", Description: "список реакций"},
 		{Command: "/removereaction", Description: "удалить реакцию"},
 	}
-}
-
-func (m *ReactionsModule) Enabled(chatID int64) (bool, error) {
-	return true, nil
 }
 
 func (m *ReactionsModule) OnMessage(ctx *core.MessageContext) error {
@@ -178,16 +166,9 @@ func (m *ReactionsModule) OnMessage(ctx *core.MessageContext) error {
 	return nil
 }
 
-func (m *ReactionsModule) Shutdown() error {
-	m.logger.Info("reactions module shutdown")
-	return nil
-}
-
 func (m *ReactionsModule) loadReactions(chatID int64) ([]KeywordReaction, error) {
-	if reactions, ok := m.cache[chatID]; ok && time.Since(m.lastLoad) < 5*time.Minute {
-		return reactions, nil
-	}
-
+	// Русский комментарий: Читаем реакции напрямую из БД (без кеша).
+	// Чтение ~1-2ms, не критично для производительности.
 	rows, err := m.db.Query(`
 		SELECT id, chat_id, pattern, response_type, response_content, description, is_regex, cooldown, daily_limit, delete_on_limit, is_active
 		FROM keyword_reactions
@@ -209,8 +190,6 @@ func (m *ReactionsModule) loadReactions(chatID int64) ([]KeywordReaction, error)
 		reactions = append(reactions, r)
 	}
 
-	m.cache[chatID] = reactions
-	m.lastLoad = time.Now()
 	return reactions, nil
 }
 
@@ -364,7 +343,6 @@ func (m *ReactionsModule) handleAddReaction(c telebot.Context) error {
 		return c.Send("❌ Не удалось добавить реакцию")
 	}
 
-	delete(m.cache, chatID)
 	deleteMsg := ""
 	if deleteOnLimit {
 		deleteMsg = "\nУдалять при превышении лимита: да"
@@ -437,6 +415,5 @@ func (m *ReactionsModule) handleRemoveReaction(c telebot.Context) error {
 		return c.Send("ℹ️ Реакция не найдена")
 	}
 
-	delete(m.cache, chatID)
 	return c.Send(fmt.Sprintf("✅ Реакция #%s удалена", reactionID))
 }
