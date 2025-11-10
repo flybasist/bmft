@@ -293,6 +293,17 @@ func (m *StatisticsModule) handleMyWeekStats(c tele.Context) error {
 	if c.Message().ThreadID != 0 {
 		threadID = c.Message().ThreadID
 	}
+
+	// Проверяем что модуль включён (с fallback: топик → чат)
+	enabled, err := m.moduleRepo.IsEnabled(chatID, threadID, "statistics")
+	if err != nil {
+		m.logger.Error("failed to check if module enabled", zap.Error(err))
+		return c.Reply("Произошла ошибка при проверке модуля.")
+	}
+	if !enabled {
+		return c.Reply("📊 Модуль statistics отключен для этого чата. Админ может включить: /enable statistics")
+	}
+
 	userID := c.Sender().ID
 
 	// Статистика за последние 7 дней
@@ -360,6 +371,16 @@ func (m *StatisticsModule) handleChatStats(c tele.Context, date time.Time) error
 		threadID = c.Message().ThreadID
 	}
 
+	// Проверяем, включен ли модуль
+	enabled, err := m.moduleRepo.IsEnabled(chatID, threadID, "statistics")
+	if err != nil {
+		m.logger.Error("failed to check if statistics module enabled", zap.Error(err))
+		return c.Send("Произошла ошибка при проверке модуля.")
+	}
+	if !enabled {
+		return c.Send("🔹 Модуль статистика отключен для этого чата. Админ может включить: /enable statistics")
+	}
+
 	// По умолчанию - статистика за сегодня (1 день)
 	days := 1
 
@@ -422,6 +443,16 @@ func (m *StatisticsModule) handleTopChat(c tele.Context, date time.Time) error {
 	threadID := 0
 	if c.Message().ThreadID != 0 {
 		threadID = c.Message().ThreadID
+	}
+
+	// Проверяем, включен ли модуль
+	enabled, err := m.moduleRepo.IsEnabled(chatID, threadID, "statistics")
+	if err != nil {
+		m.logger.Error("failed to check if statistics module enabled", zap.Error(err))
+		return c.Send("Произошла ошибка при проверке модуля.")
+	}
+	if !enabled {
+		return c.Send("🔹 Модуль статистика отключен для этого чата. Админ может включить: /enable statistics")
 	}
 
 	// По умолчанию - топ за сегодня (1 день), 10 пользователей

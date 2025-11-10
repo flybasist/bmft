@@ -272,6 +272,16 @@ func (m *SchedulerModule) handleListTasks(c tele.Context) error {
 		threadID = c.Message().ThreadID
 	}
 
+	// Проверяем что модуль включён (с fallback: топик → чат)
+	enabled, err := m.moduleRepo.IsEnabled(chatID, threadID, "scheduler")
+	if err != nil {
+		m.logger.Error("failed to check if module enabled", zap.Error(err))
+		return c.Send("Произошла ошибка при проверке модуля.")
+	}
+	if !enabled {
+		return c.Send("⏰ Модуль scheduler отключен для этого чата. Админ может включить: /enable scheduler")
+	}
+
 	tasks, err := m.schedulerRepo.GetChatTasks(chatID, threadID)
 	if err != nil {
 		m.logger.Error("failed to get chat tasks", zap.Error(err))
@@ -321,6 +331,19 @@ func (m *SchedulerModule) handleListTasks(c tele.Context) error {
 }
 
 func (m *SchedulerModule) handleAddTask(c tele.Context) error {
+	chatID := c.Chat().ID
+	threadID := int(c.Message().ThreadID)
+
+	// Проверяем что модуль включён (с fallback: топик → чат)
+	enabled, err := m.moduleRepo.IsEnabled(chatID, threadID, "scheduler")
+	if err != nil {
+		m.logger.Error("failed to check if module enabled", zap.Error(err))
+		return c.Send("Произошла ошибка при проверке модуля.")
+	}
+	if !enabled {
+		return c.Send("⏰ Модуль scheduler отключен для этого чата. Админ может включить: /enable scheduler")
+	}
+
 	admins, err := m.bot.AdminsOf(c.Chat())
 	if err != nil {
 		return c.Send("Ошибка проверки прав администратора")
@@ -520,6 +543,22 @@ func (m *SchedulerModule) handleAddTask(c tele.Context) error {
 }
 
 func (m *SchedulerModule) handleDeleteTask(c tele.Context) error {
+	chatID := c.Chat().ID
+	threadID := 0
+	if c.Message().ThreadID != 0 {
+		threadID = c.Message().ThreadID
+	}
+
+	// Проверяем что модуль включён (с fallback: топик → чат)
+	enabled, err := m.moduleRepo.IsEnabled(chatID, threadID, "scheduler")
+	if err != nil {
+		m.logger.Error("failed to check if module enabled", zap.Error(err))
+		return c.Send("Произошла ошибка при проверке модуля.")
+	}
+	if !enabled {
+		return c.Send("⏰ Модуль scheduler отключен для этого чата. Админ может включить: /enable scheduler")
+	}
+
 	admins, err := m.bot.AdminsOf(c.Chat())
 	if err != nil {
 		return c.Send("Ошибка проверки прав администратора")

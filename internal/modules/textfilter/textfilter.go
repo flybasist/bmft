@@ -16,6 +16,7 @@ type TextFilterModule struct {
 	db                *sql.DB
 	vipRepo           *repositories.VIPRepository
 	contentLimitsRepo *repositories.ContentLimitsRepository
+	moduleRepo        *repositories.ModuleRepository
 	logger            *zap.Logger
 	bot               *telebot.Bot
 }
@@ -34,6 +35,7 @@ func New(
 	db *sql.DB,
 	vipRepo *repositories.VIPRepository,
 	contentLimitsRepo *repositories.ContentLimitsRepository,
+	moduleRepo *repositories.ModuleRepository,
 	logger *zap.Logger,
 	bot *telebot.Bot,
 ) *TextFilterModule {
@@ -41,6 +43,7 @@ func New(
 		db:                db,
 		vipRepo:           vipRepo,
 		contentLimitsRepo: contentLimitsRepo,
+		moduleRepo:        moduleRepo,
 		logger:            logger,
 		bot:               bot,
 	}
@@ -196,6 +199,22 @@ func (m *TextFilterModule) loadBannedWords(chatID int64, threadID int64) ([]Bann
 }
 
 func (m *TextFilterModule) handleAddBan(c telebot.Context) error {
+	chatID := c.Chat().ID
+	threadID := int64(0)
+	if c.Message().ThreadID != 0 {
+		threadID = int64(c.Message().ThreadID)
+	}
+
+	// Проверяем что модуль включён (с fallback: топик → чат)
+	enabled, err := m.moduleRepo.IsEnabled(chatID, int(threadID), "textfilter")
+	if err != nil {
+		m.logger.Error("failed to check if module enabled", zap.Error(err))
+		return c.Send("Произошла ошибка при проверке модуля.")
+	}
+	if !enabled {
+		return c.Send("🚫 Модуль textfilter отключен для этого чата. Админ может включить: /enable textfilter")
+	}
+
 	isAdmin, err := core.IsUserAdmin(m.bot, c.Chat(), c.Sender().ID)
 	if err != nil {
 		return c.Send("Ошибка проверки прав администратора")
@@ -214,12 +233,6 @@ func (m *TextFilterModule) handleAddBan(c telebot.Context) error {
 
 	if action != "delete" && action != "warn" && action != "delete_warn" {
 		return c.Send("❌ Action должен быть: delete, warn или delete_warn")
-	}
-
-	chatID := c.Chat().ID
-	threadID := int64(0)
-	if c.Message().ThreadID != 0 {
-		threadID = int64(c.Message().ThreadID)
 	}
 
 	_, err = m.db.Exec(`
@@ -243,18 +256,28 @@ func (m *TextFilterModule) handleAddBan(c telebot.Context) error {
 }
 
 func (m *TextFilterModule) handleListBans(c telebot.Context) error {
+	chatID := c.Chat().ID
+	threadID := int64(0)
+	if c.Message().ThreadID != 0 {
+		threadID = int64(c.Message().ThreadID)
+	}
+
+	// Проверяем что модуль включён (с fallback: топик → чат)
+	enabled, err := m.moduleRepo.IsEnabled(chatID, int(threadID), "textfilter")
+	if err != nil {
+		m.logger.Error("failed to check if module enabled", zap.Error(err))
+		return c.Send("Произошла ошибка при проверке модуля.")
+	}
+	if !enabled {
+		return c.Send("🚫 Модуль textfilter отключен для этого чата. Админ может включить: /enable textfilter")
+	}
+
 	isAdmin, err := core.IsUserAdmin(m.bot, c.Chat(), c.Sender().ID)
 	if err != nil {
 		return c.Send("Ошибка проверки прав администратора")
 	}
 	if !isAdmin {
 		return c.Send("❌ Команда доступна только администраторам")
-	}
-
-	chatID := c.Chat().ID
-	threadID := int64(0)
-	if c.Message().ThreadID != 0 {
-		threadID = int64(c.Message().ThreadID)
 	}
 
 	words, err := m.loadBannedWords(chatID, threadID)
@@ -293,6 +316,22 @@ func (m *TextFilterModule) handleListBans(c telebot.Context) error {
 }
 
 func (m *TextFilterModule) handleRemoveBan(c telebot.Context) error {
+	chatID := c.Chat().ID
+	threadID := int64(0)
+	if c.Message().ThreadID != 0 {
+		threadID = int64(c.Message().ThreadID)
+	}
+
+	// Проверяем что модуль включён (с fallback: топик → чат)
+	enabled, err := m.moduleRepo.IsEnabled(chatID, int(threadID), "textfilter")
+	if err != nil {
+		m.logger.Error("failed to check if module enabled", zap.Error(err))
+		return c.Send("Произошла ошибка при проверке модуля.")
+	}
+	if !enabled {
+		return c.Send("🚫 Модуль textfilter отключен для этого чата. Админ может включить: /enable textfilter")
+	}
+
 	isAdmin, err := core.IsUserAdmin(m.bot, c.Chat(), c.Sender().ID)
 	if err != nil {
 		return c.Send("Ошибка проверки прав администратора")
@@ -307,11 +346,6 @@ func (m *TextFilterModule) handleRemoveBan(c telebot.Context) error {
 	}
 
 	banID := args[1]
-	chatID := c.Chat().ID
-	threadID := int64(0)
-	if c.Message().ThreadID != 0 {
-		threadID = int64(c.Message().ThreadID)
-	}
 
 	result, err := m.db.Exec(`
 		DELETE FROM banned_words WHERE chat_id = $1 AND thread_id = $2 AND id = $3

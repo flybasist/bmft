@@ -15,10 +15,11 @@ import (
 )
 
 type ReactionsModule struct {
-	db      *sql.DB
-	vipRepo *repositories.VIPRepository
-	logger  *zap.Logger
-	bot     *telebot.Bot
+	db         *sql.DB
+	vipRepo    *repositories.VIPRepository
+	moduleRepo *repositories.ModuleRepository
+	logger     *zap.Logger
+	bot        *telebot.Bot
 }
 
 type KeywordReaction struct {
@@ -41,14 +42,16 @@ type KeywordReaction struct {
 func New(
 	db *sql.DB,
 	vipRepo *repositories.VIPRepository,
+	moduleRepo *repositories.ModuleRepository,
 	logger *zap.Logger,
 	bot *telebot.Bot,
 ) *ReactionsModule {
 	return &ReactionsModule{
-		db:      db,
-		vipRepo: vipRepo,
-		logger:  logger,
-		bot:     bot,
+		db:         db,
+		vipRepo:    vipRepo,
+		moduleRepo: moduleRepo,
+		logger:     logger,
+		bot:        bot,
 	}
 }
 
@@ -350,6 +353,22 @@ func (m *ReactionsModule) incrementDailyCount(chatID, reactionID int64) {
 }
 
 func (m *ReactionsModule) handleAddReaction(c telebot.Context) error {
+	// Проверяем что модуль включён (с fallback: топик → чат)
+	chatID := c.Chat().ID
+	threadID := int64(0)
+	if c.Message().ThreadID != 0 {
+		threadID = int64(c.Message().ThreadID)
+	}
+
+	enabled, err := m.moduleRepo.IsEnabled(chatID, int(threadID), "reactions")
+	if err != nil {
+		m.logger.Error("failed to check if module enabled", zap.Error(err))
+		return c.Send("Произошла ошибка при проверке модуля.")
+	}
+	if !enabled {
+		return c.Send("🤖 Модуль reactions отключен для этого чата. Админ может включить: /enable reactions")
+	}
+
 	isAdmin, err := core.IsUserAdmin(m.bot, c.Chat(), c.Sender().ID)
 	if err != nil {
 		return c.Send("Ошибка проверки прав администратора")
@@ -491,12 +510,6 @@ func (m *ReactionsModule) handleAddReaction(c telebot.Context) error {
 		}
 	}
 
-	chatID := c.Chat().ID
-	threadID := int64(0)
-	if c.Message().ThreadID != 0 {
-		threadID = int64(c.Message().ThreadID)
-	}
-
 	// Русский комментарий: Если user_id указан, сохраняем его в БД. NULL для общих реакций.
 	var userIDParam interface{}
 	if userID > 0 {
@@ -557,18 +570,28 @@ func (m *ReactionsModule) handleAddReaction(c telebot.Context) error {
 }
 
 func (m *ReactionsModule) handleListReactions(c telebot.Context) error {
+	chatID := c.Chat().ID
+	threadID := int64(0)
+	if c.Message().ThreadID != 0 {
+		threadID = int64(c.Message().ThreadID)
+	}
+
+	// Проверяем что модуль включён (с fallback: топик → чат)
+	enabled, err := m.moduleRepo.IsEnabled(chatID, int(threadID), "reactions")
+	if err != nil {
+		m.logger.Error("failed to check if module enabled", zap.Error(err))
+		return c.Send("Произошла ошибка при проверке модуля.")
+	}
+	if !enabled {
+		return c.Send("🤖 Модуль reactions отключен для этого чата. Админ может включить: /enable reactions")
+	}
+
 	isAdmin, err := core.IsUserAdmin(m.bot, c.Chat(), c.Sender().ID)
 	if err != nil {
 		return c.Send("Ошибка проверки прав администратора")
 	}
 	if !isAdmin {
 		return c.Send("❌ Команда доступна только администраторам")
-	}
-
-	chatID := c.Chat().ID
-	threadID := int64(0)
-	if c.Message().ThreadID != 0 {
-		threadID = int64(c.Message().ThreadID)
 	}
 
 	// Получаем реакции с учетом fallback: сначала для топика, потом для чата
@@ -683,6 +706,22 @@ func (m *ReactionsModule) handleListReactions(c telebot.Context) error {
 }
 
 func (m *ReactionsModule) handleRemoveReaction(c telebot.Context) error {
+	chatID := c.Chat().ID
+	threadID := int64(0)
+	if c.Message().ThreadID != 0 {
+		threadID = int64(c.Message().ThreadID)
+	}
+
+	// Проверяем что модуль включён (с fallback: топик → чат)
+	enabled, err := m.moduleRepo.IsEnabled(chatID, int(threadID), "reactions")
+	if err != nil {
+		m.logger.Error("failed to check if module enabled", zap.Error(err))
+		return c.Send("Произошла ошибка при проверке модуля.")
+	}
+	if !enabled {
+		return c.Send("🤖 Модуль reactions отключен для этого чата. Админ может включить: /enable reactions")
+	}
+
 	isAdmin, err := core.IsUserAdmin(m.bot, c.Chat(), c.Sender().ID)
 	if err != nil {
 		return c.Send("Ошибка проверки прав администратора")
@@ -697,11 +736,6 @@ func (m *ReactionsModule) handleRemoveReaction(c telebot.Context) error {
 	}
 
 	reactionID := args[1]
-	chatID := c.Chat().ID
-	threadID := int64(0)
-	if c.Message().ThreadID != 0 {
-		threadID = int64(c.Message().ThreadID)
-	}
 
 	result, err := m.db.Exec(`
 		DELETE FROM keyword_reactions WHERE chat_id = $1 AND thread_id = $2 AND id = $3
