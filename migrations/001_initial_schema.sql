@@ -124,11 +124,13 @@ CREATE TABLE keyword_reactions (
     id BIGSERIAL PRIMARY KEY,
     chat_id BIGINT NOT NULL REFERENCES chats(chat_id) ON DELETE CASCADE,
     thread_id BIGINT DEFAULT 0,  -- 0 = реакция для всего чата, >0 = реакция только для топика
+    user_id BIGINT DEFAULT NULL,  -- NULL/0 = для всех пользователей, >0 = только для конкретного user_id (персональная пасхалка)
     pattern TEXT NOT NULL,
     is_regex BOOLEAN DEFAULT TRUE,
     response_type TEXT DEFAULT 'text',
     response_content TEXT NOT NULL,
     description TEXT,
+    trigger_content_type TEXT DEFAULT NULL,  -- NULL = любой контент, 'photo' = только фото, 'video' = только видео, 'sticker' = только стикеры, etc.
     cooldown INTEGER DEFAULT 3600,
     daily_limit INTEGER DEFAULT 0,
     delete_on_limit BOOLEAN DEFAULT FALSE,
@@ -138,6 +140,7 @@ CREATE TABLE keyword_reactions (
 );
 
 CREATE INDEX idx_keyword_reactions_chat ON keyword_reactions(chat_id, thread_id, is_active);
+CREATE INDEX idx_keyword_reactions_user ON keyword_reactions(chat_id, thread_id, user_id) WHERE user_id IS NOT NULL;
 
 -- Materialized view для статистики реакций (заменяет reaction_triggers и reaction_daily_counters)
 CREATE MATERIALIZED VIEW daily_reaction_stats AS

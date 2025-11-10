@@ -22,18 +22,20 @@ type ReactionsModule struct {
 }
 
 type KeywordReaction struct {
-	ID              int64
-	ChatID          int64
-	ThreadID        int64
-	Pattern         string
-	ResponseType    string // "text", "sticker", "photo", etc.
-	ResponseContent string // text content or file_id
-	Description     string
-	IsRegex         bool
-	Cooldown        int
-	DailyLimit      int
-	DeleteOnLimit   bool
-	IsActive        bool
+	ID                 int64
+	ChatID             int64
+	ThreadID           int64
+	UserID             int64 // 0 или NULL = для всех, >0 = только для конкретного пользователя (персональная реакция)
+	Pattern            string
+	ResponseType       string // "text", "sticker", "photo", etc.
+	ResponseContent    string // text content or file_id
+	Description        string
+	TriggerContentType string // "" или NULL = любой контент, "photo" = только фото, "video" = только видео, etc.
+	IsRegex            bool
+	Cooldown           int
+	DailyLimit         int
+	DeleteOnLimit      bool
+	IsActive           bool
 }
 
 func New(
@@ -69,6 +71,25 @@ func (m *ReactionsModule) RegisterCommands(bot *telebot.Bot) {
 		msg += "   • `/addreaction (доброе утро|добрый день) Хорошего дня! ☀️`\n"
 		msg += "   • `/addreaction (?i)спасибо Всегда пожалуйста! 😊` — без учёта регистра\n\n"
 
+		msg += "🎯 **Персональные реакции (пасхалки):**\n"
+		msg += "   Можно настроить реакцию только для конкретного пользователя\n"
+		msg += "   📌 Примеры:\n"
+		msg += "   • `/addreaction user:303724504 \"\" \"@Astrolux, опять ты что то спылесосил!\" \"Пасхалка\"`\n"
+		msg += "   • `/addreaction user:303724504 \"\" \"@Astrolux, опять ты что то спылесосил!\" \"Пасхалка\" photo 86400`\n"
+		msg += "   Пустой паттерн (\"\") означает реакцию на **любое сообщение** этого пользователя\n"
+		msg += "   Указание `photo` = реакция только на фото, `86400` = кулдаун 24 часа\n\n"
+
+		msg += "📎 **Фильтр по типу контента:**\n"
+		msg += "   Можно ограничить срабатывание реакции только на определённый тип сообщений\n"
+		msg += "   Доступные типы: `photo`, `video`, `sticker`, `animation`, `voice`, `video_note`, `audio`, `document`, `text`\n"
+		msg += "   📌 Примеры:\n"
+		msg += "   • `/addreaction \"красиво\" \"Спасибо!\" \"Реакция на комплимент\" photo` — только на фото\n"
+		msg += "   • `/addreaction user:12345 \"\" \"Классный стикер!\" \"Пасхалка\" sticker 3600` — на стикеры раз в час\n\n"
+
+		msg += "⏰ **Кулдаун:**\n"
+		msg += "   По умолчанию 30 секунд между срабатываниями одной реакции\n"
+		msg += "   Можно указать своё значение в секундах: `3600` = 1 час, `86400` = 24 часа\n\n"
+
 		msg += "🔹 `/listreactions` — Список всех активных реакций\n"
 		msg += "   Показывает все настроенные автоответы с их ID\n"
 		msg += "   📌 Пример: `/listreactions`\n\n"
@@ -99,7 +120,10 @@ func (m *ReactionsModule) RegisterAdminCommands(bot *telebot.Bot) {
 
 func (m *ReactionsModule) OnMessage(ctx *core.MessageContext) error {
 	msg := ctx.Message
-	if msg.Private() || msg.Text == "" || strings.HasPrefix(msg.Text, "/") {
+
+	// Русский комментарий: Пропускаем приватные сообщения и команды.
+	// Для персональных реакций (например, на фото без текста) убираем проверку msg.Text == ""
+	if msg.Private() || (msg.Text != "" && strings.HasPrefix(msg.Text, "/")) {
 		return nil
 	}
 
@@ -112,7 +136,7 @@ func (m *ReactionsModule) OnMessage(ctx *core.MessageContext) error {
 		return nil
 	}
 
-	reactions, err := m.loadReactions(chatID, int64(threadID))
+	reactions, err := m.loadReactions(chatID, int64(threadID), userID)
 	if err != nil {
 		m.logger.Error("failed to load reactions", zap.Error(err))
 		return nil
@@ -123,16 +147,55 @@ func (m *ReactionsModule) OnMessage(ctx *core.MessageContext) error {
 			continue
 		}
 
-		matched := false
-		if reaction.IsRegex {
-			re, err := regexp.Compile(reaction.Pattern)
-			if err != nil {
-				m.logger.Warn("invalid regex pattern", zap.String("pattern", reaction.Pattern))
-				continue
+		// Русский комментарий: Проверяем фильтр по типу контента.
+		// Если trigger_content_type задан, проверяем соответствие типа сообщения.
+		if reaction.TriggerContentType != "" {
+			contentMatched := false
+			switch reaction.TriggerContentType {
+			case "photo":
+				contentMatched = msg.Photo != nil
+			case "video":
+				contentMatched = msg.Video != nil
+			case "sticker":
+				contentMatched = msg.Sticker != nil
+			case "animation":
+				contentMatched = msg.Animation != nil
+			case "voice":
+				contentMatched = msg.Voice != nil
+			case "video_note":
+				contentMatched = msg.VideoNote != nil
+			case "audio":
+				contentMatched = msg.Audio != nil
+			case "document":
+				contentMatched = msg.Document != nil
+			case "text":
+				contentMatched = msg.Text != ""
 			}
-			matched = re.MatchString(msg.Text)
-		} else {
-			matched = strings.Contains(strings.ToLower(msg.Text), strings.ToLower(reaction.Pattern))
+
+			if !contentMatched {
+				continue // Тип контента не совпадает, пропускаем эту реакцию
+			}
+		}
+
+		// Русский комментарий: Проверяем соответствие паттерна.
+		// Если pattern пустой и user_id совпадает - срабатывает (без проверки текста).
+		matched := false
+
+		// Персональная реакция на любой контент (pattern пустой)
+		if reaction.Pattern == "" && reaction.UserID > 0 && reaction.UserID == userID {
+			matched = true
+		} else if msg.Text != "" {
+			// Обычная текстовая реакция
+			if reaction.IsRegex {
+				re, err := regexp.Compile(reaction.Pattern)
+				if err != nil {
+					m.logger.Warn("invalid regex pattern", zap.String("pattern", reaction.Pattern))
+					continue
+				}
+				matched = re.MatchString(msg.Text)
+			} else {
+				matched = strings.Contains(strings.ToLower(msg.Text), strings.ToLower(reaction.Pattern))
+			}
 		}
 
 		if matched {
@@ -203,16 +266,26 @@ func (m *ReactionsModule) OnMessage(ctx *core.MessageContext) error {
 	return nil
 }
 
-func (m *ReactionsModule) loadReactions(chatID int64, threadID int64) ([]KeywordReaction, error) {
+func (m *ReactionsModule) loadReactions(chatID int64, threadID int64, userID int64) ([]KeywordReaction, error) {
 	// Русский комментарий: Читаем реакции напрямую из БД (без кеша).
 	// Чтение ~1-2ms, не критично для производительности.
-	// Fallback: сначала ищем для топика, если не найдено - для всего чата
+	// Fallback логика (приоритет сверху вниз):
+	// 1. Персональная реакция для user_id в конкретном топике (thread_id + user_id)
+	// 2. Персональная реакция для user_id во всём чате (thread_id=0 + user_id)
+	// 3. Общая реакция для топика (thread_id, user_id IS NULL)
+	// 4. Общая реакция для чата (thread_id=0, user_id IS NULL)
 	rows, err := m.db.Query(`
-		SELECT id, chat_id, thread_id, pattern, response_type, response_content, description, is_regex, cooldown, daily_limit, delete_on_limit, is_active
+		SELECT id, chat_id, thread_id, COALESCE(user_id, 0), pattern, response_type, response_content, description, COALESCE(trigger_content_type, ''), is_regex, cooldown, daily_limit, delete_on_limit, is_active
 		FROM keyword_reactions
-		WHERE chat_id = $1 AND (thread_id = $2 OR thread_id = 0) AND is_active = true
-		ORDER BY thread_id DESC, id
-	`, chatID, threadID)
+		WHERE chat_id = $1 
+		  AND (thread_id = $2 OR thread_id = 0) 
+		  AND (user_id = $3 OR user_id IS NULL)
+		  AND is_active = true
+		ORDER BY 
+		  CASE WHEN user_id IS NOT NULL THEN 0 ELSE 1 END,  -- Персональные реакции в приоритете
+		  thread_id DESC,  -- Топик приоритетнее чата
+		  id
+	`, chatID, threadID, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -221,12 +294,10 @@ func (m *ReactionsModule) loadReactions(chatID int64, threadID int64) ([]Keyword
 	var reactions []KeywordReaction
 	for rows.Next() {
 		var r KeywordReaction
-		var threadID int64
-		if err := rows.Scan(&r.ID, &r.ChatID, &threadID, &r.Pattern, &r.ResponseType, &r.ResponseContent, &r.Description, &r.IsRegex, &r.Cooldown, &r.DailyLimit, &r.DeleteOnLimit, &r.IsActive); err != nil {
+		if err := rows.Scan(&r.ID, &r.ChatID, &r.ThreadID, &r.UserID, &r.Pattern, &r.ResponseType, &r.ResponseContent, &r.Description, &r.TriggerContentType, &r.IsRegex, &r.Cooldown, &r.DailyLimit, &r.DeleteOnLimit, &r.IsActive); err != nil {
 			m.logger.Error("failed to scan reaction", zap.Error(err))
 			continue
 		}
-		r.ThreadID = threadID
 		reactions = append(reactions, r)
 	}
 
@@ -293,16 +364,52 @@ func (m *ReactionsModule) handleAddReaction(c telebot.Context) error {
 	var pattern string
 	var dailyLimit int
 	var deleteOnLimit bool
+	var userID int64 = 0               // 0 = для всех пользователей
+	var triggerContentType string = "" // пустая строка = любой контент
+	var cooldown int = 30              // по умолчанию 30 секунд
+
+	// Русский комментарий: Проверяем префикс user:<user_id> для персональной реакции
+	// Пример: /addreaction user:303724504 "" "@Astrolux, опять ты что то спылесосил!" "Пасхалка" photo 86400
+	if len(args) > 0 && strings.HasPrefix(args[0], "user:") {
+		userIDStr := strings.TrimPrefix(args[0], "user:")
+		parsedUserID, err := strconv.ParseInt(userIDStr, 10, 64)
+		if err != nil {
+			return c.Send("❌ Неверный формат user_id. Используйте: user:303724504")
+		}
+		userID = parsedUserID
+		args = args[1:] // Убираем префикс из аргументов
+	}
 
 	if c.Message().ReplyTo != nil {
 		// Reply mode: get response from replied message
 		if len(args) < 1 {
-			return c.Send("Использование: /addreaction <pattern> [limit] [delete] (reply на сообщение со стикером/фото/etc.)\nПример: /addreaction привет 5 delete")
+			return c.Send("Использование: /addreaction [user:<user_id>] <pattern> [<content_type>] [<cooldown>] [limit] [delete] (reply на сообщение)\nПример: /addreaction user:303724504 \"\" photo 86400 (reply на стикер) - персональная реакция на фото раз в сутки")
 		}
 		pattern = args[0]
 		dailyLimit = 0
 		deleteOnLimit = false
 		remainingArgs := args[1:]
+
+		// Проверяем тип контента (photo/video/sticker/etc)
+		if len(remainingArgs) > 0 {
+			validContentTypes := map[string]bool{
+				"photo": true, "video": true, "sticker": true, "animation": true,
+				"voice": true, "video_note": true, "audio": true, "document": true, "text": true,
+			}
+			if validContentTypes[remainingArgs[0]] {
+				triggerContentType = remainingArgs[0]
+				remainingArgs = remainingArgs[1:]
+			}
+		}
+
+		// Проверяем cooldown
+		if len(remainingArgs) > 0 {
+			if cd, err := strconv.Atoi(remainingArgs[0]); err == nil && cd > 0 {
+				cooldown = cd
+				remainingArgs = remainingArgs[1:]
+			}
+		}
+
 		if len(remainingArgs) > 0 && remainingArgs[len(remainingArgs)-1] == "delete" {
 			deleteOnLimit = true
 			remainingArgs = remainingArgs[:len(remainingArgs)-1]
@@ -343,7 +450,7 @@ func (m *ReactionsModule) handleAddReaction(c telebot.Context) error {
 	} else {
 		// Text mode
 		if len(args) < 3 {
-			return c.Send("Использование: /addreaction <pattern> <response> <description> [limit] [delete]\nИли reply на сообщение со стикером/фото/etc.\nПример: /addreaction привет Привет! Приветствие 10 delete")
+			return c.Send("Использование: /addreaction [user:<user_id>] <pattern> <response> <description> [<content_type>] [<cooldown>] [limit] [delete]\nИли reply на сообщение со стикером/фото/etc.\nПример: /addreaction user:303724504 \"\" \"@Astrolux, опять ты что то спылесосил!\" \"Пасхалка\" photo 86400")
 		}
 		pattern = args[0]
 		responseType = "text"
@@ -352,6 +459,27 @@ func (m *ReactionsModule) handleAddReaction(c telebot.Context) error {
 		dailyLimit = 0
 		deleteOnLimit = false
 		remainingArgs := args[3:]
+
+		// Проверяем тип контента (photo/video/sticker/etc)
+		if len(remainingArgs) > 0 {
+			validContentTypes := map[string]bool{
+				"photo": true, "video": true, "sticker": true, "animation": true,
+				"voice": true, "video_note": true, "audio": true, "document": true, "text": true,
+			}
+			if validContentTypes[remainingArgs[0]] {
+				triggerContentType = remainingArgs[0]
+				remainingArgs = remainingArgs[1:]
+			}
+		}
+
+		// Проверяем cooldown
+		if len(remainingArgs) > 0 {
+			if cd, err := strconv.Atoi(remainingArgs[0]); err == nil && cd > 0 {
+				cooldown = cd
+				remainingArgs = remainingArgs[1:]
+			}
+		}
+
 		if len(remainingArgs) > 0 && remainingArgs[len(remainingArgs)-1] == "delete" {
 			deleteOnLimit = true
 			remainingArgs = remainingArgs[:len(remainingArgs)-1]
@@ -369,10 +497,26 @@ func (m *ReactionsModule) handleAddReaction(c telebot.Context) error {
 		threadID = int64(c.Message().ThreadID)
 	}
 
+	// Русский комментарий: Если user_id указан, сохраняем его в БД. NULL для общих реакций.
+	var userIDParam interface{}
+	if userID > 0 {
+		userIDParam = userID
+	} else {
+		userIDParam = nil
+	}
+
+	// Русский комментарий: Если trigger_content_type указан, сохраняем его в БД. NULL для любого контента.
+	var triggerContentTypeParam interface{}
+	if triggerContentType != "" {
+		triggerContentTypeParam = triggerContentType
+	} else {
+		triggerContentTypeParam = nil
+	}
+
 	_, err = m.db.Exec(`
-		INSERT INTO keyword_reactions (chat_id, thread_id, pattern, response_type, response_content, description, is_regex, cooldown, daily_limit, delete_on_limit, is_active)
-		VALUES ($1, $2, $3, $4, $5, $6, false, 30, $7, $8, true)
-	`, chatID, threadID, pattern, responseType, responseContent, description, dailyLimit, deleteOnLimit)
+		INSERT INTO keyword_reactions (chat_id, thread_id, user_id, pattern, response_type, response_content, description, is_regex, trigger_content_type, cooldown, daily_limit, delete_on_limit, is_active)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, false, $8, $9, $10, $11, true)
+	`, chatID, threadID, userIDParam, pattern, responseType, responseContent, description, triggerContentTypeParam, cooldown, dailyLimit, deleteOnLimit)
 
 	if err != nil {
 		m.logger.Error("failed to add reaction", zap.Error(err))
@@ -384,6 +528,24 @@ func (m *ReactionsModule) handleAddReaction(c telebot.Context) error {
 		deleteMsg = "\nУдалять при превышении лимита: да"
 	}
 
+	contentTypeMsg := ""
+	if triggerContentType != "" {
+		contentTypeMsg = fmt.Sprintf("\n🎯 Только для: %s", triggerContentType)
+	}
+
+	cooldownMsg := ""
+	if cooldown != 30 {
+		if cooldown >= 86400 {
+			days := cooldown / 86400
+			cooldownMsg = fmt.Sprintf("\n⏰ Кулдаун: %d сек (%d дн.)", cooldown, days)
+		} else if cooldown >= 3600 {
+			hours := cooldown / 3600
+			cooldownMsg = fmt.Sprintf("\n⏰ Кулдаун: %d сек (%d ч.)", cooldown, hours)
+		} else {
+			cooldownMsg = fmt.Sprintf("\n⏰ Кулдаун: %d сек", cooldown)
+		}
+	}
+
 	var scopeMsg string
 	if threadID != 0 {
 		scopeMsg = "✅ Реакция добавлена **для этого топика**\n\n💡 Для настройки всего чата используйте команду в основном чате\n\n"
@@ -391,7 +553,7 @@ func (m *ReactionsModule) handleAddReaction(c telebot.Context) error {
 		scopeMsg = "✅ Реакция добавлена **для всего чата**\n\n💡 Для настройки топика используйте команду внутри топика\n\n"
 	}
 
-	return c.Send(fmt.Sprintf("%sПаттерн: %s\nТип ответа: %s\nСодержимое: %s\nОписание: %s\nДневной лимит: %d%s", scopeMsg, pattern, responseType, responseContent, description, dailyLimit, deleteMsg), &telebot.SendOptions{ParseMode: telebot.ModeMarkdown})
+	return c.Send(fmt.Sprintf("%sПаттерн: %s\nТип ответа: %s\nСодержимое: %s\nОписание: %s\nДневной лимит: %d%s%s%s", scopeMsg, pattern, responseType, responseContent, description, dailyLimit, deleteMsg, contentTypeMsg, cooldownMsg), &telebot.SendOptions{ParseMode: telebot.ModeMarkdown})
 }
 
 func (m *ReactionsModule) handleListReactions(c telebot.Context) error {
@@ -411,7 +573,7 @@ func (m *ReactionsModule) handleListReactions(c telebot.Context) error {
 
 	// Получаем реакции с учетом fallback: сначала для топика, потом для чата
 	rows, err := m.db.Query(`
-		SELECT id, thread_id, pattern, response_type, response_content, description, daily_limit, delete_on_limit, is_active
+		SELECT id, thread_id, COALESCE(user_id, 0), pattern, response_type, response_content, description, COALESCE(trigger_content_type, ''), cooldown, daily_limit, delete_on_limit, is_active
 		FROM keyword_reactions
 		WHERE chat_id = $1 AND (thread_id = $2 OR thread_id = 0)
 		ORDER BY thread_id DESC, id
@@ -423,30 +585,36 @@ func (m *ReactionsModule) handleListReactions(c telebot.Context) error {
 	defer rows.Close()
 
 	var reactions []struct {
-		ID              int64
-		ThreadID        int64
-		Pattern         string
-		ResponseType    string
-		ResponseContent string
-		Description     string
-		DailyLimit      int
-		DeleteOnLimit   bool
-		IsActive        bool
+		ID                 int64
+		ThreadID           int64
+		UserID             int64
+		Pattern            string
+		ResponseType       string
+		ResponseContent    string
+		Description        string
+		TriggerContentType string
+		Cooldown           int
+		DailyLimit         int
+		DeleteOnLimit      bool
+		IsActive           bool
 	}
 
 	for rows.Next() {
 		var r struct {
-			ID              int64
-			ThreadID        int64
-			Pattern         string
-			ResponseType    string
-			ResponseContent string
-			Description     string
-			DailyLimit      int
-			DeleteOnLimit   bool
-			IsActive        bool
+			ID                 int64
+			ThreadID           int64
+			UserID             int64
+			Pattern            string
+			ResponseType       string
+			ResponseContent    string
+			Description        string
+			TriggerContentType string
+			Cooldown           int
+			DailyLimit         int
+			DeleteOnLimit      bool
+			IsActive           bool
 		}
-		if err := rows.Scan(&r.ID, &r.ThreadID, &r.Pattern, &r.ResponseType, &r.ResponseContent, &r.Description, &r.DailyLimit, &r.DeleteOnLimit, &r.IsActive); err != nil {
+		if err := rows.Scan(&r.ID, &r.ThreadID, &r.UserID, &r.Pattern, &r.ResponseType, &r.ResponseContent, &r.Description, &r.TriggerContentType, &r.Cooldown, &r.DailyLimit, &r.DeleteOnLimit, &r.IsActive); err != nil {
 			m.logger.Error("failed to scan reaction", zap.Error(err))
 			continue
 		}
@@ -481,7 +649,34 @@ func (m *ReactionsModule) handleListReactions(c telebot.Context) error {
 		if r.ThreadID != 0 {
 			scope = "топик"
 		}
-		text += fmt.Sprintf("%d. %s ID: %d [%s]\n   Паттерн: `%s`\n   Тип ответа: %s\n   Содержимое: %s\n   Описание: %s\n   Дневной лимит: %d\n   Удалять при превышении лимита: %s\n\n", i+1, status, r.ID, scope, r.Pattern, r.ResponseType, r.ResponseContent, r.Description, r.DailyLimit, deleteMsg)
+
+		// Русский комментарий: Показываем user_id если реакция персональная
+		userInfo := ""
+		if r.UserID > 0 {
+			userInfo = fmt.Sprintf("\n   🎯 **Персональная для user_id:** %d", r.UserID)
+		}
+
+		// Русский комментарий: Показываем trigger_content_type если задан
+		contentTypeInfo := ""
+		if r.TriggerContentType != "" {
+			contentTypeInfo = fmt.Sprintf("\n   📎 **Только для:** %s", r.TriggerContentType)
+		}
+
+		// Русский комментарий: Показываем cooldown если не стандартный
+		cooldownInfo := ""
+		if r.Cooldown != 30 {
+			if r.Cooldown >= 86400 {
+				days := r.Cooldown / 86400
+				cooldownInfo = fmt.Sprintf("\n   ⏰ **Кулдаун:** %d сек (%d дн.)", r.Cooldown, days)
+			} else if r.Cooldown >= 3600 {
+				hours := r.Cooldown / 3600
+				cooldownInfo = fmt.Sprintf("\n   ⏰ **Кулдаун:** %d сек (%d ч.)", r.Cooldown, hours)
+			} else {
+				cooldownInfo = fmt.Sprintf("\n   ⏰ **Кулдаун:** %d сек", r.Cooldown)
+			}
+		}
+
+		text += fmt.Sprintf("%d. %s ID: %d [%s]\n   Паттерн: `%s`\n   Тип ответа: %s\n   Содержимое: %s\n   Описание: %s\n   Дневной лимит: %d\n   Удалять при превышении лимита: %s%s%s%s\n\n", i+1, status, r.ID, scope, r.Pattern, r.ResponseType, r.ResponseContent, r.Description, r.DailyLimit, deleteMsg, userInfo, contentTypeInfo, cooldownInfo)
 	}
 
 	return c.Send(text, &telebot.SendOptions{ParseMode: telebot.ModeMarkdown})
