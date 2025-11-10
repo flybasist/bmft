@@ -73,15 +73,6 @@ BMFT — модульный бот для управления Telegram-чата
         └──────────────────────────┘
 ```
 
-**Ключевые изменения (v0.8):**
-- ✅ **Единый источник правды:** `messages` с JSONB metadata вместо счётчиков
-- ✅ **9 таблиц вместо 13** (удалены content_counters, reaction_triggers, etc.)
-- ✅ **Поддержка топиков:** `thread_id` в 6 таблицах (messages, chat_modules, content_limits, chat_vips, keyword_reactions, banned_words)
-- ✅ **Fallback логика:** топик → чат (нет настроек в топике → применяются настройки чата)
-- ✅ **MATERIALIZED VIEW** для статистики (быстрее чем GROUP BY в реалтайме)
-- ✅ **MessageRepository** — централизованная работа с сообщениями
-- ✅ **GIN индексы** на JSONB для производительности
-
 ## 🗄️ База данных
 
 **Схема v0.8.0 (9 таблиц + 2 MATERIALIZED VIEW):**
