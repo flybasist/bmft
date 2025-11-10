@@ -24,6 +24,7 @@ type ReactionsModule struct {
 type KeywordReaction struct {
 	ID              int64
 	ChatID          int64
+	ThreadID        int64
 	Pattern         string
 	ResponseType    string // "text", "sticker", "photo", etc.
 	ResponseContent string // text content or file_id
@@ -53,12 +54,47 @@ func (m *ReactionsModule) Name() string {
 	return "reactions"
 }
 
-func (m *ReactionsModule) Commands() []core.BotCommand {
-	return []core.BotCommand{
-		{Command: "/addreaction", Description: "добавить реакцию на слово (reply или text) с опциональным дневным лимитом"},
-		{Command: "/listreactions", Description: "список реакций"},
-		{Command: "/removereaction", Description: "удалить реакцию"},
-	}
+// RegisterCommands регистрирует команды модуля в боте.
+func (m *ReactionsModule) RegisterCommands(bot *telebot.Bot) {
+	// /reactions — справка по модулю
+	bot.Handle("/reactions", func(c telebot.Context) error {
+		msg := "🤖 **Модуль Reactions** — Автоматические реакции\n\n"
+		msg += "Создаёт автоматические ответы бота на ключевые слова и фразы.\n\n"
+		msg += "**Доступные команды:**\n\n"
+
+		msg += "🔹 `/addreaction <паттерн> <ответ>` — Добавить реакцию (только админы)\n"
+		msg += "   Паттерн может быть регулярным выражением или точной фразой\n"
+		msg += "   📌 Примеры:\n"
+		msg += "   • `/addreaction привет Привет! 👋` — ответ на слово \"привет\"\n"
+		msg += "   • `/addreaction (доброе утро|добрый день) Хорошего дня! ☀️`\n"
+		msg += "   • `/addreaction (?i)спасибо Всегда пожалуйста! 😊` — без учёта регистра\n\n"
+
+		msg += "🔹 `/listreactions` — Список всех активных реакций\n"
+		msg += "   Показывает все настроенные автоответы с их ID\n"
+		msg += "   📌 Пример: `/listreactions`\n\n"
+
+		msg += "🔹 `/removereaction <ID>` — Удалить реакцию (только админы)\n"
+		msg += "   ID можно узнать из команды /listreactions\n"
+		msg += "   📌 Пример: `/removereaction 5`\n\n"
+
+		msg += "⚙️ **Работа с топиками:**\n"
+		msg += "• Команда в **топике** настраивает реакции только для этого топика\n"
+		msg += "• Команда в **основном чате** настраивает реакции для всего чата\n"
+		msg += "• Если реакция для топика не установлена, используется общая реакция чата\n\n"
+
+		msg += "⏱️ *Cooldown:* По умолчанию реакция срабатывает не чаще 1 раза в час.\n"
+		msg += "📊 *Лимиты:* Можно установить максимальное количество срабатываний в день.\n"
+		msg += "💡 *Подсказка:* VIP-пользователи могут триггерить реакции без ограничений."
+
+		return c.Send(msg, &telebot.SendOptions{ParseMode: telebot.ModeMarkdown})
+	})
+}
+
+// RegisterAdminCommands регистрирует админские команды.
+func (m *ReactionsModule) RegisterAdminCommands(bot *telebot.Bot) {
+	bot.Handle("/addreaction", m.handleAddReaction)
+	bot.Handle("/listreactions", m.handleListReactions)
+	bot.Handle("/removereaction", m.handleRemoveReaction)
 }
 
 func (m *ReactionsModule) OnMessage(ctx *core.MessageContext) error {
@@ -68,14 +104,15 @@ func (m *ReactionsModule) OnMessage(ctx *core.MessageContext) error {
 	}
 
 	chatID := msg.Chat.ID
+	threadID := msg.ThreadID
 	userID := msg.Sender.ID
 
-	isVIP, _ := m.vipRepo.IsVIP(chatID, userID)
+	isVIP, _ := m.vipRepo.IsVIP(chatID, threadID, userID)
 	if isVIP {
 		return nil
 	}
 
-	reactions, err := m.loadReactions(chatID)
+	reactions, err := m.loadReactions(chatID, int64(threadID))
 	if err != nil {
 		m.logger.Error("failed to load reactions", zap.Error(err))
 		return nil
@@ -166,15 +203,16 @@ func (m *ReactionsModule) OnMessage(ctx *core.MessageContext) error {
 	return nil
 }
 
-func (m *ReactionsModule) loadReactions(chatID int64) ([]KeywordReaction, error) {
+func (m *ReactionsModule) loadReactions(chatID int64, threadID int64) ([]KeywordReaction, error) {
 	// Русский комментарий: Читаем реакции напрямую из БД (без кеша).
 	// Чтение ~1-2ms, не критично для производительности.
+	// Fallback: сначала ищем для топика, если не найдено - для всего чата
 	rows, err := m.db.Query(`
-		SELECT id, chat_id, pattern, response_type, response_content, description, is_regex, cooldown, daily_limit, delete_on_limit, is_active
+		SELECT id, chat_id, thread_id, pattern, response_type, response_content, description, is_regex, cooldown, daily_limit, delete_on_limit, is_active
 		FROM keyword_reactions
-		WHERE chat_id = $1 AND is_active = true
-		ORDER BY id
-	`, chatID)
+		WHERE chat_id = $1 AND (thread_id = $2 OR thread_id = 0) AND is_active = true
+		ORDER BY thread_id DESC, id
+	`, chatID, threadID)
 	if err != nil {
 		return nil, err
 	}
@@ -183,10 +221,12 @@ func (m *ReactionsModule) loadReactions(chatID int64) ([]KeywordReaction, error)
 	var reactions []KeywordReaction
 	for rows.Next() {
 		var r KeywordReaction
-		if err := rows.Scan(&r.ID, &r.ChatID, &r.Pattern, &r.ResponseType, &r.ResponseContent, &r.Description, &r.IsRegex, &r.Cooldown, &r.DailyLimit, &r.DeleteOnLimit, &r.IsActive); err != nil {
+		var threadID int64
+		if err := rows.Scan(&r.ID, &r.ChatID, &threadID, &r.Pattern, &r.ResponseType, &r.ResponseContent, &r.Description, &r.IsRegex, &r.Cooldown, &r.DailyLimit, &r.DeleteOnLimit, &r.IsActive); err != nil {
 			m.logger.Error("failed to scan reaction", zap.Error(err))
 			continue
 		}
+		r.ThreadID = threadID
 		reactions = append(reactions, r)
 	}
 
@@ -236,14 +276,6 @@ func (m *ReactionsModule) incrementDailyCount(chatID, reactionID int64) {
 	if err != nil {
 		m.logger.Error("failed to increment daily count", zap.Error(err))
 	}
-}
-
-func (m *ReactionsModule) RegisterCommands(bot *telebot.Bot) {}
-
-func (m *ReactionsModule) RegisterAdminCommands(bot *telebot.Bot) {
-	bot.Handle("/addreaction", m.handleAddReaction)
-	bot.Handle("/listreactions", m.handleListReactions)
-	bot.Handle("/removereaction", m.handleRemoveReaction)
 }
 
 func (m *ReactionsModule) handleAddReaction(c telebot.Context) error {
@@ -332,11 +364,15 @@ func (m *ReactionsModule) handleAddReaction(c telebot.Context) error {
 	}
 
 	chatID := c.Chat().ID
+	threadID := int64(0)
+	if c.Message().ThreadID != 0 {
+		threadID = int64(c.Message().ThreadID)
+	}
 
 	_, err = m.db.Exec(`
-		INSERT INTO keyword_reactions (chat_id, pattern, response_type, response_content, description, is_regex, cooldown, daily_limit, delete_on_limit, is_active)
-		VALUES ($1, $2, $3, $4, $5, false, 30, $6, $7, true)
-	`, chatID, pattern, responseType, responseContent, description, dailyLimit, deleteOnLimit)
+		INSERT INTO keyword_reactions (chat_id, thread_id, pattern, response_type, response_content, description, is_regex, cooldown, daily_limit, delete_on_limit, is_active)
+		VALUES ($1, $2, $3, $4, $5, $6, false, 30, $7, $8, true)
+	`, chatID, threadID, pattern, responseType, responseContent, description, dailyLimit, deleteOnLimit)
 
 	if err != nil {
 		m.logger.Error("failed to add reaction", zap.Error(err))
@@ -347,7 +383,15 @@ func (m *ReactionsModule) handleAddReaction(c telebot.Context) error {
 	if deleteOnLimit {
 		deleteMsg = "\nУдалять при превышении лимита: да"
 	}
-	return c.Send(fmt.Sprintf("✅ Реакция добавлена\n\nПаттерн: %s\nТип ответа: %s\nСодержимое: %s\nОписание: %s\nДневной лимит: %d%s", pattern, responseType, responseContent, description, dailyLimit, deleteMsg))
+
+	var scopeMsg string
+	if threadID != 0 {
+		scopeMsg = "✅ Реакция добавлена **для этого топика**\n\n💡 Для настройки всего чата используйте команду в основном чате\n\n"
+	} else {
+		scopeMsg = "✅ Реакция добавлена **для всего чата**\n\n💡 Для настройки топика используйте команду внутри топика\n\n"
+	}
+
+	return c.Send(fmt.Sprintf("%sПаттерн: %s\nТип ответа: %s\nСодержимое: %s\nОписание: %s\nДневной лимит: %d%s", scopeMsg, pattern, responseType, responseContent, description, dailyLimit, deleteMsg), &telebot.SendOptions{ParseMode: telebot.ModeMarkdown})
 }
 
 func (m *ReactionsModule) handleListReactions(c telebot.Context) error {
@@ -360,16 +404,70 @@ func (m *ReactionsModule) handleListReactions(c telebot.Context) error {
 	}
 
 	chatID := c.Chat().ID
-	reactions, err := m.loadReactions(chatID)
+	threadID := int64(0)
+	if c.Message().ThreadID != 0 {
+		threadID = int64(c.Message().ThreadID)
+	}
+
+	// Получаем реакции с учетом fallback: сначала для топика, потом для чата
+	rows, err := m.db.Query(`
+		SELECT id, thread_id, pattern, response_type, response_content, description, daily_limit, delete_on_limit, is_active
+		FROM keyword_reactions
+		WHERE chat_id = $1 AND (thread_id = $2 OR thread_id = 0)
+		ORDER BY thread_id DESC, id
+	`, chatID, threadID)
+
 	if err != nil {
 		return c.Send("❌ Не удалось получить список реакций")
 	}
+	defer rows.Close()
+
+	var reactions []struct {
+		ID              int64
+		ThreadID        int64
+		Pattern         string
+		ResponseType    string
+		ResponseContent string
+		Description     string
+		DailyLimit      int
+		DeleteOnLimit   bool
+		IsActive        bool
+	}
+
+	for rows.Next() {
+		var r struct {
+			ID              int64
+			ThreadID        int64
+			Pattern         string
+			ResponseType    string
+			ResponseContent string
+			Description     string
+			DailyLimit      int
+			DeleteOnLimit   bool
+			IsActive        bool
+		}
+		if err := rows.Scan(&r.ID, &r.ThreadID, &r.Pattern, &r.ResponseType, &r.ResponseContent, &r.Description, &r.DailyLimit, &r.DeleteOnLimit, &r.IsActive); err != nil {
+			m.logger.Error("failed to scan reaction", zap.Error(err))
+			continue
+		}
+		reactions = append(reactions, r)
+	}
 
 	if len(reactions) == 0 {
+		if threadID != 0 {
+			return c.Send("ℹ️ В этом топике нет настроенных реакций")
+		}
 		return c.Send("ℹ️ В этом чате нет настроенных реакций")
 	}
 
-	text := "📋 *Список реакций:*\n\n"
+	var scopeHeader string
+	if threadID != 0 {
+		scopeHeader = "📋 *Список реакций (для этого топика):*\n\n"
+	} else {
+		scopeHeader = "📋 *Список реакций (для всего чата):*\n\n"
+	}
+
+	text := scopeHeader
 	for i, r := range reactions {
 		status := "✅"
 		if !r.IsActive {
@@ -379,7 +477,11 @@ func (m *ReactionsModule) handleListReactions(c telebot.Context) error {
 		if r.DeleteOnLimit {
 			deleteMsg = "да"
 		}
-		text += fmt.Sprintf("%d. %s ID: %d\n   Паттерн: `%s`\n   Тип ответа: %s\n   Содержимое: %s\n   Описание: %s\n   Дневной лимит: %d\n   Удалять при превышении лимита: %s\n\n", i+1, status, r.ID, r.Pattern, r.ResponseType, r.ResponseContent, r.Description, r.DailyLimit, deleteMsg)
+		scope := "чат"
+		if r.ThreadID != 0 {
+			scope = "топик"
+		}
+		text += fmt.Sprintf("%d. %s ID: %d [%s]\n   Паттерн: `%s`\n   Тип ответа: %s\n   Содержимое: %s\n   Описание: %s\n   Дневной лимит: %d\n   Удалять при превышении лимита: %s\n\n", i+1, status, r.ID, scope, r.Pattern, r.ResponseType, r.ResponseContent, r.Description, r.DailyLimit, deleteMsg)
 	}
 
 	return c.Send(text, &telebot.SendOptions{ParseMode: telebot.ModeMarkdown})
@@ -401,10 +503,14 @@ func (m *ReactionsModule) handleRemoveReaction(c telebot.Context) error {
 
 	reactionID := args[1]
 	chatID := c.Chat().ID
+	threadID := int64(0)
+	if c.Message().ThreadID != 0 {
+		threadID = int64(c.Message().ThreadID)
+	}
 
 	result, err := m.db.Exec(`
-		DELETE FROM keyword_reactions WHERE chat_id = $1 AND id = $2
-	`, chatID, reactionID)
+		DELETE FROM keyword_reactions WHERE chat_id = $1 AND thread_id = $2 AND id = $3
+	`, chatID, threadID, reactionID)
 
 	if err != nil {
 		return c.Send("❌ Не удалось удалить реакцию")
@@ -415,5 +521,12 @@ func (m *ReactionsModule) handleRemoveReaction(c telebot.Context) error {
 		return c.Send("ℹ️ Реакция не найдена")
 	}
 
-	return c.Send(fmt.Sprintf("✅ Реакция #%s удалена", reactionID))
+	var scopeMsg string
+	if threadID != 0 {
+		scopeMsg = fmt.Sprintf("✅ Реакция #%s удалена **для этого топика**\n\n💡 Для удаления реакции всего чата используйте команду в основном чате", reactionID)
+	} else {
+		scopeMsg = fmt.Sprintf("✅ Реакция #%s удалена **для всего чата**\n\n💡 Для удаления реакции топика используйте команду внутри топика", reactionID)
+	}
+
+	return c.Send(scopeMsg, &telebot.SendOptions{ParseMode: telebot.ModeMarkdown})
 }

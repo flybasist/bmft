@@ -68,15 +68,6 @@ func (m *SchedulerModule) OnMessage(ctx *core.MessageContext) error {
 	return nil
 }
 
-// Commands возвращает список команд модуля.
-func (m *SchedulerModule) Commands() []core.BotCommand {
-	return []core.BotCommand{
-		{Command: "/addtask", Description: "Добавить задачу по расписанию"},
-		{Command: "/listtasks", Description: "Список задач планировщика"},
-		{Command: "/removetask", Description: "Удалить задачу"},
-	}
-}
-
 // Shutdown выполняет graceful shutdown модуля.
 func (m *SchedulerModule) Shutdown() error {
 	m.logger.Info("shutting down scheduler module")
@@ -87,6 +78,49 @@ func (m *SchedulerModule) Shutdown() error {
 }
 
 func (m *SchedulerModule) RegisterCommands(bot *tele.Bot) {
+	// /scheduler — справка по модулю
+	bot.Handle("/scheduler", func(c tele.Context) error {
+		msg := "⏰ **Модуль Scheduler** — Запланированные задачи\n\n"
+		msg += "Автоматическая отправка сообщений по расписанию (cron).\n\n"
+		msg += "**Доступные команды:**\n\n"
+
+		msg += "🔹 `/addtask <cron> <текст>` — Добавить задачу (только админы)\n"
+		msg += "   Cron-выражение определяет расписание выполнения\n"
+		msg += "   📌 Примеры:\n"
+		msg += "   • `/addtask 0 9 * * * Доброе утро! ☀️` — каждый день в 9:00\n"
+		msg += "   • `/addtask 0 */2 * * * Напоминание` — каждые 2 часа\n"
+		msg += "   • `/addtask 0 0 * * 1 Начало недели!` — каждый понедельник в 00:00\n"
+		msg += "   • `/addtask */30 * * * * Каждые 30 минут` — каждые полчаса\n\n"
+
+		msg += "   Также можно ответить на любое сообщение и написать:\n"
+		msg += "   📌 `/addtask 0 12 * * *` — будет отправляться это сообщение каждый день в 12:00\n\n"
+
+		msg += "🔹 `/listtasks` — Список всех активных задач\n"
+		msg += "   Показывает все настроенные задачи с их расписанием\n"
+		msg += "   📌 Пример: `/listtasks`\n\n"
+
+		msg += "🔹 `/removetask <ID>` — Удалить задачу (только админы)\n"
+		msg += "   ID можно узнать из команды /listtasks\n"
+		msg += "   📌 Пример: `/removetask 3`\n\n"
+
+		msg += "⚙️ **Работа с топиками:**\n"
+		msg += "• Команда в **топике** создаёт задачу для этого топика\n"
+		msg += "• Команда в **основном чате** создаёт задачу для всего чата\n"
+		msg += "• Запланированные сообщения отправляются туда, где была создана задача\n\n"
+
+		msg += "📅 **Формат cron:** `минута час день месяц день_недели`\n"
+		msg += "• `*` — любое значение\n"
+		msg += "• `*/N` — каждые N единиц времени\n"
+		msg += "• `0 9 * * *` — каждый день в 9:00\n"
+		msg += "• `0 */6 * * *` — каждые 6 часов\n"
+		msg += "• `0 0 1 * *` — 1-го числа каждого месяца\n"
+		msg += "• `0 0 * * 0` — каждое воскресенье\n\n"
+
+		msg += "💡 *Подсказка:* Используйте сайт crontab.guru для проверки cron-выражений."
+
+		return c.Send(msg, &tele.SendOptions{ParseMode: tele.ModeMarkdown})
+	})
+
 	bot.Handle("/listtasks", m.handleListTasks)
 }
 
@@ -141,70 +175,79 @@ func (m *SchedulerModule) executeTask(task *repositories.ScheduledTask) {
 	)
 
 	// Проверяем включен ли scheduler для этого чата
-	enabled, err := m.moduleRepo.IsEnabled(task.ChatID, "scheduler")
+	// Проверяем с учетом thread_id задачи
+	enabled, err := m.moduleRepo.IsEnabled(task.ChatID, int(task.ThreadID), "scheduler")
 	if err != nil {
 		m.logger.Error("failed to check if module enabled", zap.Error(err))
 		return
 	}
 	if !enabled {
-		m.logger.Info("scheduler module disabled for chat", zap.Int64("chat_id", task.ChatID))
+		m.logger.Info("scheduler module disabled for chat/thread",
+			zap.Int64("chat_id", task.ChatID),
+			zap.Int64("thread_id", task.ThreadID))
 		return
 	}
 
 	chat := &tele.Chat{ID: task.ChatID}
 
+	// Создаем опции для отправки в топик если нужно
+	sendOpts := &tele.SendOptions{}
+	if task.ThreadID != 0 {
+		sendOpts.ThreadID = int(task.ThreadID)
+	}
+
 	switch task.TaskType {
 	case "sticker":
 		sticker := &tele.Sticker{File: tele.File{FileID: task.TaskData}}
-		if _, err := m.bot.Send(chat, sticker); err != nil {
+		if _, err := m.bot.Send(chat, sticker, sendOpts); err != nil {
 			m.logger.Error("failed to send sticker", zap.Error(err))
 			return
 		}
 
 	case "text":
-		if _, err := m.bot.Send(chat, task.TaskData); err != nil {
+		if _, err := m.bot.Send(chat, task.TaskData, sendOpts); err != nil {
 			m.logger.Error("failed to send text", zap.Error(err))
 			return
 		}
 
 	case "photo":
 		photo := &tele.Photo{File: tele.File{FileID: task.TaskData}}
-		if _, err := m.bot.Send(chat, photo); err != nil {
+		if _, err := m.bot.Send(chat, photo, sendOpts); err != nil {
 			m.logger.Error("failed to send photo", zap.Error(err))
 			return
 		}
 
 	case "animation":
 		animation := &tele.Animation{File: tele.File{FileID: task.TaskData}}
-		if _, err := m.bot.Send(chat, animation); err != nil {
+		if _, err := m.bot.Send(chat, animation, sendOpts); err != nil {
 			m.logger.Error("failed to send animation", zap.Error(err))
 			return
 		}
 
 	case "video":
 		video := &tele.Video{File: tele.File{FileID: task.TaskData}}
-		if _, err := m.bot.Send(chat, video); err != nil {
+		if _, err := m.bot.Send(chat, video, sendOpts); err != nil {
 			m.logger.Error("failed to send video", zap.Error(err))
 			return
 		}
 
 	case "voice":
 		voice := &tele.Voice{File: tele.File{FileID: task.TaskData}}
-		if _, err := m.bot.Send(chat, voice); err != nil {
+		if _, err := m.bot.Send(chat, voice, sendOpts); err != nil {
 			m.logger.Error("failed to send voice", zap.Error(err))
 			return
 		}
 
 	case "document":
 		document := &tele.Document{File: tele.File{FileID: task.TaskData}}
-		if _, err := m.bot.Send(chat, document); err != nil {
+		if _, err := m.bot.Send(chat, document, sendOpts); err != nil {
 			m.logger.Error("failed to send document", zap.Error(err))
 			return
 		}
 
 	case "audio":
 		audio := &tele.Audio{File: tele.File{FileID: task.TaskData}}
-		if _, err := m.bot.Send(chat, audio); err != nil {
+		if _, err := m.bot.Send(chat, audio, sendOpts); err != nil {
 			m.logger.Error("failed to send audio", zap.Error(err))
 			return
 		}
@@ -224,19 +267,30 @@ func (m *SchedulerModule) executeTask(task *repositories.ScheduledTask) {
 
 func (m *SchedulerModule) handleListTasks(c tele.Context) error {
 	chatID := c.Chat().ID
+	threadID := 0
+	if c.Message().ThreadID != 0 {
+		threadID = c.Message().ThreadID
+	}
 
-	tasks, err := m.schedulerRepo.GetChatTasks(chatID)
+	tasks, err := m.schedulerRepo.GetChatTasks(chatID, threadID)
 	if err != nil {
 		m.logger.Error("failed to get chat tasks", zap.Error(err))
 		return c.Send("❌ Ошибка при получении списка задач")
 	}
 
 	if len(tasks) == 0 {
-		return c.Send("📋 Нет задач планировщика\n\nИспользуйте /addtask для создания новой задачи")
+		if threadID != 0 {
+			return c.Send("📋 Нет задач планировщика для этого топика\n\nИспользуйте /addtask для создания новой задачи")
+		}
+		return c.Send("📋 Нет задач планировщика для всего чата\n\nИспользуйте /addtask для создания новой задачи")
 	}
 
 	var msg strings.Builder
-	msg.WriteString("📋 Задачи планировщика:\n\n")
+	if threadID != 0 {
+		msg.WriteString("📋 *Задачи планировщика (для этого топика):*\n\n")
+	} else {
+		msg.WriteString("📋 *Задачи планировщика (для всего чата):*\n\n")
+	}
 
 	for i, task := range tasks {
 		status := "✅"
@@ -263,7 +317,7 @@ func (m *SchedulerModule) handleListTasks(c tele.Context) error {
 	msg.WriteString("Поддерживаемые типы: text, sticker, photo, animation, video, voice, document, audio\n")
 	msg.WriteString("Reply на сообщение для автоматического определения типа")
 
-	return c.Send(msg.String())
+	return c.Send(msg.String(), &tele.SendOptions{ParseMode: tele.ModeMarkdown})
 }
 
 func (m *SchedulerModule) handleAddTask(c tele.Context) error {
@@ -326,8 +380,12 @@ func (m *SchedulerModule) handleAddTask(c tele.Context) error {
 		}
 
 		chatID := c.Chat().ID
+		threadID := 0
+		if c.Message().ThreadID != 0 {
+			threadID = c.Message().ThreadID
+		}
 
-		taskID, err := m.schedulerRepo.CreateTask(chatID, name, cronExpr, taskType, taskData)
+		taskID, err := m.schedulerRepo.CreateTask(chatID, threadID, name, cronExpr, taskType, taskData)
 		if err != nil {
 			m.logger.Error("failed to create task", zap.Error(err))
 			return c.Send("❌ Ошибка при создании задачи")
@@ -347,11 +405,22 @@ func (m *SchedulerModule) handleAddTask(c tele.Context) error {
 		_ = m.eventRepo.Log(chatID, c.Sender().ID, "scheduler", "task_created",
 			fmt.Sprintf("Task %s created", name))
 
-		return c.Send(fmt.Sprintf("✅ Задача создана\n\n"+
-			"ID: %d\n"+
-			"Название: %s\n"+
-			"Расписание: %s\n"+
-			"Тип: %s", taskID, name, cronExpr, taskType))
+		var scopeMsg string
+		if threadID != 0 {
+			scopeMsg = fmt.Sprintf("✅ Задача создана **для этого топика**\n\n💡 Для создания задачи для всего чата используйте команду в основном чате\n\n"+
+				"ID: %d\n"+
+				"Название: %s\n"+
+				"Расписание: %s\n"+
+				"Тип: %s", taskID, name, cronExpr, taskType)
+		} else {
+			scopeMsg = fmt.Sprintf("✅ Задача создана **для всего чата**\n\n💡 Для создания задачи для топика используйте команду внутри топика\n\n"+
+				"ID: %d\n"+
+				"Название: %s\n"+
+				"Расписание: %s\n"+
+				"Тип: %s", taskID, name, cronExpr, taskType)
+		}
+
+		return c.Send(scopeMsg, &tele.SendOptions{ParseMode: tele.ModeMarkdown})
 	} else {
 		// Text mode
 		text := strings.TrimSpace(c.Text())
@@ -406,8 +475,12 @@ func (m *SchedulerModule) handleAddTask(c tele.Context) error {
 		}
 
 		chatID := c.Chat().ID
+		threadID := 0
+		if c.Message().ThreadID != 0 {
+			threadID = c.Message().ThreadID
+		}
 
-		taskID, err := m.schedulerRepo.CreateTask(chatID, name, cronExpr, taskType, taskData)
+		taskID, err := m.schedulerRepo.CreateTask(chatID, threadID, name, cronExpr, taskType, taskData)
 		if err != nil {
 			m.logger.Error("failed to create task", zap.Error(err))
 			return c.Send("❌ Ошибка при создании задачи")
@@ -427,11 +500,22 @@ func (m *SchedulerModule) handleAddTask(c tele.Context) error {
 		_ = m.eventRepo.Log(chatID, c.Sender().ID, "scheduler", "task_created",
 			fmt.Sprintf("Task %s created", name))
 
-		return c.Send(fmt.Sprintf("✅ Задача создана\n\n"+
-			"ID: %d\n"+
-			"Название: %s\n"+
-			"Расписание: %s\n"+
-			"Тип: %s", taskID, name, cronExpr, taskType))
+		var scopeMsg string
+		if threadID != 0 {
+			scopeMsg = fmt.Sprintf("✅ Задача создана **для этого топика**\n\n💡 Для создания задачи для всего чата используйте команду в основном чате\n\n"+
+				"ID: %d\n"+
+				"Название: %s\n"+
+				"Расписание: %s\n"+
+				"Тип: %s", taskID, name, cronExpr, taskType)
+		} else {
+			scopeMsg = fmt.Sprintf("✅ Задача создана **для всего чата**\n\n💡 Для создания задачи для топика используйте команду внутри топика\n\n"+
+				"ID: %d\n"+
+				"Название: %s\n"+
+				"Расписание: %s\n"+
+				"Тип: %s", taskID, name, cronExpr, taskType)
+		}
+
+		return c.Send(scopeMsg, &tele.SendOptions{ParseMode: tele.ModeMarkdown})
 	}
 }
 

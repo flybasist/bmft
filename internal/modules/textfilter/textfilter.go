@@ -23,6 +23,7 @@ type TextFilterModule struct {
 type BannedWord struct {
 	ID       int64
 	ChatID   int64
+	ThreadID int64
 	Pattern  string
 	Action   string
 	IsRegex  bool
@@ -49,12 +50,51 @@ func (m *TextFilterModule) Name() string {
 	return "textfilter"
 }
 
-func (m *TextFilterModule) Commands() []core.BotCommand {
-	return []core.BotCommand{
-		{Command: "/addban", Description: "добавить запрещённое слово"},
-		{Command: "/listbans", Description: "список запрещённых слов"},
-		{Command: "/removeban", Description: "удалить запрещённое слово"},
-	}
+// RegisterCommands регистрирует команды модуля в боте.
+func (m *TextFilterModule) RegisterCommands(bot *telebot.Bot) {
+	// /textfilter — справка по модулю
+	bot.Handle("/textfilter", func(c telebot.Context) error {
+		msg := "🚫 **Модуль TextFilter** — Фильтр запрещённых слов\n\n"
+		msg += "Автоматическое удаление сообщений с запрещёнными словами и фразами.\n\n"
+		msg += "**Доступные команды:**\n\n"
+
+		msg += "🔹 `/addban <паттерн> [действие]` — Добавить бан-слово (только админы)\n"
+		msg += "   Действия: delete (удалить), warn (предупредить), delete_warn (удалить и предупредить)\n"
+		msg += "   📌 Примеры:\n"
+		msg += "   • `/addban спам delete` — удалять сообщения со словом \"спам\"\n"
+		msg += "   • `/addban (мат|ругательство) delete_warn` — удалять и предупреждать\n"
+		msg += "   • `/addban реклама warn` — только предупреждение, без удаления\n"
+		msg += "   • `/addban (?i)bad_word delete` — без учёта регистра\n\n"
+
+		msg += "🔹 `/listbans` — Список всех запрещённых слов\n"
+		msg += "   Показывает все активные фильтры с их ID и действиями\n"
+		msg += "   📌 Пример: `/listbans`\n\n"
+
+		msg += "🔹 `/removeban <ID>` — Удалить бан-слово (только админы)\n"
+		msg += "   ID можно узнать из команды /listbans\n"
+		msg += "   📌 Пример: `/removeban 7`\n\n"
+
+		msg += "⚙️ **Работа с топиками:**\n"
+		msg += "• Команда в **топике** настраивает фильтры только для этого топика\n"
+		msg += "• Команда в **основном чате** настраивает фильтры для всего чата\n"
+		msg += "• Если фильтр для топика не установлен, используется общий фильтр чата\n\n"
+
+		msg += "⚠️ **Виды действий:**\n"
+		msg += "• `delete` — просто удалить сообщение\n"
+		msg += "• `warn` — предупредить пользователя (сообщение остаётся)\n"
+		msg += "• `delete_warn` — удалить сообщение И отправить предупреждение\n\n"
+
+		msg += "🛡️ *VIP-защита:* VIP-пользователи не попадают под фильтр запрещённых слов."
+
+		return c.Send(msg, &telebot.SendOptions{ParseMode: telebot.ModeMarkdown})
+	})
+}
+
+// RegisterAdminCommands регистрирует админские команды.
+func (m *TextFilterModule) RegisterAdminCommands(bot *telebot.Bot) {
+	bot.Handle("/addban", m.handleAddBan)
+	bot.Handle("/listbans", m.handleListBans)
+	bot.Handle("/removeban", m.handleRemoveBan)
 }
 
 func (m *TextFilterModule) OnMessage(ctx *core.MessageContext) error {
@@ -64,14 +104,15 @@ func (m *TextFilterModule) OnMessage(ctx *core.MessageContext) error {
 	}
 
 	chatID := msg.Chat.ID
+	threadID := msg.ThreadID
 	userID := msg.Sender.ID
 
-	isVIP, _ := m.vipRepo.IsVIP(chatID, userID)
+	isVIP, _ := m.vipRepo.IsVIP(chatID, threadID, userID)
 	if isVIP {
 		return nil
 	}
 
-	words, err := m.loadBannedWords(chatID)
+	words, err := m.loadBannedWords(chatID, int64(threadID))
 	if err != nil {
 		m.logger.Error("failed to load banned words", zap.Error(err))
 		return nil
@@ -126,15 +167,16 @@ func (m *TextFilterModule) OnMessage(ctx *core.MessageContext) error {
 	return nil
 }
 
-func (m *TextFilterModule) loadBannedWords(chatID int64) ([]BannedWord, error) {
+func (m *TextFilterModule) loadBannedWords(chatID int64, threadID int64) ([]BannedWord, error) {
 	// Русский комментарий: Читаем запрещённые слова напрямую из БД (без кеша).
 	// Чтение ~1-2ms, не критично для производительности.
+	// Fallback: сначала для топика, потом для всего чата
 	rows, err := m.db.Query(`
-		SELECT id, chat_id, pattern, action, is_regex, is_active
+		SELECT id, chat_id, thread_id, pattern, action, is_regex, is_active
 		FROM banned_words
-		WHERE chat_id = $1 AND is_active = true
-		ORDER BY id
-	`, chatID)
+		WHERE chat_id = $1 AND (thread_id = $2 OR thread_id = 0) AND is_active = true
+		ORDER BY thread_id DESC, id
+	`, chatID, threadID)
 	if err != nil {
 		return nil, err
 	}
@@ -143,7 +185,7 @@ func (m *TextFilterModule) loadBannedWords(chatID int64) ([]BannedWord, error) {
 	var words []BannedWord
 	for rows.Next() {
 		var w BannedWord
-		if err := rows.Scan(&w.ID, &w.ChatID, &w.Pattern, &w.Action, &w.IsRegex, &w.IsActive); err != nil {
+		if err := rows.Scan(&w.ID, &w.ChatID, &w.ThreadID, &w.Pattern, &w.Action, &w.IsRegex, &w.IsActive); err != nil {
 			m.logger.Error("failed to scan banned word", zap.Error(err))
 			continue
 		}
@@ -151,14 +193,6 @@ func (m *TextFilterModule) loadBannedWords(chatID int64) ([]BannedWord, error) {
 	}
 
 	return words, nil
-}
-
-func (m *TextFilterModule) RegisterCommands(bot *telebot.Bot) {}
-
-func (m *TextFilterModule) RegisterAdminCommands(bot *telebot.Bot) {
-	bot.Handle("/addban", m.handleAddBan)
-	bot.Handle("/listbans", m.handleListBans)
-	bot.Handle("/removeban", m.handleRemoveBan)
 }
 
 func (m *TextFilterModule) handleAddBan(c telebot.Context) error {
@@ -183,18 +217,29 @@ func (m *TextFilterModule) handleAddBan(c telebot.Context) error {
 	}
 
 	chatID := c.Chat().ID
+	threadID := int64(0)
+	if c.Message().ThreadID != 0 {
+		threadID = int64(c.Message().ThreadID)
+	}
 
 	_, err = m.db.Exec(`
-		INSERT INTO banned_words (chat_id, pattern, action, is_regex, is_active)
-		VALUES ($1, $2, $3, false, true)
-	`, chatID, pattern, action)
+		INSERT INTO banned_words (chat_id, thread_id, pattern, action, is_regex, is_active)
+		VALUES ($1, $2, $3, $4, false, true)
+	`, chatID, threadID, pattern, action)
 
 	if err != nil {
 		m.logger.Error("failed to add banned word", zap.Error(err))
 		return c.Send("❌ Не удалось добавить запрещённое слово")
 	}
 
-	return c.Send(fmt.Sprintf("✅ Запрещённое слово добавлено\n\nПаттерн: %s\nДействие: %s", pattern, action))
+	var scopeMsg string
+	if threadID != 0 {
+		scopeMsg = fmt.Sprintf("✅ Запрещённое слово добавлено **для этого топика**\n\n💡 Для настройки всего чата используйте команду в основном чате\n\nПаттерн: %s\nДействие: %s", pattern, action)
+	} else {
+		scopeMsg = fmt.Sprintf("✅ Запрещённое слово добавлено **для всего чата**\n\n💡 Для настройки топика используйте команду внутри топика\n\nПаттерн: %s\nДействие: %s", pattern, action)
+	}
+
+	return c.Send(scopeMsg, &telebot.SendOptions{ParseMode: telebot.ModeMarkdown})
 }
 
 func (m *TextFilterModule) handleListBans(c telebot.Context) error {
@@ -207,22 +252,41 @@ func (m *TextFilterModule) handleListBans(c telebot.Context) error {
 	}
 
 	chatID := c.Chat().ID
-	words, err := m.loadBannedWords(chatID)
+	threadID := int64(0)
+	if c.Message().ThreadID != 0 {
+		threadID = int64(c.Message().ThreadID)
+	}
+
+	words, err := m.loadBannedWords(chatID, threadID)
 	if err != nil {
 		return c.Send("❌ Не удалось получить список")
 	}
 
 	if len(words) == 0 {
+		if threadID != 0 {
+			return c.Send("ℹ️ В этом топике нет запрещённых слов")
+		}
 		return c.Send("ℹ️ В этом чате нет запрещённых слов")
 	}
 
-	text := "🚫 *Запрещённые слова:*\n\n"
+	var scopeHeader string
+	if threadID != 0 {
+		scopeHeader = "🚫 *Запрещённые слова (для этого топика):*\n\n"
+	} else {
+		scopeHeader = "🚫 *Запрещённые слова (для всего чата):*\n\n"
+	}
+
+	text := scopeHeader
 	for i, w := range words {
 		status := "✅"
 		if !w.IsActive {
 			status = "❌"
 		}
-		text += fmt.Sprintf("%d. %s ID: %d\n   Паттерн: `%s`\n   Действие: %s\n\n", i+1, status, w.ID, w.Pattern, w.Action)
+		scope := "чат"
+		if w.ThreadID != 0 {
+			scope = "топик"
+		}
+		text += fmt.Sprintf("%d. %s ID: %d [%s]\n   Паттерн: `%s`\n   Действие: %s\n\n", i+1, status, w.ID, scope, w.Pattern, w.Action)
 	}
 
 	return c.Send(text, &telebot.SendOptions{ParseMode: telebot.ModeMarkdown})
@@ -244,10 +308,14 @@ func (m *TextFilterModule) handleRemoveBan(c telebot.Context) error {
 
 	banID := args[1]
 	chatID := c.Chat().ID
+	threadID := int64(0)
+	if c.Message().ThreadID != 0 {
+		threadID = int64(c.Message().ThreadID)
+	}
 
 	result, err := m.db.Exec(`
-		DELETE FROM banned_words WHERE chat_id = $1 AND id = $2
-	`, chatID, banID)
+		DELETE FROM banned_words WHERE chat_id = $1 AND thread_id = $2 AND id = $3
+	`, chatID, threadID, banID)
 
 	if err != nil {
 		return c.Send("❌ Не удалось удалить")
@@ -258,5 +326,12 @@ func (m *TextFilterModule) handleRemoveBan(c telebot.Context) error {
 		return c.Send("ℹ️ Запись не найдена")
 	}
 
-	return c.Send(fmt.Sprintf("✅ Запрет #%s удалён", banID))
+	var scopeMsg string
+	if threadID != 0 {
+		scopeMsg = fmt.Sprintf("✅ Запрет #%s удалён **для этого топика**\n\n💡 Для удаления запрета всего чата используйте команду в основном чате", banID)
+	} else {
+		scopeMsg = fmt.Sprintf("✅ Запрет #%s удалён **для всего чата**\n\n💡 Для удаления запрета топика используйте команду внутри топика", banID)
+	}
+
+	return c.Send(scopeMsg, &telebot.SendOptions{ParseMode: telebot.ModeMarkdown})
 }

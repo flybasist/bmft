@@ -192,100 +192,37 @@ func handleModules(
 			}
 		}
 
-		// Явный список модулей и их команд
-		modulesList := map[string][]core.BotCommand{
-			"limiter":    modules.Limiter.Commands(),
-			"statistics": modules.Statistics.Commands(),
-			"reactions":  modules.Reactions.Commands(),
-			"scheduler":  modules.Scheduler.Commands(),
-			"textfilter": modules.TextFilter.Commands(),
+		// Список модулей с описаниями (без команд)
+		type moduleInfo struct {
+			name        string
+			description string
 		}
 
-		msg := "📦 Доступные модули:\n\n"
-		for name, commands := range modulesList {
+		modulesList := []moduleInfo{
+			{"statistics", "сбор и анализ статистики активности пользователей"},
+			{"limiter", "контроль лимитов на различные типы контента (фото, видео, стикеры)"},
+			{"reactions", "автоматические ответы на ключевые слова и триггеры"},
+			{"scheduler", "запланированные задачи по расписанию (cron)"},
+			{"textfilter", "фильтрация запрещённых слов и фраз"},
+		}
+
+		msg := "� **Доступные модули:**\n\n"
+		msg += "Используйте /enable <имя_модуля> для включения.\n"
+		msg += "Для просмотра команд модуля используйте /<имя_модуля>\n\n"
+
+		for _, module := range modulesList {
 			// Проверяем включен ли модуль для этого чата
-			enabled, _ := moduleRepo.IsEnabled(c.Chat().ID, name)
-			status := "❌ Выключен"
+			// Для команды /modules используем thread_id = 0 (настройки на уровне чата)
+			enabled, _ := moduleRepo.IsEnabled(c.Chat().ID, 0, module.name)
+			status := "❌"
 			if enabled {
-				status = "✅ Включен"
+				status = "✅"
 			}
 
-			// Описание модуля
-			var description string
-			switch name {
-			case "statistics":
-				description = "статистика активности пользователей"
-			case "limiter":
-				description = "лимиты на контент с предупреждениями"
-			case "scheduler":
-				description = "задачи по расписанию (автоматическая отправка сообщений по cron)"
-			case "reactions":
-				description = "автоматические реакции на ключевые слова"
-			case "textfilter":
-				description = "фильтр запрещённых слов"
-			default:
-				description = "модуль"
-			}
-
-			msg += fmt.Sprintf("🔹 **%s** — %s\n  %s\n", name, status, description)
-			if len(commands) > 0 {
-				msg += "  Команды:\n"
-				for _, cmd := range commands {
-					var help string
-					switch cmd.Command {
-					case "/mystats":
-						help = "показать вашу статистику"
-					case "/myweek":
-						help = "статистика за неделю"
-					case "/mymonth":
-						help = "статистика за месяц"
-					case "/topweek":
-						help = "топ пользователей за неделю"
-					case "/topmonth":
-						help = "топ пользователей за месяц"
-					case "/resetstats":
-						help = "сбросить статистику (админ)"
-					case "/setlimit":
-						help = "установить лимит (type: text/photo/video/sticker/animation/voice/document/audio/location/contact)"
-					case "/mylimits":
-						help = "показать ваши лимиты"
-					case "/resetlimits":
-						help = "сбросить лимиты (админ)"
-					case "/addtask":
-						help = "добавить задачу (cron) - /addtask <cron> <текст> или ответьте на сообщение с /addtask <cron>"
-					case "/listtasks":
-						help = "список задач"
-					case "/removetask":
-						help = "удалить задачу"
-					case "/addreaction":
-						help = "добавить реакцию на слово"
-					case "/listreactions":
-						help = "список реакций"
-					case "/removereaction":
-						help = "удалить реакцию"
-					case "/addban":
-						help = "добавить запрещённое слово"
-					case "/listbans":
-						help = "список запрещённых слов"
-					case "/removeban":
-						help = "удалить запрещённое слово"
-					default:
-						help = ""
-					}
-					if help != "" {
-						msg += fmt.Sprintf("    %s - %s\n", cmd.Command, help)
-					} else {
-						msg += fmt.Sprintf("    %s\n", cmd.Command)
-					}
-				}
-				// Дополнительная подсказка для scheduler
-				if name == "scheduler" {
-					msg += "  Подсказка: /addtask <cron> <текст> или reply на сообщение с /addtask <cron>\n"
-					msg += "  Примеры cron: '0 9 * * *' (каждый день в 9:00), '*/30 * * * *' (каждые 30 мин)\n"
-				}
-			}
-			msg += "\n"
+			msg += fmt.Sprintf("%s **%s**\n   %s\n\n", status, module.name, module.description)
 		}
+
+		msg += "💡 *Подсказка:* После включения модуля используйте команду `/<имя_модуля>` для просмотра всех доступных команд с примерами."
 
 		return c.Send(msg)
 	}
@@ -331,8 +268,10 @@ func handleEnable(
 			return c.Send(fmt.Sprintf("❌ Модуль '%s' не найден. Используйте /modules для просмотра доступных модулей.", moduleName))
 		}
 
-		// Включаем модуль
-		if err := moduleRepo.Enable(c.Chat().ID, moduleName); err != nil {
+		// Включаем модуль для всего чата (thread_id = 0)
+		// Если нужно включить для конкретного топика, используйте команду в топике
+		threadID := c.Message().ThreadID
+		if err := moduleRepo.Enable(c.Chat().ID, threadID, moduleName); err != nil {
 			logger.Error("failed to enable module", zap.Error(err))
 			return c.Send("Произошла ошибка при включении модуля.")
 		}
@@ -340,7 +279,11 @@ func handleEnable(
 		// Логируем событие
 		_ = eventRepo.Log(c.Chat().ID, c.Sender().ID, "core", "module_enabled", fmt.Sprintf("Module %s enabled", moduleName))
 
-		return c.Send(fmt.Sprintf("✅ Модуль '%s' включен для этого чата.", moduleName))
+		location := "чата"
+		if threadID != 0 {
+			location = "топика"
+		}
+		return c.Send(fmt.Sprintf("✅ Модуль '%s' включен для этого %s.", moduleName, location))
 	}
 }
 
@@ -372,8 +315,9 @@ func handleDisable(
 			}
 		}
 
-		// Выключаем модуль
-		if err := moduleRepo.Disable(c.Chat().ID, moduleName); err != nil {
+		// Выключаем модуль (учитываем топик)
+		threadID := c.Message().ThreadID
+		if err := moduleRepo.Disable(c.Chat().ID, threadID, moduleName); err != nil {
 			logger.Error("failed to disable module", zap.Error(err))
 			return c.Send("Произошла ошибка при выключении модуля.")
 		}
@@ -381,7 +325,11 @@ func handleDisable(
 		// Логируем событие
 		_ = eventRepo.Log(c.Chat().ID, c.Sender().ID, "core", "module_disabled", fmt.Sprintf("Module %s disabled", moduleName))
 
-		return c.Send(fmt.Sprintf("❌ Модуль '%s' выключен для этого чата.", moduleName))
+		location := "чата"
+		if threadID != 0 {
+			location = "топика"
+		}
+		return c.Send(fmt.Sprintf("❌ Модуль '%s' выключен для этого %s.", moduleName, location))
 	}
 }
 

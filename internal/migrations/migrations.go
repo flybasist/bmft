@@ -20,32 +20,29 @@ type ExpectedTable struct {
 }
 
 // ExpectedSchema содержит описание всех таблиц которые должны существовать
-// Русский комментарий: В режиме горячей разработки (main ветка) мы всегда используем
-// только 001_initial_schema.sql и вайпаем базу при изменениях структуры.
-// В продакшене (когда будут боевые данные) появятся 002, 003 и т.д. миграции.
+// Русский комментарий: v0.8.0 - упрощённая схема с JSONB metadata + поддержка топиков через thread_id.
+// Счётчики заменены на MATERIALIZED VIEW для производительности.
 var ExpectedSchema = []ExpectedTable{
 	// Core tables
-	{Name: "chats", Columns: []string{"chat_id", "chat_type", "title", "is_active"}},
+	{Name: "chats", Columns: []string{"chat_id", "chat_type", "title", "is_forum", "is_active"}},
 	{Name: "users", Columns: []string{"user_id", "username", "first_name"}},
-	{Name: "chat_vips", Columns: []string{"id", "chat_id", "user_id", "granted_at"}},
-	{Name: "chat_modules", Columns: []string{"id", "chat_id", "module_name", "is_enabled"}},
-	{Name: "messages", Columns: []string{"id", "chat_id", "user_id", "message_id", "content_type"}},
+	{Name: "chat_vips", Columns: []string{"id", "chat_id", "thread_id", "user_id", "granted_at"}},
+	{Name: "chat_modules", Columns: []string{"id", "chat_id", "thread_id", "module_name", "is_enabled"}},
+	{Name: "messages", Columns: []string{"id", "chat_id", "thread_id", "user_id", "message_id", "content_type", "metadata"}},
 
 	// Limiter Module
-	{Name: "content_limits", Columns: []string{"id", "chat_id", "limit_text", "limit_photo", "limit_banned_words"}},
-	{Name: "content_counters", Columns: []string{"id", "chat_id", "user_id", "counter_date", "count_text"}},
+	{Name: "content_limits", Columns: []string{"id", "chat_id", "thread_id", "limit_text", "limit_photo", "limit_banned_words"}},
 
 	// Reactions Module
-	{Name: "keyword_reactions", Columns: []string{"id", "chat_id", "pattern", "response_type", "response_content", "is_active"}},
-	{Name: "reaction_triggers", Columns: []string{"chat_id", "reaction_id", "user_id", "last_triggered_at"}},
-	{Name: "reaction_daily_counters", Columns: []string{"id", "chat_id", "reaction_id", "counter_date", "count"}},
-	{Name: "banned_words", Columns: []string{"id", "chat_id", "pattern", "action", "is_active"}},
+	{Name: "keyword_reactions", Columns: []string{"id", "chat_id", "thread_id", "pattern", "response_type", "response_content", "is_active"}},
+	{Name: "banned_words", Columns: []string{"id", "chat_id", "thread_id", "pattern", "action", "is_active"}},
 
 	// Scheduler Module
 	{Name: "scheduled_tasks", Columns: []string{"id", "chat_id", "cron_expression", "action_type", "is_active"}},
 
 	// System tables
 	{Name: "bot_settings", Columns: []string{"id", "bot_version", "timezone"}},
+	{Name: "event_log", Columns: []string{"id", "chat_id", "module_name", "event_type"}},
 }
 
 // RunMigrationsIfNeeded проверяет схему БД и выполняет миграции если требуется
@@ -201,11 +198,8 @@ func findUnknownTables(existingTables []string) []string {
 	return unknown
 }
 
-// runInitialMigration выполняет начальную миграцию
-func runInitialMigration(ctx context.Context, db *sql.DB, logger *zap.Logger) error {
-	logger.Info("executing initial database migration")
-
-	migrationFile := "migrations/001_initial_schema.sql"
+// runMigrationFile выполняет миграцию из файла
+func runMigrationFile(ctx context.Context, db *sql.DB, migrationFile string, logger *zap.Logger) error {
 	migrationSQL, err := os.ReadFile(migrationFile)
 	if err != nil {
 		return fmt.Errorf("failed to read migration file %s: %w", migrationFile, err)
@@ -213,7 +207,9 @@ func runInitialMigration(ctx context.Context, db *sql.DB, logger *zap.Logger) er
 
 	// Разбиваем SQL на отдельные команды
 	commands := splitSQLCommands(string(migrationSQL))
-	logger.Info("parsed migration file", zap.Int("command_count", len(commands)))
+	logger.Info("parsed migration file",
+		zap.String("file", migrationFile),
+		zap.Int("command_count", len(commands)))
 
 	// Выполняем команды последовательно
 	for i, command := range commands {
@@ -229,15 +225,16 @@ func runInitialMigration(ctx context.Context, db *sql.DB, logger *zap.Logger) er
 		}
 
 		logger.Info("executing migration command",
+			zap.String("file", migrationFile),
 			zap.Int("index", i+1),
 			zap.Int("total", len(commands)),
 			zap.String("preview", preview))
 
 		if _, err := db.ExecContext(ctx, command); err != nil {
-			// Логируем ошибку но продолжаем для некритичных команд (COMMENT, CREATE INDEX IF NOT EXISTS)
-			if strings.Contains(command, "COMMENT ON") ||
-				strings.Contains(command, "CREATE INDEX IF NOT EXISTS") ||
-				strings.Contains(command, "CREATE TRIGGER") {
+			// Логируем ошибку но продолжаем для некритичных команд
+			if strings.Contains(command, "IF NOT EXISTS") ||
+				strings.Contains(command, "IF EXISTS") ||
+				strings.Contains(command, "COMMENT ON") {
 				logger.Warn("non-critical migration command failed (continuing)",
 					zap.Int("index", i+1),
 					zap.Error(err),
@@ -246,6 +243,18 @@ func runInitialMigration(ctx context.Context, db *sql.DB, logger *zap.Logger) er
 			}
 			return fmt.Errorf("failed to execute migration command %d: %w\nCommand: %s", i+1, err, command)
 		}
+	}
+
+	logger.Info("migration completed successfully", zap.String("file", migrationFile))
+	return nil
+}
+
+// runInitialMigration выполняет начальную миграцию
+func runInitialMigration(ctx context.Context, db *sql.DB, logger *zap.Logger) error {
+	logger.Info("executing initial database migration")
+
+	if err := runMigrationFile(ctx, db, "migrations/001_initial_schema.sql", logger); err != nil {
+		return err
 	}
 
 	logger.Info("initial migration completed successfully")

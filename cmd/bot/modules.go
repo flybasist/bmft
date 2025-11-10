@@ -42,7 +42,7 @@ func initModules(db *sql.DB, bot *tele.Bot, logger *zap.Logger) (*Modules, error
 	// Создаём модули
 	modules := &Modules{
 		Statistics: statistics.New(db, statsRepo, moduleRepo, eventRepo, logger, bot),
-		Limiter:    limiter.New(vipRepo, contentLimitsRepo, moduleRepo, logger, bot),
+		Limiter:    limiter.New(db, vipRepo, contentLimitsRepo, moduleRepo, logger, bot),
 		Scheduler:  scheduler.New(db, schedulerRepo, moduleRepo, eventRepo, logger, bot),
 		Reactions:  reactions.New(db, vipRepo, logger, bot),
 		TextFilter: textfilter.New(db, vipRepo, contentLimitsRepo, logger, bot),

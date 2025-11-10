@@ -34,18 +34,20 @@ func processMessage(
 	}
 
 	for _, p := range pipeline {
-		// Проверяем включен ли модуль для этого чата
-		enabled, err := moduleRepo.IsEnabled(chatID, p.name)
+		// Проверяем включен ли модуль для этого чата/топика (с fallback)
+		threadID := ctx.Message.ThreadID
+		enabled, err := moduleRepo.IsEnabled(chatID, threadID, p.name)
 		if err != nil {
 			logger.Error("failed to check if module enabled",
 				zap.String("module", p.name),
 				zap.Int64("chat_id", chatID),
+				zap.Int("thread_id", threadID),
 				zap.Error(err))
 			continue
 		}
 
 		if !enabled {
-			continue // Модуль отключен для этого чата
+			continue // Модуль отключен для этого чата/топика
 		}
 
 		// Передаём сообщение модулю

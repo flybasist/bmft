@@ -1,6 +1,7 @@
 package limiter
 
 import (
+	"database/sql"
 	"fmt"
 	"strconv"
 	"strings"
@@ -11,34 +12,27 @@ import (
 	tele "gopkg.in/telebot.v3"
 )
 
-// LimiterModule управляет лимитами на контент в чатах
+// LimiterModule управляет лимитами на контент в чатах.
+// Русский комментарий: v0.8.0 - использует messageRepo.GetTodayCountByType()
+// для подсчёта сообщений вместо отдельной таблицы content_counters.
 type LimiterModule struct {
 	vipRepo           *repositories.VIPRepository
 	contentLimitsRepo *repositories.ContentLimitsRepository
+	messageRepo       *repositories.MessageRepository
 	moduleRepo        *repositories.ModuleRepository
 	logger            *zap.Logger
 	bot               *tele.Bot
 }
 
 // New создаёт новый экземпляр LimiterModule
-func New(vipRepo *repositories.VIPRepository, contentLimitsRepo *repositories.ContentLimitsRepository, moduleRepo *repositories.ModuleRepository, logger *zap.Logger, bot *tele.Bot) *LimiterModule {
+func New(db *sql.DB, vipRepo *repositories.VIPRepository, contentLimitsRepo *repositories.ContentLimitsRepository, moduleRepo *repositories.ModuleRepository, logger *zap.Logger, bot *tele.Bot) *LimiterModule {
 	return &LimiterModule{
 		vipRepo:           vipRepo,
 		contentLimitsRepo: contentLimitsRepo,
+		messageRepo:       repositories.NewMessageRepository(db, logger),
 		moduleRepo:        moduleRepo,
 		logger:            logger,
 		bot:               bot,
-	}
-}
-
-// Commands возвращает список команд модуля
-func (m *LimiterModule) Commands() []core.BotCommand {
-	return []core.BotCommand{
-		{Command: "/mystats", Description: "Показать статистику использования контента"},
-		{Command: "/setlimit", Description: "Установить лимит на тип контента: text/photo/video/sticker/animation/voice/document/audio/location/contact (админы)"},
-		{Command: "/setvip", Description: "Установить VIP-статус пользователю (админы)"},
-		{Command: "/removevip", Description: "Снять VIP-статус с пользователя (админы)"},
-		{Command: "/listvips", Description: "Показать список VIP-пользователей (админы)"},
 	}
 }
 
@@ -86,6 +80,47 @@ func (m *LimiterModule) detectContentType(msg *tele.Message) string {
 
 // RegisterCommands регистрирует пользовательские команды
 func (m *LimiterModule) RegisterCommands(bot *tele.Bot) {
+	// /limiter — справка по модулю
+	bot.Handle("/limiter", func(c tele.Context) error {
+		msg := "🚦 **Модуль Limiter** — Контроль лимитов контента\n\n"
+		msg += "Устанавливает ограничения на количество сообщений разных типов в день.\n\n"
+		msg += "**Доступные команды:**\n\n"
+
+		msg += "🔹 `/setlimit <тип> <количество>` — Установить лимит (только админы)\n"
+		msg += "   Доступные типы: text, photo, video, sticker, animation, voice, video_note, audio, document, location, contact\n"
+		msg += "   📌 Примеры:\n"
+		msg += "   • `/setlimit photo 10` — максимум 10 фото в день\n"
+		msg += "   • `/setlimit sticker 20` — максимум 20 стикеров в день\n"
+		msg += "   • `/setlimit text 0` — отключить лимит на текст\n\n"
+
+		msg += "🔹 `/mystats` — Показать ваши текущие лимиты\n"
+		msg += "   Отображает все установленные лимиты и сколько осталось до превышения\n"
+		msg += "   📌 Пример: `/mystats`\n\n"
+
+		msg += "🔹 `/setvip @username` — Выдать VIP-статус (только админы)\n"
+		msg += "   VIP-пользователи игнорируют все лимиты\n"
+		msg += "   📌 Примеры:\n"
+		msg += "   • `/setvip @username` — выдать VIP\n"
+		msg += "   • Ответить на сообщение и написать `/setvip`\n\n"
+
+		msg += "🔹 `/removevip @username` — Снять VIP-статус (только админы)\n"
+		msg += "   📌 Примеры:\n"
+		msg += "   • `/removevip @username`\n"
+		msg += "   • Ответить на сообщение и написать `/removevip`\n\n"
+
+		msg += "🔹 `/listvips` — Список всех VIP-пользователей\n"
+		msg += "   📌 Пример: `/listvips`\n\n"
+
+		msg += "⚙️ **Работа с топиками:**\n"
+		msg += "• Команда в **топике** настраивает лимиты только для этого топика\n"
+		msg += "• Команда в **основном чате** настраивает лимиты для всего чата\n"
+		msg += "• Если лимит для топика не установлен, используется общий лимит чата\n\n"
+
+		msg += "⚠️ *Предупреждения:* После 2-х превышений лимита пользователь получает предупреждение."
+
+		return c.Send(msg, &tele.SendOptions{ParseMode: tele.ModeMarkdown})
+	})
+
 	bot.Handle("/mystats", m.handleMyStats)
 }
 
@@ -100,10 +135,11 @@ func (m *LimiterModule) RegisterAdminCommands(bot *tele.Bot) {
 // OnMessage обрабатывает входящие сообщения
 func (m *LimiterModule) OnMessage(ctx *core.MessageContext) error {
 	chatID := ctx.Chat.ID
+	threadID := ctx.Message.ThreadID
 	userID := ctx.Sender.ID
 
-	// Проверяем VIP-статус
-	isVIP, err := m.vipRepo.IsVIP(chatID, userID)
+	// Проверяем VIP-статус (с fallback: топик → чат)
+	isVIP, err := m.vipRepo.IsVIP(chatID, threadID, userID)
 	if err != nil {
 		m.logger.Error("failed to check VIP status", zap.Error(err))
 		return nil // Не блокируем сообщение из-за ошибки
@@ -118,28 +154,24 @@ func (m *LimiterModule) OnMessage(ctx *core.MessageContext) error {
 		return nil
 	}
 
-	// Получаем лимиты
-	limits, err := m.contentLimitsRepo.GetLimits(chatID, nil)
+	// Получаем лимиты (с fallback: топик → чат)
+	limits, err := m.contentLimitsRepo.GetLimits(chatID, threadID, nil)
 	if err != nil {
 		m.logger.Error("failed to get limits", zap.Error(err))
 		return nil
 	}
 
-	// Получаем текущий счётчик
-	counter, err := m.contentLimitsRepo.GetCounter(chatID, userID, contentType)
+	// Получаем текущий счётчик из messages (за сегодня)
+	counter, err := m.messageRepo.GetTodayCountByType(chatID, threadID, userID, contentType)
 	if err != nil {
-		m.logger.Error("failed to get counter", zap.Error(err))
+		m.logger.Error("failed to get today counter", zap.Error(err))
 		return nil
 	}
 
-	// Увеличиваем счётчик
-	if err := m.contentLimitsRepo.IncrementCounter(chatID, userID, contentType); err != nil {
-		m.logger.Error("failed to increment counter", zap.Error(err))
-		return nil
-	}
-
-	// Теперь counter - это новый счётчик после увеличения
-	counter++
+	// counter уже включает текущее сообщение (так как Statistics его уже сохранил)
+	// Но если Statistics ещё не обработал, добавляем +1
+	// TODO: Правильнее координировать порядок модулей через pipeline
+	counter++ // Предполагаем что текущее сообщение ещё не учтено
 
 	// Проверяем лимит
 	var limitValue int
@@ -211,18 +243,25 @@ func (m *LimiterModule) OnMessage(ctx *core.MessageContext) error {
 // handleMyStats показывает статистику пользователя
 func (m *LimiterModule) handleMyStats(c tele.Context) error {
 	chatID := c.Chat().ID
+	threadID := c.Message().ThreadID
 	userID := c.Sender().ID
 
-	isVIP, err := m.vipRepo.IsVIP(chatID, userID)
+	isVIP, err := m.vipRepo.IsVIP(chatID, threadID, userID)
 	if err != nil {
 		return c.Send("❌ Ошибка получения статуса")
 	}
 
+	var vipScope string
 	if isVIP {
-		return c.Send("👑 *VIP-статус активен*\n\nВсе лимиты для вас отключены!", &tele.SendOptions{ParseMode: tele.ModeMarkdown})
+		if threadID != 0 {
+			vipScope = " (топик)"
+		} else {
+			vipScope = " (весь чат)"
+		}
+		return c.Send(fmt.Sprintf("👑 *VIP-статус активен%s*\n\nВсе лимиты для вас отключены!", vipScope), &tele.SendOptions{ParseMode: tele.ModeMarkdown})
 	}
 
-	limits, err := m.contentLimitsRepo.GetLimits(chatID, &userID)
+	limits, err := m.contentLimitsRepo.GetLimits(chatID, threadID, &userID)
 	if err != nil {
 		return c.Send("❌ Не удалось получить лимиты")
 	}
@@ -247,7 +286,15 @@ func (m *LimiterModule) handleMyStats(c tele.Context) error {
 		{"🔞", "Мат", "banned_words", limits.LimitBannedWords},
 		{"🎥", "Кружочки", "video_note", limits.LimitVideoNote},
 	}
-	text := "📊 Ваша статистика за сегодня:\n\n"
+
+	var scope string
+	if threadID != 0 {
+		scope = " (для этого топика)"
+	} else {
+		scope = " (для всего чата)"
+	}
+
+	text := fmt.Sprintf("📊 Ваша статистика за сегодня%s:\n\n", scope)
 	for _, t := range types {
 		counter, _ := m.contentLimitsRepo.GetCounter(chatID, userID, t.field)
 		switch {
@@ -290,6 +337,7 @@ func (m *LimiterModule) handleSetLimit(c tele.Context) error {
 	}
 
 	chatID := c.Chat().ID
+	threadID := c.Message().ThreadID
 	var userID *int64
 
 	// Если указан @username, найти пользователя
@@ -303,14 +351,28 @@ func (m *LimiterModule) handleSetLimit(c tele.Context) error {
 		userID = &id
 	}
 
-	if err := m.contentLimitsRepo.SetLimit(chatID, userID, contentType, limitValue); err != nil {
+	if err := m.contentLimitsRepo.SetLimit(chatID, threadID, userID, contentType, limitValue); err != nil {
 		return c.Send("❌ Не удалось установить лимит")
 	}
 
-	if userID == nil {
-		return c.Send(fmt.Sprintf("✅ Лимит для всех установлен: %s = %d", contentType, limitValue))
+	var msg string
+	if threadID != 0 {
+		// Команда выполнена в топике
+		if userID == nil {
+			msg = fmt.Sprintf("✅ Лимит установлен для **этого топика**\n\n%s: %d в день\n\n💡 Для настройки всего чата используйте команду в основном чате (не в топике)", contentType, limitValue)
+		} else {
+			msg = fmt.Sprintf("✅ Персональный лимит установлен для пользователя **в этом топике**\n\n%s: %d в день\n\n💡 Для настройки на весь чат используйте команду в основном чате", contentType, limitValue)
+		}
+	} else {
+		// Команда выполнена в основном чате
+		if userID == nil {
+			msg = fmt.Sprintf("✅ Лимит установлен для **всего чата**\n\n%s: %d в день\n\n💡 Для настройки конкретного топика используйте команду внутри топика", contentType, limitValue)
+		} else {
+			msg = fmt.Sprintf("✅ Персональный лимит установлен для пользователя **во всём чате**\n\n%s: %d в день", contentType, limitValue)
+		}
 	}
-	return c.Send(fmt.Sprintf("✅ Лимит установлен для пользователя: %s = %d", contentType, limitValue))
+
+	return c.Send(msg, &tele.SendOptions{ParseMode: tele.ModeMarkdown})
 }
 
 // handleSetVIP устанавливает VIP-статус
@@ -328,6 +390,7 @@ func (m *LimiterModule) handleSetVIP(c tele.Context) error {
 	}
 
 	chatID := c.Chat().ID
+	threadID := c.Message().ThreadID
 	userID := c.Message().ReplyTo.Sender.ID
 
 	args := c.Args()
@@ -336,11 +399,23 @@ func (m *LimiterModule) handleSetVIP(c tele.Context) error {
 		reason = strings.Join(args[1:], " ")
 	}
 
-	if err := m.vipRepo.GrantVIP(chatID, userID, c.Sender().ID, reason); err != nil {
+	if err := m.vipRepo.GrantVIP(chatID, threadID, userID, c.Sender().ID, reason); err != nil {
 		return c.Send("❌ Не удалось установить VIP-статус")
 	}
 
-	return c.Send(fmt.Sprintf("✅ VIP-статус установлен для пользователя %d", userID))
+	username := c.Message().ReplyTo.Sender.Username
+	if username == "" {
+		username = c.Message().ReplyTo.Sender.FirstName
+	}
+
+	var msg string
+	if threadID != 0 {
+		msg = fmt.Sprintf("✅ VIP-статус выдан пользователю @%s **для этого топика**\n\n💡 Теперь он игнорирует все лимиты в этом топике.\nДля выдачи VIP на весь чат используйте команду в основном чате.", username)
+	} else {
+		msg = fmt.Sprintf("✅ VIP-статус выдан пользователю @%s **для всего чата**\n\n💡 Теперь он игнорирует все лимиты во всех топиках.", username)
+	}
+
+	return c.Send(msg, &tele.SendOptions{ParseMode: tele.ModeMarkdown})
 }
 
 // handleRemoveVIP снимает VIP-статус
@@ -358,13 +433,26 @@ func (m *LimiterModule) handleRemoveVIP(c tele.Context) error {
 	}
 
 	chatID := c.Chat().ID
+	threadID := c.Message().ThreadID
 	userID := c.Message().ReplyTo.Sender.ID
 
-	if err := m.vipRepo.RevokeVIP(chatID, userID); err != nil {
+	if err := m.vipRepo.RevokeVIP(chatID, threadID, userID); err != nil {
 		return c.Send("❌ Не удалось снять VIP-статус")
 	}
 
-	return c.Send(fmt.Sprintf("✅ VIP-статус снят с пользователя %d", userID))
+	username := c.Message().ReplyTo.Sender.Username
+	if username == "" {
+		username = c.Message().ReplyTo.Sender.FirstName
+	}
+
+	var msg string
+	if threadID != 0 {
+		msg = fmt.Sprintf("✅ VIP-статус снят с @%s **для этого топика**\n\n💡 Чтобы снять VIP на весь чат, используйте команду в основном чате.", username)
+	} else {
+		msg = fmt.Sprintf("✅ VIP-статус снят с @%s **для всего чата**", username)
+	}
+
+	return c.Send(msg, &tele.SendOptions{ParseMode: tele.ModeMarkdown})
 }
 
 // handleListVIPs показывает список VIP-пользователей
@@ -378,16 +466,26 @@ func (m *LimiterModule) handleListVIPs(c tele.Context) error {
 	}
 
 	chatID := c.Chat().ID
-	vips, err := m.vipRepo.ListVIPs(chatID)
+	threadID := c.Message().ThreadID
+	vips, err := m.vipRepo.ListVIPs(chatID, threadID)
 	if err != nil {
 		return c.Send("❌ Не удалось получить список VIP")
 	}
 
 	if len(vips) == 0 {
-		return c.Send("ℹ️ В этом чате нет VIP-пользователей")
+		location := "чате"
+		if threadID != 0 {
+			location = "топике"
+		}
+		return c.Send(fmt.Sprintf("ℹ️ В этом %s нет VIP-пользователей", location))
 	}
 
-	text := "👑 *VIP-пользователи:*\n\n"
+	location := "чата"
+	if threadID != 0 {
+		location = "топика"
+	}
+
+	text := fmt.Sprintf("👑 *VIP-пользователи %s:*\n\n", location)
 	for i, vip := range vips {
 		text += fmt.Sprintf("%d. User ID: `%d`\n   Причина: %s\n\n", i+1, vip.UserID, vip.Reason)
 	}

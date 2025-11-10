@@ -4,8 +4,6 @@ import (
 	"database/sql"
 	"fmt"
 	"time"
-
-	"go.uber.org/zap"
 )
 
 // ============================================================================
@@ -91,13 +89,23 @@ func NewModuleRepository(db *sql.DB) *ModuleRepository {
 	return &ModuleRepository{db: db}
 }
 
-// IsEnabled проверяет включен ли модуль для данного чата.
-func (r *ModuleRepository) IsEnabled(chatID int64, moduleName string) (bool, error) {
+// IsEnabled проверяет включен ли модуль для данного чата/топика.
+// Логика fallback: сначала ищем настройку для конкретного thread_id,
+// если не найдена - используем настройку для всего чата (thread_id = 0).
+func (r *ModuleRepository) IsEnabled(chatID int64, threadID int, moduleName string) (bool, error) {
 	var isEnabled bool
-	query := `SELECT is_enabled FROM chat_modules WHERE chat_id = $1 AND module_name = $2`
-	err := r.db.QueryRow(query, chatID, moduleName).Scan(&isEnabled)
+
+	// Сначала проверяем настройку для конкретного топика
+	query := `SELECT is_enabled FROM chat_modules WHERE chat_id = $1 AND thread_id = $2 AND module_name = $3`
+	err := r.db.QueryRow(query, chatID, threadID, moduleName).Scan(&isEnabled)
+
+	if err == sql.ErrNoRows && threadID != 0 {
+		// Если для топика нет настройки, проверяем настройку для всего чата
+		err = r.db.QueryRow(query, chatID, 0, moduleName).Scan(&isEnabled)
+	}
+
 	if err == sql.ErrNoRows {
-		return false, nil // Модуль не зарегистрирован для чата = выключен
+		return false, nil // Модуль не зарегистрирован = выключен
 	}
 	if err != nil {
 		return false, fmt.Errorf("failed to check module enabled: %w", err)
@@ -105,25 +113,26 @@ func (r *ModuleRepository) IsEnabled(chatID int64, moduleName string) (bool, err
 	return isEnabled, nil
 }
 
-// Enable включает модуль для чата (создаёт запись или обновляет is_enabled = true).
-func (r *ModuleRepository) Enable(chatID int64, moduleName string) error {
+// Enable включает модуль для чата/топика (создаёт запись или обновляет is_enabled = true).
+// threadID = 0 означает включение для всего чата, >0 - только для конкретного топика.
+func (r *ModuleRepository) Enable(chatID int64, threadID int, moduleName string) error {
 	query := `
-		INSERT INTO chat_modules (chat_id, module_name, is_enabled)
-		VALUES ($1, $2, true)
-		ON CONFLICT (chat_id, module_name) DO UPDATE
+		INSERT INTO chat_modules (chat_id, thread_id, module_name, is_enabled)
+		VALUES ($1, $2, $3, true)
+		ON CONFLICT (chat_id, thread_id, module_name) DO UPDATE
 		SET is_enabled = true, updated_at = NOW()
 	`
-	_, err := r.db.Exec(query, chatID, moduleName)
+	_, err := r.db.Exec(query, chatID, threadID, moduleName)
 	if err != nil {
 		return fmt.Errorf("failed to enable module: %w", err)
 	}
 	return nil
 }
 
-// Disable выключает модуль для чата (is_enabled = false).
-func (r *ModuleRepository) Disable(chatID int64, moduleName string) error {
-	query := `UPDATE chat_modules SET is_enabled = false, updated_at = NOW() WHERE chat_id = $1 AND module_name = $2`
-	_, err := r.db.Exec(query, chatID, moduleName)
+// Disable выключает модуль для чата/топика (is_enabled = false).
+func (r *ModuleRepository) Disable(chatID int64, threadID int, moduleName string) error {
+	query := `UPDATE chat_modules SET is_enabled = false, updated_at = NOW() WHERE chat_id = $1 AND thread_id = $2 AND module_name = $3`
+	_, err := r.db.Exec(query, chatID, threadID, moduleName)
 	if err != nil {
 		return fmt.Errorf("failed to disable module: %w", err)
 	}
@@ -162,52 +171,6 @@ func (r *SettingsRepository) GetVersion() (string, error) {
 }
 
 // ============================================================================
-// UserMessageRepository - пользователи и сообщения
-// ============================================================================
-
-// UserMessageRepository реализует сохранение пользователей и сообщений
-// в таблицы users и messages.
-type UserMessageRepository struct {
-	db     *sql.DB
-	logger *zap.Logger
-}
-
-func NewUserMessageRepository(db *sql.DB, logger *zap.Logger) *UserMessageRepository {
-	return &UserMessageRepository{db: db, logger: logger}
-}
-
-// UpsertUser сохраняет или обновляет пользователя в таблице users.
-func (r *UserMessageRepository) UpsertUser(userID int64, username, firstName string) error {
-	query := `
-		INSERT INTO users (user_id, username, first_name)
-		VALUES ($1, $2, $3)
-		ON CONFLICT (user_id) DO UPDATE SET
-			username = EXCLUDED.username,
-			first_name = EXCLUDED.first_name
-	`
-	_, err := r.db.Exec(query, userID, username, firstName)
-	if err != nil {
-		r.logger.Error("failed to upsert user", zap.Int64("user_id", userID), zap.Error(err))
-		return err
-	}
-	return nil
-}
-
-// InsertMessage сохраняет сообщение в таблице messages.
-func (r *UserMessageRepository) InsertMessage(chatID, userID int64, messageID int, contentType string) error {
-	query := `
-		INSERT INTO messages (chat_id, user_id, message_id, content_type)
-		VALUES ($1, $2, $3, $4)
-	`
-	_, err := r.db.Exec(query, chatID, userID, messageID, contentType)
-	if err != nil {
-		r.logger.Error("failed to insert message", zap.Int64("user_id", userID), zap.Error(err))
-		return err
-	}
-	return nil
-}
-
-// ============================================================================
 // VIPRepository - управление VIP пользователями
 // ============================================================================
 
@@ -223,33 +186,46 @@ func NewVIPRepository(db *sql.DB) *VIPRepository {
 	}
 }
 
-// IsVIP проверяет является ли пользователь VIP в данном чате
-func (r *VIPRepository) IsVIP(chatID, userID int64) (bool, error) {
+// IsVIP проверяет является ли пользователь VIP в данном чате/топике.
+// Логика fallback: сначала проверяем VIP для конкретного топика,
+// если нет - проверяем VIP для всего чата (thread_id = 0).
+func (r *VIPRepository) IsVIP(chatID int64, threadID int, userID int64) (bool, error) {
 	var exists bool
-	err := r.db.QueryRow(`
+	query := `
 		SELECT EXISTS(
 			SELECT 1 FROM chat_vips 
-			WHERE chat_id = $1 AND user_id = $2
+			WHERE chat_id = $1 AND thread_id = $2 AND user_id = $3
 		)
-	`, chatID, userID).Scan(&exists)
+	`
 
+	// Сначала проверяем VIP для конкретного топика
+	err := r.db.QueryRow(query, chatID, threadID, userID).Scan(&exists)
 	if err != nil {
 		return false, fmt.Errorf("check VIP status: %w", err)
+	}
+
+	if !exists && threadID != 0 {
+		// Если не VIP в топике, проверяем VIP для всего чата
+		err = r.db.QueryRow(query, chatID, 0, userID).Scan(&exists)
+		if err != nil {
+			return false, fmt.Errorf("check VIP status (chat-wide): %w", err)
+		}
 	}
 
 	return exists, nil
 }
 
-// GrantVIP выдаёт VIP статус пользователю
-func (r *VIPRepository) GrantVIP(chatID, userID, grantedBy int64, reason string) error {
+// GrantVIP выдаёт VIP статус пользователю в чате/топике.
+// threadID = 0 означает VIP для всего чата, >0 - только для конкретного топика.
+func (r *VIPRepository) GrantVIP(chatID int64, threadID int, userID, grantedBy int64, reason string) error {
 	_, err := r.db.Exec(`
-		INSERT INTO chat_vips (chat_id, user_id, granted_by, reason)
-		VALUES ($1, $2, $3, $4)
-		ON CONFLICT (chat_id, user_id) DO UPDATE
+		INSERT INTO chat_vips (chat_id, thread_id, user_id, granted_by, reason)
+		VALUES ($1, $2, $3, $4, $5)
+		ON CONFLICT (chat_id, thread_id, user_id) DO UPDATE
 		SET granted_by = EXCLUDED.granted_by,
 		    reason = EXCLUDED.reason,
 		    granted_at = NOW()
-	`, chatID, userID, grantedBy, reason)
+	`, chatID, threadID, userID, grantedBy, reason)
 
 	if err != nil {
 		return fmt.Errorf("grant VIP: %w", err)
@@ -258,12 +234,12 @@ func (r *VIPRepository) GrantVIP(chatID, userID, grantedBy int64, reason string)
 	return nil
 }
 
-// RevokeVIP забирает VIP статус
-func (r *VIPRepository) RevokeVIP(chatID, userID int64) error {
+// RevokeVIP забирает VIP статус из чата/топика.
+func (r *VIPRepository) RevokeVIP(chatID int64, threadID int, userID int64) error {
 	result, err := r.db.Exec(`
 		DELETE FROM chat_vips
-		WHERE chat_id = $1 AND user_id = $2
-	`, chatID, userID)
+		WHERE chat_id = $1 AND thread_id = $2 AND user_id = $3
+	`, chatID, threadID, userID)
 
 	if err != nil {
 		return fmt.Errorf("revoke VIP: %w", err)
@@ -277,20 +253,22 @@ func (r *VIPRepository) RevokeVIP(chatID, userID int64) error {
 	return nil
 }
 
-// ListVIPs возвращает список всех VIP пользователей в чате
-func (r *VIPRepository) ListVIPs(chatID int64) ([]VIPInfo, error) {
+// ListVIPs возвращает список всех VIP пользователей в чате/топике.
+// threadID = 0 - список для всего чата, >0 - список для конкретного топика.
+func (r *VIPRepository) ListVIPs(chatID int64, threadID int) ([]VIPInfo, error) {
 	rows, err := r.db.Query(`
 		SELECT 
 			cv.user_id,
+			cv.thread_id,
 			COALESCE(u.username, ''),
 			COALESCE(u.first_name, ''),
 			cv.granted_at,
 			COALESCE(cv.reason, '')
 		FROM chat_vips cv
 		LEFT JOIN users u ON cv.user_id = u.user_id
-		WHERE cv.chat_id = $1
+		WHERE cv.chat_id = $1 AND cv.thread_id = $2
 		ORDER BY cv.granted_at DESC
-	`, chatID)
+	`, chatID, threadID)
 
 	if err != nil {
 		return nil, fmt.Errorf("list VIPs: %w", err)
@@ -302,6 +280,7 @@ func (r *VIPRepository) ListVIPs(chatID int64) ([]VIPInfo, error) {
 		var vip VIPInfo
 		err := rows.Scan(
 			&vip.UserID,
+			&vip.ThreadID,
 			&vip.Username,
 			&vip.FirstName,
 			&vip.GrantedAt,
@@ -319,6 +298,7 @@ func (r *VIPRepository) ListVIPs(chatID int64) ([]VIPInfo, error) {
 // VIPInfo содержит информацию о VIP пользователе
 type VIPInfo struct {
 	UserID    int64
+	ThreadID  int // 0 = VIP для всего чата, >0 = VIP только в топике
 	Username  string
 	FirstName string
 	GrantedAt string
@@ -341,9 +321,10 @@ func NewContentLimitsRepository(db *sql.DB) *ContentLimitsRepository {
 	}
 }
 
-// ContentLimits представляет лимиты для чата/пользователя
+// ContentLimits представляет лимиты для чата/топика/пользователя
 type ContentLimits struct {
 	ChatID           int64
+	ThreadID         int    // 0 = лимит для всего чата, >0 = лимит только для топика
 	UserID           *int64 // nil = настройки для всех (allmembers)
 	LimitText        int
 	LimitPhoto       int
@@ -360,75 +341,115 @@ type ContentLimits struct {
 	WarningThreshold int
 }
 
-// GetLimits получает лимиты для пользователя (или allmembers если не указан)
-func (r *ContentLimitsRepository) GetLimits(chatID int64, userID *int64) (*ContentLimits, error) {
+// GetLimits получает лимиты для пользователя в чате/топике (или allmembers если не указан).
+// Логика fallback: сначала ищем лимит для (chat_id, thread_id, user_id),
+// затем для (chat_id, thread_id, NULL), затем для (chat_id, 0, user_id), затем для (chat_id, 0, NULL).
+func (r *ContentLimitsRepository) GetLimits(chatID int64, threadID int, userID *int64) (*ContentLimits, error) {
 	var limits ContentLimits
 
-	// Сначала ищем лимит для конкретного пользователя
+	// 1. Сначала ищем лимит для конкретного пользователя в конкретном топике
 	queryUser := `
 		SELECT 
-			chat_id, user_id,
+			chat_id, thread_id, user_id,
 			limit_text, limit_photo, limit_video, limit_sticker,
 			limit_animation, limit_voice, limit_video_note, limit_audio,
 			limit_document, limit_location, limit_contact, limit_banned_words,
 			warning_threshold
 		FROM content_limits
-		WHERE chat_id = $1 AND user_id = $2
+		WHERE chat_id = $1 AND thread_id = $2 AND user_id = $3
 		LIMIT 1
 	`
 
-	err := r.db.QueryRow(queryUser, chatID, userID).Scan(
-		&limits.ChatID, &limits.UserID,
+	err := r.db.QueryRow(queryUser, chatID, threadID, userID).Scan(
+		&limits.ChatID, &limits.ThreadID, &limits.UserID,
 		&limits.LimitText, &limits.LimitPhoto, &limits.LimitVideo, &limits.LimitSticker,
 		&limits.LimitAnimation, &limits.LimitVoice, &limits.LimitVideoNote, &limits.LimitAudio,
 		&limits.LimitDocument, &limits.LimitLocation, &limits.LimitContact, &limits.LimitBannedWords,
 		&limits.WarningThreshold,
 	)
 
-	if err == sql.ErrNoRows {
-		// Если нет лимита для пользователя, ищем лимит для всех (user_id = NULL)
-		queryAll := `
-			SELECT 
-				chat_id, user_id,
-				limit_text, limit_photo, limit_video, limit_sticker,
-				limit_animation, limit_voice, limit_video_note, limit_audio,
-				limit_document, limit_location, limit_contact, limit_banned_words,
-				warning_threshold
-			FROM content_limits
-			WHERE chat_id = $1 AND user_id IS NULL
-			LIMIT 1
-		`
-		errAll := r.db.QueryRow(queryAll, chatID).Scan(
-			&limits.ChatID, &limits.UserID,
+	if err != sql.ErrNoRows {
+		if err != nil {
+			return nil, fmt.Errorf("get limits (user+thread): %w", err)
+		}
+		return &limits, nil
+	}
+
+	// 2. Если нет лимита для пользователя в топике, ищем лимит для всех в топике
+	queryAllInThread := `
+		SELECT 
+			chat_id, thread_id, user_id,
+			limit_text, limit_photo, limit_video, limit_sticker,
+			limit_animation, limit_voice, limit_video_note, limit_audio,
+			limit_document, limit_location, limit_contact, limit_banned_words,
+			warning_threshold
+		FROM content_limits
+		WHERE chat_id = $1 AND thread_id = $2 AND user_id IS NULL
+		LIMIT 1
+	`
+	err = r.db.QueryRow(queryAllInThread, chatID, threadID).Scan(
+		&limits.ChatID, &limits.ThreadID, &limits.UserID,
+		&limits.LimitText, &limits.LimitPhoto, &limits.LimitVideo, &limits.LimitSticker,
+		&limits.LimitAnimation, &limits.LimitVoice, &limits.LimitVideoNote, &limits.LimitAudio,
+		&limits.LimitDocument, &limits.LimitLocation, &limits.LimitContact, &limits.LimitBannedWords,
+		&limits.WarningThreshold,
+	)
+
+	if err != sql.ErrNoRows {
+		if err != nil {
+			return nil, fmt.Errorf("get limits (all+thread): %w", err)
+		}
+		return &limits, nil
+	}
+
+	// 3. Если нет лимита для топика, fallback на лимит для конкретного пользователя во всём чате
+	if threadID != 0 && userID != nil {
+		err = r.db.QueryRow(queryUser, chatID, 0, userID).Scan(
+			&limits.ChatID, &limits.ThreadID, &limits.UserID,
 			&limits.LimitText, &limits.LimitPhoto, &limits.LimitVideo, &limits.LimitSticker,
 			&limits.LimitAnimation, &limits.LimitVoice, &limits.LimitVideoNote, &limits.LimitAudio,
 			&limits.LimitDocument, &limits.LimitLocation, &limits.LimitContact, &limits.LimitBannedWords,
 			&limits.WarningThreshold,
 		)
-		if errAll == sql.ErrNoRows {
-			// Нет лимитов вообще — возвращаем дефолтные (всё разрешено)
-			return &ContentLimits{
-				ChatID:           chatID,
-				UserID:           userID,
-				WarningThreshold: 2,
-			}, nil
+
+		if err != sql.ErrNoRows {
+			if err != nil {
+				return nil, fmt.Errorf("get limits (user+chat): %w", err)
+			}
+			return &limits, nil
 		}
-		if errAll != nil {
-			return nil, fmt.Errorf("get limits (all): %w", errAll)
-		}
-		return &limits, nil
 	}
 
-	if err != nil {
-		return nil, fmt.Errorf("get limits: %w", err)
+	// 4. Если нет, ищем лимит для всех во всём чате (thread_id = 0, user_id = NULL)
+	if threadID != 0 {
+		err = r.db.QueryRow(queryAllInThread, chatID, 0).Scan(
+			&limits.ChatID, &limits.ThreadID, &limits.UserID,
+			&limits.LimitText, &limits.LimitPhoto, &limits.LimitVideo, &limits.LimitSticker,
+			&limits.LimitAnimation, &limits.LimitVoice, &limits.LimitVideoNote, &limits.LimitAudio,
+			&limits.LimitDocument, &limits.LimitLocation, &limits.LimitContact, &limits.LimitBannedWords,
+			&limits.WarningThreshold,
+		)
+
+		if err != sql.ErrNoRows {
+			if err != nil {
+				return nil, fmt.Errorf("get limits (all+chat): %w", err)
+			}
+			return &limits, nil
+		}
 	}
 
-	return &limits, nil
+	// 5. Нет лимитов вообще — возвращаем дефолтные (всё разрешено)
+	return &ContentLimits{
+		ChatID:           chatID,
+		ThreadID:         threadID,
+		UserID:           userID,
+		WarningThreshold: 2,
+	}, nil
 }
 
 // GetLimitForContentType получает лимит для конкретного типа контента
-func (r *ContentLimitsRepository) GetLimitForContentType(chatID int64, userID *int64, contentType string) (int, error) {
-	limits, err := r.GetLimits(chatID, userID)
+func (r *ContentLimitsRepository) GetLimitForContentType(chatID int64, threadID int, userID *int64, contentType string) (int, error) {
+	limits, err := r.GetLimits(chatID, threadID, userID)
 	if err != nil {
 		return 0, err
 	}
@@ -462,8 +483,8 @@ func (r *ContentLimitsRepository) GetLimitForContentType(chatID int64, userID *i
 	}
 }
 
-// SetLimit устанавливает лимит для типа контента
-func (r *ContentLimitsRepository) SetLimit(chatID int64, userID *int64, contentType string, limit int) error {
+// SetLimit устанавливает лимит для типа контента в чате/топике
+func (r *ContentLimitsRepository) SetLimit(chatID int64, threadID int, userID *int64, contentType string, limit int) error {
 	// Определяем какое поле обновлять
 	var columnName string
 	switch contentType {
@@ -497,13 +518,13 @@ func (r *ContentLimitsRepository) SetLimit(chatID int64, userID *int64, contentT
 
 	// Upsert лимита
 	query := fmt.Sprintf(`
-		INSERT INTO content_limits (chat_id, user_id, %s)
-		VALUES ($1, $2, $3)
-		ON CONFLICT (chat_id, COALESCE(user_id, -1))
+		INSERT INTO content_limits (chat_id, thread_id, user_id, %s)
+		VALUES ($1, $2, $3, $4)
+		ON CONFLICT (chat_id, thread_id, COALESCE(user_id, -1))
 		DO UPDATE SET %s = EXCLUDED.%s, updated_at = NOW()
 	`, columnName, columnName, columnName)
 
-	_, err := r.db.Exec(query, chatID, userID, limit)
+	_, err := r.db.Exec(query, chatID, threadID, userID, limit)
 	if err != nil {
 		return fmt.Errorf("set limit: %w", err)
 	}
@@ -616,8 +637,9 @@ func (r *ContentLimitsRepository) IncrementCounter(chatID, userID int64, content
 // ============================================================================
 
 // StatisticsRepository управляет статистикой пользователей и чатов.
-// Использует таблицу content_counters для агрегации данных по типам контента.
-// В v0.6.0 убрали дублирующую таблицу statistics_daily - вся статистика через content_counters.
+// DEPRECATED: v0.8.0 - заменён на MessageRepository с JSONB metadata.
+// Оставлен для обратной совместимости со старыми командами (/myweek, /chatstats).
+// TODO: Удалить после переписания всех команд статистики на MessageRepository.
 type StatisticsRepository struct {
 	db *sql.DB
 }
@@ -930,6 +952,7 @@ func NewSchedulerRepository(db *sql.DB) *SchedulerRepository {
 type ScheduledTask struct {
 	ID        int64
 	ChatID    int64
+	ThreadID  int64 // 0 = основной чат, >0 = конкретный топик
 	TaskName  string
 	CronExpr  string
 	TaskType  string // sticker, text, photo
@@ -941,14 +964,14 @@ type ScheduledTask struct {
 }
 
 // CreateTask создаёт новую задачу планировщика.
-func (r *SchedulerRepository) CreateTask(chatID int64, taskName, cronExpr, taskType, taskData string) (int64, error) {
+func (r *SchedulerRepository) CreateTask(chatID int64, threadID int, taskName, cronExpr, taskType, taskData string) (int64, error) {
 	query := `
-		INSERT INTO scheduled_tasks (chat_id, task_name, cron_expression, action_type, action_data, is_active)
-		VALUES ($1, $2, $3, $4, $5, true)
+		INSERT INTO scheduled_tasks (chat_id, thread_id, task_name, cron_expression, action_type, action_data, is_active)
+		VALUES ($1, $2, $3, $4, $5, $6, true)
 		RETURNING id
 	`
 	var taskID int64
-	err := r.db.QueryRow(query, chatID, taskName, cronExpr, taskType, taskData).Scan(&taskID)
+	err := r.db.QueryRow(query, chatID, threadID, taskName, cronExpr, taskType, taskData).Scan(&taskID)
 	if err != nil {
 		return 0, fmt.Errorf("failed to create scheduled task: %w", err)
 	}
@@ -959,13 +982,13 @@ func (r *SchedulerRepository) CreateTask(chatID int64, taskName, cronExpr, taskT
 // GetTask получает задачу по ID.
 func (r *SchedulerRepository) GetTask(taskID int64) (*ScheduledTask, error) {
 	query := `
-		SELECT id, chat_id, task_name, cron_expression, action_type, action_data, is_active, last_run, created_at, updated_at
+		SELECT id, chat_id, thread_id, task_name, cron_expression, action_type, action_data, is_active, last_run, created_at, updated_at
 		FROM scheduled_tasks
 		WHERE id = $1
 	`
 	task := &ScheduledTask{}
 	err := r.db.QueryRow(query, taskID).Scan(
-		&task.ID, &task.ChatID, &task.TaskName, &task.CronExpr,
+		&task.ID, &task.ChatID, &task.ThreadID, &task.TaskName, &task.CronExpr,
 		&task.TaskType, &task.TaskData, &task.IsActive, &task.LastRun,
 		&task.CreatedAt, &task.UpdatedAt,
 	)
@@ -979,14 +1002,14 @@ func (r *SchedulerRepository) GetTask(taskID int64) (*ScheduledTask, error) {
 }
 
 // GetChatTasks получает все задачи для чата.
-func (r *SchedulerRepository) GetChatTasks(chatID int64) ([]*ScheduledTask, error) {
+func (r *SchedulerRepository) GetChatTasks(chatID int64, threadID int) ([]*ScheduledTask, error) {
 	query := `
-		SELECT id, chat_id, task_name, cron_expression, action_type, action_data, is_active, last_run, created_at, updated_at
+		SELECT id, chat_id, thread_id, task_name, cron_expression, action_type, action_data, is_active, last_run, created_at, updated_at
 		FROM scheduled_tasks
-		WHERE chat_id = $1
+		WHERE chat_id = $1 AND thread_id = $2
 		ORDER BY created_at DESC
 	`
-	rows, err := r.db.Query(query, chatID)
+	rows, err := r.db.Query(query, chatID, threadID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get chat tasks: %w", err)
 	}
@@ -996,7 +1019,7 @@ func (r *SchedulerRepository) GetChatTasks(chatID int64) ([]*ScheduledTask, erro
 	for rows.Next() {
 		task := &ScheduledTask{}
 		err := rows.Scan(
-			&task.ID, &task.ChatID, &task.TaskName, &task.CronExpr,
+			&task.ID, &task.ChatID, &task.ThreadID, &task.TaskName, &task.CronExpr,
 			&task.TaskType, &task.TaskData, &task.IsActive, &task.LastRun,
 			&task.CreatedAt, &task.UpdatedAt,
 		)
@@ -1012,10 +1035,10 @@ func (r *SchedulerRepository) GetChatTasks(chatID int64) ([]*ScheduledTask, erro
 // GetActiveTasks получает все активные задачи.
 func (r *SchedulerRepository) GetActiveTasks() ([]*ScheduledTask, error) {
 	query := `
-		SELECT id, chat_id, task_name, cron_expression, action_type, action_data, is_active, last_run, created_at, updated_at
+		SELECT id, chat_id, thread_id, task_name, cron_expression, action_type, action_data, is_active, last_run, created_at, updated_at
 		FROM scheduled_tasks
 		WHERE is_active = true
-		ORDER BY chat_id, created_at
+		ORDER BY chat_id, thread_id, created_at
 	`
 	rows, err := r.db.Query(query)
 	if err != nil {
@@ -1027,7 +1050,7 @@ func (r *SchedulerRepository) GetActiveTasks() ([]*ScheduledTask, error) {
 	for rows.Next() {
 		task := &ScheduledTask{}
 		err := rows.Scan(
-			&task.ID, &task.ChatID, &task.TaskName, &task.CronExpr,
+			&task.ID, &task.ChatID, &task.ThreadID, &task.TaskName, &task.CronExpr,
 			&task.TaskType, &task.TaskData, &task.IsActive, &task.LastRun,
 			&task.CreatedAt, &task.UpdatedAt,
 		)

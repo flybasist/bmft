@@ -138,7 +138,7 @@ func run() error {
 		logger.Warn("failed to get bot version from DB, using default",
 			zap.Error(err),
 		)
-		botVersion = "0.6.0-dev"
+		botVersion = "0.8.0-dev"
 	}
 
 	// Регистрируем middleware
