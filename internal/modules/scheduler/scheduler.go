@@ -21,17 +21,15 @@ type SchedulerModule struct {
 	bot           *tele.Bot
 	logger        *zap.Logger
 	schedulerRepo *repositories.SchedulerRepository
-	moduleRepo    *repositories.ModuleRepository
 	eventRepo     *repositories.EventRepository
 	cron          *cron.Cron
 }
 
 // New создаёт новый инстанс модуля планировщика.
-func New(db *sql.DB, schedulerRepo *repositories.SchedulerRepository, moduleRepo *repositories.ModuleRepository, eventRepo *repositories.EventRepository, logger *zap.Logger, bot *tele.Bot) *SchedulerModule {
+func New(db *sql.DB, schedulerRepo *repositories.SchedulerRepository, eventRepo *repositories.EventRepository, logger *zap.Logger, bot *tele.Bot) *SchedulerModule {
 	m := &SchedulerModule{
 		db:            db,
 		schedulerRepo: schedulerRepo,
-		moduleRepo:    moduleRepo,
 		eventRepo:     eventRepo,
 		logger:        logger,
 		bot:           bot,
@@ -174,20 +172,6 @@ func (m *SchedulerModule) executeTask(task *repositories.ScheduledTask) {
 		zap.String("task_type", task.TaskType),
 	)
 
-	// Проверяем включен ли scheduler для этого чата
-	// Проверяем с учетом thread_id задачи
-	enabled, err := m.moduleRepo.IsEnabled(task.ChatID, int(task.ThreadID), "scheduler")
-	if err != nil {
-		m.logger.Error("failed to check if module enabled", zap.Error(err))
-		return
-	}
-	if !enabled {
-		m.logger.Info("scheduler module disabled for chat/thread",
-			zap.Int64("chat_id", task.ChatID),
-			zap.Int64("thread_id", task.ThreadID))
-		return
-	}
-
 	chat := &tele.Chat{ID: task.ChatID}
 
 	// Создаем опции для отправки в топик если нужно
@@ -272,16 +256,6 @@ func (m *SchedulerModule) handleListTasks(c tele.Context) error {
 		threadID = c.Message().ThreadID
 	}
 
-	// Проверяем что модуль включён (с fallback: топик → чат)
-	enabled, err := m.moduleRepo.IsEnabled(chatID, threadID, "scheduler")
-	if err != nil {
-		m.logger.Error("failed to check if module enabled", zap.Error(err))
-		return c.Send("Произошла ошибка при проверке модуля.")
-	}
-	if !enabled {
-		return c.Send("⏰ Модуль scheduler отключен для этого чата. Админ может включить: /enable scheduler")
-	}
-
 	tasks, err := m.schedulerRepo.GetChatTasks(chatID, threadID)
 	if err != nil {
 		m.logger.Error("failed to get chat tasks", zap.Error(err))
@@ -333,16 +307,6 @@ func (m *SchedulerModule) handleListTasks(c tele.Context) error {
 func (m *SchedulerModule) handleAddTask(c tele.Context) error {
 	chatID := c.Chat().ID
 	threadID := int(c.Message().ThreadID)
-
-	// Проверяем что модуль включён (с fallback: топик → чат)
-	enabled, err := m.moduleRepo.IsEnabled(chatID, threadID, "scheduler")
-	if err != nil {
-		m.logger.Error("failed to check if module enabled", zap.Error(err))
-		return c.Send("Произошла ошибка при проверке модуля.")
-	}
-	if !enabled {
-		return c.Send("⏰ Модуль scheduler отключен для этого чата. Админ может включить: /enable scheduler")
-	}
 
 	admins, err := m.bot.AdminsOf(c.Chat())
 	if err != nil {
@@ -400,12 +364,6 @@ func (m *SchedulerModule) handleAddTask(c tele.Context) error {
 		} else {
 			taskType = "text"
 			taskData = replyMsg.Text
-		}
-
-		chatID := c.Chat().ID
-		threadID := 0
-		if c.Message().ThreadID != 0 {
-			threadID = c.Message().ThreadID
 		}
 
 		taskID, err := m.schedulerRepo.CreateTask(chatID, threadID, name, cronExpr, taskType, taskData)
@@ -543,22 +501,6 @@ func (m *SchedulerModule) handleAddTask(c tele.Context) error {
 }
 
 func (m *SchedulerModule) handleDeleteTask(c tele.Context) error {
-	chatID := c.Chat().ID
-	threadID := 0
-	if c.Message().ThreadID != 0 {
-		threadID = c.Message().ThreadID
-	}
-
-	// Проверяем что модуль включён (с fallback: топик → чат)
-	enabled, err := m.moduleRepo.IsEnabled(chatID, threadID, "scheduler")
-	if err != nil {
-		m.logger.Error("failed to check if module enabled", zap.Error(err))
-		return c.Send("Произошла ошибка при проверке модуля.")
-	}
-	if !enabled {
-		return c.Send("⏰ Модуль scheduler отключен для этого чата. Админ может включить: /enable scheduler")
-	}
-
 	admins, err := m.bot.AdminsOf(c.Chat())
 	if err != nil {
 		return c.Send("Ошибка проверки прав администратора")

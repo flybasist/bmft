@@ -5,18 +5,13 @@
 BMFT — модульный бот для управления Telegram-чатами с упрощённой архитектурой.
 
 - 🧩 **Модульная архитектура** — независимые модули (лимитер, реакции, статистика и др.)
-- 🎛️ **Per-chat управление** — админы включают/выключают модули командами
+- 🎛️ **Per-chat управление** — админы настраивают модули через команды конфигурации
 - 🗄️ **PostgreSQL 16+** — единая БД с JSONB metadata и партиционированием
-- � **MATERIALIZED VIEW** — быстрая аналитика без дублирования данных
-- �📡 **Long Polling** — без webhook и публичного IP
+- � **Long Polling** — без webhook и публичного IP
 - 🐳 **Docker-ready** — простое развертывание
 
 > 🟡 **Статус:** Alpha. Активная разработка.  
 > **Версия:** 0.8.0-dev
-
-## 🏗️ Архитектура (v0.8) с поддержкой топиков
-
-**Упрощённый монолит** — явный pipeline + единый источник правды + нативная поддержка Telegram Topics
 
 ```
 ┌─────────────────────────────┐
@@ -31,28 +26,28 @@ BMFT — модульный бот для управления Telegram-чата
         └─────────┬───────────┘
                   │
              ┌────┴────┐
-             │ Pipeline│ ← Явный порядок: limiter→textfilter→statistics→reactions
-             │ (cmd/   │   Конфигурация per-chat/per-topic через chat_modules (БД)
+             │ Pipeline│ ← Явный порядок: Statistics→Limiter→TextFilter→Reactions
+             │ (cmd/   │   Конфигурация per-chat/per-topic через БД
              │  bot/)  │   thread_id = 0 → весь чат, >0 → конкретный топик
-             └────┬────┘
+             └────┬────┘   Модули работают если есть конфиг в БД
                   │
      ┌────────────┼────────────┬────────────┐
      ▼            ▼            ▼            ▼
-┌─────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐
-│ Limiter │ │TextFilter│ │Statistics│ │Reactions │
-│ (VIP    │ │ (banned  │ │ (messages│ │ (keyword │
-│  bypass)│ │  words)  │ │ metadata)│ │  reply)  │
-│ +topics)│ │ +topics) │ │ +topics) │ │ +topics) │
-└────┬────┘ └────┬─────┘ └────┬─────┘ └────┬─────┘
-     └───────────┴────────────┴────────────┘
+┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐
+│Statistics│ │ Limiter  │ │TextFilter│ │Reactions │
+│ (единый  │ │ (VIP     │ │ (banned  │ │ (keyword │
+│  источник│ │  bypass) │ │  words)  │ │  reply)  │
+│  правды) │ │ +topics) │ │ +topics) │ │ +topics) │
+└────┬─────┘ └────┬─────┘ └────┬─────┘ └────┬─────┘
+     └────────────┴────────────┴────────────┘
                   │
                   ▼
         ┌──────────────────────────┐
         │ MessageRepository        │ ← Единый источник правды
-        │ ✅ InsertMessage()       │   Все модули пишут сюда
-        │    (chatID, threadID)    │   с JSONB metadata
-        │ ✅ GetTodayCountByType() │   + thread_id для топиков
-        │ ✅ GetUserStats()        │
+        │ ✅ InsertMessage()       │   Statistics пишет ВСЕГДА
+        │    (chatID, threadID)    │   Limiter читает отсюда
+        │ ✅ GetTodayCountByType() │   с JSONB metadata
+        │ ✅ GetUserStats()        │   + thread_id для топиков
         └────────────┬─────────────┘
                      │
         ┌────────────┴─────────────┐
@@ -65,35 +60,31 @@ BMFT — модульный бот для управления Telegram-чата
         │  │   "statistics": {}  │ │
         │  │ }                   │ │
         │  └─────────────────────┘ │
-        │  ┌─────────────────────┐ │
-        │  │ MATERIALIZED VIEW   │ │ ← Быстрая аналитика
-        │  │ daily_content_stats │ │   (обновляется по cron)
-        │  │ (with thread_id)    │ │
-        │  └─────────────────────┘ │
         └──────────────────────────┘
 ```
 
+**Ключевые принципы:**
+- Statistics работает **всегда** (записывает в `messages`) — единый источник правды
+- Остальные модули: **есть конфиг в БД = работают**, нет конфига = ничего не делают
+- Нет механизма enable/disable — модули активируются наличием настроек в соответствующих таблицах
+- Limiter зависит от Statistics (читает из `messages` таблицы)
+
 ## 🗄️ База данных
 
-**Схема v0.8.0 (9 таблиц + 2 MATERIALIZED VIEW):**
+**Схема v0.8.0 (10 таблиц):**
 
 | Таблица | Назначение | Топики |
 |---------|------------|--------|
 | `chats` | Реестр чатов | `is_forum` флаг |
 | `users` | Реестр пользователей | - |
 | `chat_vips` | VIP-пользователи (обход лимитов) | `thread_id` |
-| `chat_modules` | Конфигурация модулей per-chat/per-topic | `thread_id` |
 | `messages` + партиции | **Единый источник правды** с JSONB metadata | `thread_id` |
 | `content_limits` | Настройки лимитов контента | `thread_id` |
 | `keyword_reactions` | Автореакции на ключевые слова | `thread_id` |
 | `banned_words` | Фильтр запрещённых слов | `thread_id` |
-| `scheduled_tasks` | Задачи по расписанию (cron) | - |
+| `scheduled_tasks` | Задачи по расписанию (cron) | `thread_id` |
 | `event_log` | Аудит событий с JSONB metadata | - |
-| `bot_settings` | Версия бота, timezone, модули | - |
-
-**MATERIALIZED VIEW:**
-- `daily_content_stats` — статистика контента (с `thread_id`)
-- `daily_reaction_stats` — статистика реакций (с `thread_id`)
+| `bot_settings` | Версия бота, timezone | - |
 
 **Логика работы с топиками:**
 - `thread_id = 0` → настройка применяется ко всему чату
@@ -103,15 +94,18 @@ BMFT — модульный бот для управления Telegram-чата
 
 ## 📦 Доступные модули
 
-| Модуль | Описание | Основные команды |
-|--------|----------|------------------|
-| **Limiter** | Лимиты на контент с VIP-обходом | `/setlimit`, `/mylimits`, `/setvip` |
-| **Reactions** | Автореакции на ключевые слова | `/addreaction`, `/listreactions` |
-| **Statistics** | Статистика активности пользователей | `/mystats`, `/myweek`, `/topweek` |
-| **Scheduler** | Задачи по расписанию (cron) | `/addtask`, `/listtasks` |
-| **TextFilter** | Фильтр запрещённых слов | `/addban`, `/listbans` |
+| Модуль | Описание | Основные команды | Активация |
+|--------|----------|------------------|-----------|
+| **Statistics** | Статистика активности (единый источник правды) | `/myweek`, `/chatstats`, `/topchat` | Работает **всегда** |
+| **Limiter** | Лимиты на контент с VIP-обходом | `/mystats`, `/setlimit`, `/setvip` | Есть `content_limits` в БД |
+| **Reactions** | Автореакции на ключевые слова | `/addreaction`, `/listreactions` | Есть `keyword_reactions` в БД |
+| **Scheduler** | Задачи по расписанию (cron) | `/addtask`, `/listtasks` | Есть `scheduled_tasks` в БД |
+| **TextFilter** | Фильтр запрещённых слов | `/addban`, `/listbans` | Есть `banned_words` в БД |
 
-Все модули включаются/выключаются админами командами `/enable <module>` и `/disable <module>`.
+**Принцип работы:**
+- Statistics всегда активен (записывает все сообщения в `messages`)
+- Остальные модули активируются наличием конфигурации в соответствующих таблицах
+- Нет команд `/enable`/`/disable` — модули настраиваются через свои админ-команды
 
 ---
 
@@ -128,6 +122,8 @@ git clone <repository-url>
 cd bmft
 cp .env.example .env  # Укажите TELEGRAM_BOT_TOKEN
 
+# Создайте файл `.env` на основе `.env.example`:
+
 # 2. Запустите
 docker-compose -f docker-compose.env.yaml up -d  # PostgreSQL
 docker-compose -f docker-compose.bot.yaml up -d  # Бот
@@ -138,48 +134,17 @@ docker logs -f bmft_bot
 
 ---
 
-## ⚙️ Конфигурация
-
-Создайте файл `.env` на основе `.env.example`:
-
-```bash
-# Telegram Bot Token от @BotFather
-TELEGRAM_BOT_TOKEN=your_token_here
-
-# Подключение к PostgreSQL
-POSTGRES_DSN=postgres://bmft:password@postgres:5432/bmft?sslmode=disable
-
-# Уровень логирования: debug, info, warn, error
-LOG_LEVEL=info
-
-# Pretty print логов (true для dev, false для prod)
-LOG_PRETTY=true
-
-# Таймаут polling (секунды)
-POLLING_TIMEOUT=60
-
-# Таймаут graceful shutdown (секунды)
-SHUTDOWN_TIMEOUT=30
-
-# Часовой пояс
-TZ=Europe/Moscow
-```
-
----
-
 ## 🔧 Основные команды
 
 ### Для всех пользователей:
 - `/start` — запуск бота
-- `/help` — список команд
-- `/modules` — доступные модули
-- `/mystats` — ваша статистика
-- `/myweek`, `/mymonth` — статистика за период
-- `/mylimits` — ваши лимиты
+- `/help` — список всех модулей и команд
+- `/myweek` — ваша статистика за неделю
+- `/mystats` — ваши текущие счётчики и лимиты на контент
 
 ### Для администраторов:
-- `/enable <module>` — включить модуль
-- `/disable <module>` — выключить модуль
+- `/chatstats` — статистика чата
+- `/topchat` — топ активных пользователей
 - `/setlimit <type> <limit>` — установить лимит на контент
 - `/setvip @user` — дать VIP статус (обход всех лимитов)
 - `/addreaction <слово> <ответ>` — добавить автореакцию

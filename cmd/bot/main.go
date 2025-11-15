@@ -128,7 +128,6 @@ func run() error {
 
 	// Создаём репозитории для хендлеров
 	chatRepo := repositories.NewChatRepository(db)
-	moduleRepo := repositories.NewModuleRepository(db)
 	eventRepo := repositories.NewEventRepository(db)
 	settingsRepo := repositories.NewSettingsRepository(db)
 
@@ -146,7 +145,7 @@ func run() error {
 	bot.Use(core.PanicRecoveryMiddleware(logger))
 
 	// Регистрируем базовые команды
-	registerCommands(bot, modules, chatRepo, moduleRepo, eventRepo, logger, db, botVersion)
+	registerCommands(bot, modules, chatRepo, eventRepo, logger, db, botVersion)
 
 	// Создаём контекст для graceful shutdown
 	ctx, cancel := context.WithCancel(context.Background())

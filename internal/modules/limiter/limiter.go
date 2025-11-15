@@ -19,18 +19,16 @@ type LimiterModule struct {
 	vipRepo           *repositories.VIPRepository
 	contentLimitsRepo *repositories.ContentLimitsRepository
 	messageRepo       *repositories.MessageRepository
-	moduleRepo        *repositories.ModuleRepository
 	logger            *zap.Logger
 	bot               *tele.Bot
 }
 
 // New создаёт новый экземпляр LimiterModule
-func New(db *sql.DB, vipRepo *repositories.VIPRepository, contentLimitsRepo *repositories.ContentLimitsRepository, moduleRepo *repositories.ModuleRepository, logger *zap.Logger, bot *tele.Bot) *LimiterModule {
+func New(db *sql.DB, vipRepo *repositories.VIPRepository, contentLimitsRepo *repositories.ContentLimitsRepository, logger *zap.Logger, bot *tele.Bot) *LimiterModule {
 	return &LimiterModule{
 		vipRepo:           vipRepo,
 		contentLimitsRepo: contentLimitsRepo,
 		messageRepo:       repositories.NewMessageRepository(db, logger),
-		moduleRepo:        moduleRepo,
 		logger:            logger,
 		bot:               bot,
 	}
@@ -245,16 +243,6 @@ func (m *LimiterModule) handleMyStats(c tele.Context) error {
 	chatID := c.Chat().ID
 	threadID := c.Message().ThreadID
 
-	// Проверяем что модуль включён (с fallback: топик → чат)
-	enabled, err := m.moduleRepo.IsEnabled(chatID, threadID, "limiter")
-	if err != nil {
-		m.logger.Error("failed to check if module enabled", zap.Error(err))
-		return c.Send("Произошла ошибка при проверке модуля.")
-	}
-	if !enabled {
-		return c.Send("🚦 Модуль limiter отключен для этого чата. Админ может включить: /enable limiter")
-	}
-
 	userID := c.Sender().ID
 
 	isVIP, err := m.vipRepo.IsVIP(chatID, threadID, userID)
@@ -307,7 +295,7 @@ func (m *LimiterModule) handleMyStats(c tele.Context) error {
 
 	text := fmt.Sprintf("📊 Ваша статистика за сегодня%s:\n\n", scope)
 	for _, t := range types {
-		counter, _ := m.contentLimitsRepo.GetCounter(chatID, userID, t.field)
+		counter, _ := m.messageRepo.GetTodayCountByType(chatID, threadID, userID, t.field)
 		switch {
 		case t.value == -1:
 			text += fmt.Sprintf("%s %s: %d из 0 (запрещено)\n", t.emoji, t.name, counter)
@@ -330,16 +318,6 @@ func (m *LimiterModule) handleMyStats(c tele.Context) error {
 func (m *LimiterModule) handleSetLimit(c tele.Context) error {
 	chatID := c.Chat().ID
 	threadID := c.Message().ThreadID
-
-	// Проверяем что модуль включён (с fallback: топик → чат)
-	enabled, err := m.moduleRepo.IsEnabled(chatID, threadID, "limiter")
-	if err != nil {
-		m.logger.Error("failed to check if module enabled", zap.Error(err))
-		return c.Send("Произошла ошибка при проверке модуля.")
-	}
-	if !enabled {
-		return c.Send("🚦 Модуль limiter отключен для этого чата. Админ может включить: /enable limiter")
-	}
 
 	isAdmin, err := core.IsUserAdmin(m.bot, c.Chat(), c.Sender().ID)
 	if err != nil {
@@ -402,16 +380,6 @@ func (m *LimiterModule) handleSetVIP(c tele.Context) error {
 	chatID := c.Chat().ID
 	threadID := c.Message().ThreadID
 
-	// Проверяем что модуль включён (с fallback: топик → чат)
-	enabled, err := m.moduleRepo.IsEnabled(chatID, threadID, "limiter")
-	if err != nil {
-		m.logger.Error("failed to check if module enabled", zap.Error(err))
-		return c.Send("Произошла ошибка при проверке модуля.")
-	}
-	if !enabled {
-		return c.Send("🚦 Модуль limiter отключен для этого чата. Админ может включить: /enable limiter")
-	}
-
 	isAdmin, err := core.IsUserAdmin(m.bot, c.Chat(), c.Sender().ID)
 	if err != nil {
 		return c.Send("Ошибка проверки прав администратора")
@@ -456,16 +424,6 @@ func (m *LimiterModule) handleRemoveVIP(c tele.Context) error {
 	chatID := c.Chat().ID
 	threadID := c.Message().ThreadID
 
-	// Проверяем что модуль включён (с fallback: топик → чат)
-	enabled, err := m.moduleRepo.IsEnabled(chatID, threadID, "limiter")
-	if err != nil {
-		m.logger.Error("failed to check if module enabled", zap.Error(err))
-		return c.Send("Произошла ошибка при проверке модуля.")
-	}
-	if !enabled {
-		return c.Send("🚦 Модуль limiter отключен для этого чата. Админ может включить: /enable limiter")
-	}
-
 	isAdmin, err := core.IsUserAdmin(m.bot, c.Chat(), c.Sender().ID)
 	if err != nil {
 		return c.Send("Ошибка проверки прав администратора")
@@ -503,16 +461,6 @@ func (m *LimiterModule) handleRemoveVIP(c tele.Context) error {
 func (m *LimiterModule) handleListVIPs(c tele.Context) error {
 	chatID := c.Chat().ID
 	threadID := c.Message().ThreadID
-
-	// Проверяем что модуль включён (с fallback: топик → чат)
-	enabled, err := m.moduleRepo.IsEnabled(chatID, threadID, "limiter")
-	if err != nil {
-		m.logger.Error("failed to check if module enabled", zap.Error(err))
-		return c.Send("Произошла ошибка при проверке модуля.")
-	}
-	if !enabled {
-		return c.Send("🚦 Модуль limiter отключен для этого чата. Админ может включить: /enable limiter")
-	}
 
 	isAdmin, err := core.IsUserAdmin(m.bot, c.Chat(), c.Sender().ID)
 	if err != nil {

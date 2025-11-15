@@ -9,6 +9,34 @@
 
 ## [Unreleased]
 
+### 🔄 Изменено
+
+#### Удалён механизм enable/disable модулей
+
+**Причина:** Упрощение архитектуры и устранение избыточности
+
+- ❌ Удалена таблица `chat_modules` из схемы БД
+- ❌ Удалён `ModuleRepository` и все связанные методы
+- ❌ Удалены команды `/enable`, `/disable`, `/modules`
+- ❌ Удалены все проверки `IsEnabled()` из модулей (21+ вхождение)
+- ✅ **Новая логика:** Модули активируются наличием конфигурации в соответствующих таблицах
+  - Statistics работает **всегда** (единый источник правды)
+  - Limiter работает если есть записи в `content_limits`
+  - Reactions работает если есть записи в `keyword_reactions`
+  - TextFilter работает если есть записи в `banned_words`
+  - Scheduler работает если есть записи в `scheduled_tasks`
+
+**Затронутые файлы:**
+- `migrations/001_initial_schema.sql` — удалена таблица chat_modules
+- `internal/postgresql/repositories/all.go` — удалён ModuleRepository
+- `internal/migrations/migrations.go` — удалена chat_modules из ExpectedSchema
+- `cmd/bot/modules.go` — убрана инициализация moduleRepo
+- `cmd/bot/handlers.go` — удалены команды /enable, /disable, /modules
+- `cmd/bot/pipeline.go` — убраны IsEnabled проверки
+- `internal/modules/*/*.go` — удалены поля moduleRepo и IsEnabled вызовы (5 модулей)
+
+**Миграция:** Если у вас были данные в `chat_modules`, просто создайте конфигурацию через админ-команды модулей.
+
 ### ✨ Добавлено
 
 #### Персональные реакции (Easter Eggs)
@@ -77,22 +105,20 @@
 **Добавлено (v0.8.0):**
 - ✅ `chats.is_forum BOOLEAN` — флаг супергруппы с топиками
 - ✅ `messages.thread_id BIGINT DEFAULT 0` — 0 = основной чат, >0 = топик
-- ✅ `chat_modules.thread_id BIGINT DEFAULT 0` — настройки модулей для топиков
 - ✅ `content_limits.thread_id BIGINT DEFAULT 0` — лимиты на топик/чат
 - ✅ `chat_vips.thread_id BIGINT DEFAULT 0` — VIP для топика/чата
 - ✅ `keyword_reactions.thread_id BIGINT DEFAULT 0` — реакции для топика/чата
 - ✅ `banned_words.thread_id BIGINT DEFAULT 0` — бан-слова для топика/чата
+- ✅ `scheduled_tasks.thread_id BIGINT DEFAULT 0` — задачи для топика/чата
 - ✅ `messages.metadata JSONB DEFAULT '{}'` — модуле-специфичные данные
 - ✅ `CREATE INDEX idx_messages_metadata USING GIN (metadata)` — быстрый поиск
 - ✅ `event_log.metadata JSONB` — расширенные данные событий
-- ✅ `MATERIALIZED VIEW daily_content_stats` — статистика контента (с `thread_id`)
-- ✅ `MATERIALIZED VIEW daily_reaction_stats` — статистика реакций (с `thread_id`)
-- ✅ `FUNCTION refresh_stats_views()` — обновление MATERIALIZED VIEW (вызов через cron)
 
 **Удалено:**
+- ❌ `chat_modules` (таблица управления модулями) — модули теперь активируются наличием конфигурации
 - ❌ `content_counters` (17 колонок, ~120 строк SQL) → считаем из `messages` через GROUP BY
 - ❌ `reaction_triggers` (cooldown хранится в `messages.metadata`)
-- ❌ `reaction_daily_counters` → MATERIALIZED VIEW
+- ❌ `reaction_daily_counters` → подсчёт из `messages`
 
 **Логика Fallback для топиков:**
 1. `thread_id = 0` — настройка применяется ко всему чату
@@ -144,10 +170,9 @@ INSERT INTO content_limits (chat_id, thread_id, limit_animation) VALUES (-100123
   - `MarkDeleted()` — помечает удалённые
 
 **Обновлено:**
-- ✅ `ModuleRepository.IsEnabled(chatID, threadID, moduleName)` — fallback: топик → чат
 - ✅ `VIPRepository.IsVIP(chatID, threadID, userID)` — fallback: топик → чат
 - ✅ `ContentLimitsRepository.GetLimits(chatID, threadID, userID)` — fallback: (топик+user) → (топик+all) → (чат+user) → (чат+all)
-- ✅ `Statistics module` — передаёт `ctx.Message.ThreadID` в MessageRepository
+- ✅ `Statistics module` — передаёт `ctx.Message.ThreadID` в MessageRepository, работает **всегда** (единый источник правды)
   - Команда `/mystats` показывает статистику для текущего топика
   - TODO: `/myweek`, `/chatstats`, `/topchat` (временно отключены)
 

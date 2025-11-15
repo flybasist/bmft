@@ -16,7 +16,6 @@ type TextFilterModule struct {
 	db                *sql.DB
 	vipRepo           *repositories.VIPRepository
 	contentLimitsRepo *repositories.ContentLimitsRepository
-	moduleRepo        *repositories.ModuleRepository
 	logger            *zap.Logger
 	bot               *telebot.Bot
 }
@@ -35,7 +34,6 @@ func New(
 	db *sql.DB,
 	vipRepo *repositories.VIPRepository,
 	contentLimitsRepo *repositories.ContentLimitsRepository,
-	moduleRepo *repositories.ModuleRepository,
 	logger *zap.Logger,
 	bot *telebot.Bot,
 ) *TextFilterModule {
@@ -43,7 +41,6 @@ func New(
 		db:                db,
 		vipRepo:           vipRepo,
 		contentLimitsRepo: contentLimitsRepo,
-		moduleRepo:        moduleRepo,
 		logger:            logger,
 		bot:               bot,
 	}
@@ -145,10 +142,6 @@ func (m *TextFilterModule) OnMessage(ctx *core.MessageContext) error {
 				zap.String("pattern", word.Pattern),
 			)
 
-			if err := m.contentLimitsRepo.IncrementCounter(chatID, userID, "banned_words"); err != nil {
-				m.logger.Error("failed to increment banned words counter", zap.Error(err))
-			}
-
 			switch word.Action {
 			case "delete":
 				if err := ctx.DeleteMessage(); err != nil {
@@ -205,16 +198,6 @@ func (m *TextFilterModule) handleAddBan(c telebot.Context) error {
 		threadID = int64(c.Message().ThreadID)
 	}
 
-	// Проверяем что модуль включён (с fallback: топик → чат)
-	enabled, err := m.moduleRepo.IsEnabled(chatID, int(threadID), "textfilter")
-	if err != nil {
-		m.logger.Error("failed to check if module enabled", zap.Error(err))
-		return c.Send("Произошла ошибка при проверке модуля.")
-	}
-	if !enabled {
-		return c.Send("🚫 Модуль textfilter отключен для этого чата. Админ может включить: /enable textfilter")
-	}
-
 	isAdmin, err := core.IsUserAdmin(m.bot, c.Chat(), c.Sender().ID)
 	if err != nil {
 		return c.Send("Ошибка проверки прав администратора")
@@ -260,16 +243,6 @@ func (m *TextFilterModule) handleListBans(c telebot.Context) error {
 	threadID := int64(0)
 	if c.Message().ThreadID != 0 {
 		threadID = int64(c.Message().ThreadID)
-	}
-
-	// Проверяем что модуль включён (с fallback: топик → чат)
-	enabled, err := m.moduleRepo.IsEnabled(chatID, int(threadID), "textfilter")
-	if err != nil {
-		m.logger.Error("failed to check if module enabled", zap.Error(err))
-		return c.Send("Произошла ошибка при проверке модуля.")
-	}
-	if !enabled {
-		return c.Send("🚫 Модуль textfilter отключен для этого чата. Админ может включить: /enable textfilter")
 	}
 
 	isAdmin, err := core.IsUserAdmin(m.bot, c.Chat(), c.Sender().ID)
@@ -320,16 +293,6 @@ func (m *TextFilterModule) handleRemoveBan(c telebot.Context) error {
 	threadID := int64(0)
 	if c.Message().ThreadID != 0 {
 		threadID = int64(c.Message().ThreadID)
-	}
-
-	// Проверяем что модуль включён (с fallback: топик → чат)
-	enabled, err := m.moduleRepo.IsEnabled(chatID, int(threadID), "textfilter")
-	if err != nil {
-		m.logger.Error("failed to check if module enabled", zap.Error(err))
-		return c.Send("Произошла ошибка при проверке модуля.")
-	}
-	if !enabled {
-		return c.Send("🚫 Модуль textfilter отключен для этого чата. Админ может включить: /enable textfilter")
 	}
 
 	isAdmin, err := core.IsUserAdmin(m.bot, c.Chat(), c.Sender().ID)

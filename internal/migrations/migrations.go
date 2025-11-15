@@ -27,7 +27,6 @@ var ExpectedSchema = []ExpectedTable{
 	{Name: "chats", Columns: []string{"chat_id", "chat_type", "title", "is_forum", "is_active"}},
 	{Name: "users", Columns: []string{"user_id", "username", "first_name"}},
 	{Name: "chat_vips", Columns: []string{"id", "chat_id", "thread_id", "user_id", "granted_at"}},
-	{Name: "chat_modules", Columns: []string{"id", "chat_id", "thread_id", "module_name", "is_enabled"}},
 	{Name: "messages", Columns: []string{"id", "chat_id", "thread_id", "user_id", "message_id", "content_type", "metadata"}},
 
 	// Limiter Module

@@ -36,20 +36,6 @@ CREATE TABLE chat_vips (
 
 CREATE INDEX idx_chat_vips_lookup ON chat_vips(chat_id, thread_id, user_id);
 
-CREATE TABLE chat_modules (
-    id BIGSERIAL PRIMARY KEY,
-    chat_id BIGINT NOT NULL REFERENCES chats(chat_id) ON DELETE CASCADE,
-    thread_id BIGINT DEFAULT 0,  -- 0 = модуль для всего чата, >0 = модуль только для топика
-    module_name VARCHAR(50) NOT NULL,
-    is_enabled BOOLEAN DEFAULT FALSE,
-    config JSONB DEFAULT '{}',
-    created_at TIMESTAMPTZ DEFAULT NOW(),
-    updated_at TIMESTAMPTZ DEFAULT NOW(),
-    UNIQUE(chat_id, thread_id, module_name)
-);
-
-CREATE INDEX idx_chat_modules_enabled ON chat_modules(chat_id, thread_id, is_enabled);
-
 CREATE TABLE messages (
     id BIGSERIAL,
     chat_id BIGINT NOT NULL,
