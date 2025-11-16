@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/flybasist/bmft/internal/modules/limiter"
+	"github.com/flybasist/bmft/internal/modules/profanityfilter"
 	"github.com/flybasist/bmft/internal/modules/reactions"
 	"github.com/flybasist/bmft/internal/modules/scheduler"
 	"github.com/flybasist/bmft/internal/modules/statistics"
@@ -18,11 +19,12 @@ import (
 // Русский комментарий: Явная структура со всеми модулями.
 // Нет магии registry, все модули видны напрямую.
 type Modules struct {
-	Limiter    *limiter.LimiterModule
-	Statistics *statistics.StatisticsModule
-	Reactions  *reactions.ReactionsModule
-	Scheduler  *scheduler.SchedulerModule
-	TextFilter *textfilter.TextFilterModule
+	Limiter         *limiter.LimiterModule
+	Statistics      *statistics.StatisticsModule
+	Reactions       *reactions.ReactionsModule
+	Scheduler       *scheduler.SchedulerModule
+	TextFilter      *textfilter.TextFilterModule
+	ProfanityFilter *profanityfilter.ProfanityFilterModule
 }
 
 // initModules создаёт и инициализирует все модули бота.
@@ -40,11 +42,12 @@ func initModules(db *sql.DB, bot *tele.Bot, logger *zap.Logger) (*Modules, error
 
 	// Создаём модули
 	modules := &Modules{
-		Statistics: statistics.New(db, statsRepo, eventRepo, logger, bot),
-		Limiter:    limiter.New(db, vipRepo, contentLimitsRepo, logger, bot),
-		Scheduler:  scheduler.New(db, schedulerRepo, eventRepo, logger, bot),
-		Reactions:  reactions.New(db, vipRepo, logger, bot),
-		TextFilter: textfilter.New(db, vipRepo, contentLimitsRepo, logger, bot),
+		Statistics:      statistics.New(db, statsRepo, eventRepo, logger, bot),
+		Limiter:         limiter.New(db, vipRepo, contentLimitsRepo, logger, bot),
+		Scheduler:       scheduler.New(db, schedulerRepo, eventRepo, logger, bot),
+		Reactions:       reactions.New(db, vipRepo, logger, bot),
+		TextFilter:      textfilter.New(db, vipRepo, contentLimitsRepo, logger, bot),
+		ProfanityFilter: profanityfilter.New(db, vipRepo, contentLimitsRepo, logger, bot),
 	}
 
 	// Запускаем scheduler (явный старт жизненного цикла)
@@ -75,6 +78,10 @@ func initModules(db *sql.DB, bot *tele.Bot, logger *zap.Logger) (*Modules, error
 	// TextFilter
 	modules.TextFilter.RegisterCommands(bot)
 	modules.TextFilter.RegisterAdminCommands(bot)
+
+	// ProfanityFilter
+	modules.ProfanityFilter.RegisterCommands(bot)
+	modules.ProfanityFilter.RegisterAdminCommands(bot)
 
 	logger.Info("all modules initialized successfully")
 

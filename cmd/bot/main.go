@@ -20,6 +20,7 @@ import (
 	"github.com/flybasist/bmft/internal/migrations"
 	"github.com/flybasist/bmft/internal/postgresql"
 	"github.com/flybasist/bmft/internal/postgresql/repositories"
+	"github.com/flybasist/bmft/internal/profanity"
 )
 
 func main() {
@@ -104,6 +105,12 @@ func run() error {
 		return fmt.Errorf("database migration failed: %w", err)
 	}
 	logger.Info("database schema ready")
+
+	// Загружаем словарь мата (если настроено)
+	ctx := context.Background()
+	if err := profanity.EnsureDictionary(ctx, db, logger); err != nil {
+		logger.Warn("failed to load profanity dictionary", zap.Error(err))
+	}
 
 	// Создаём telebot.v3 бота с Long Polling
 	pref := tele.Settings{

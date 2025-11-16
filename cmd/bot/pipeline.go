@@ -10,9 +10,10 @@ import (
 // ВАЖНО: Порядок модулей критичен!
 // 1. Statistics — считает все сообщения (единый источник правды для таблицы messages)
 // 2. Limiter — проверяет лимиты (читает из messages), может удалить сообщение
-// 3. TextFilter — проверяет запрещённые слова, может удалить сообщение
-// 4. Reactions — отвечает на ключевые слова
-// 5. Scheduler — не участвует в обработке сообщений (только cron tasks)
+// 3. ProfanityFilter — проверяет матерные слова, может удалить сообщение
+// 4. TextFilter — проверяет запрещённые слова, может удалить сообщение
+// 5. Reactions — отвечает на ключевые слова
+// 6. Scheduler — не участвует в обработке сообщений (только cron tasks)
 //
 // Все модули работают по принципу "есть конфиг в БД = работают, нет конфига = молчат"
 func processMessage(
@@ -25,12 +26,14 @@ func processMessage(
 	// Pipeline обработки (порядок важен!)
 	// Statistics ПЕРВОЙ — записывает в messages (единый источник правды)
 	// Limiter читает из messages, поэтому идёт после Statistics
+	// ProfanityFilter перед TextFilter (глобальные правила перед локальными)
 	pipeline := []struct {
 		name      string
 		onMessage func(*core.MessageContext) error
 	}{
 		{"statistics", modules.Statistics.OnMessage},
 		{"limiter", modules.Limiter.OnMessage},
+		{"profanityfilter", modules.ProfanityFilter.OnMessage},
 		{"textfilter", modules.TextFilter.OnMessage},
 		{"reactions", modules.Reactions.OnMessage},
 	}

@@ -190,11 +190,36 @@ CREATE INDEX idx_event_log_chat ON event_log(chat_id, created_at DESC);
 CREATE INDEX idx_event_log_module ON event_log(module_name, created_at DESC);
 CREATE INDEX idx_event_log_metadata ON event_log USING GIN (metadata);
 
+-- Profanity Filter: глобальный словарь матерных слов
+CREATE TABLE profanity_dictionary (
+    id BIGSERIAL PRIMARY KEY,
+    pattern TEXT NOT NULL UNIQUE,
+    is_regex BOOLEAN DEFAULT FALSE,
+    severity VARCHAR(20) DEFAULT 'moderate', -- 'mild', 'moderate', 'severe' (задел на будущее)
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX idx_profanity_pattern ON profanity_dictionary(pattern);
+CREATE INDEX idx_profanity_severity ON profanity_dictionary(severity);
+
+-- Profanity Filter: настройки фильтра для чата/треда
+CREATE TABLE profanity_settings (
+    chat_id BIGINT NOT NULL REFERENCES chats(chat_id) ON DELETE CASCADE,
+    thread_id BIGINT DEFAULT 0,
+    action VARCHAR(20) DEFAULT 'delete', -- 'delete', 'warn', 'delete_warn'
+    warn_text TEXT, -- Кастомное предупреждение (опционально)
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
+    PRIMARY KEY (chat_id, thread_id)
+);
+
+CREATE INDEX idx_profanity_settings_chat ON profanity_settings(chat_id, thread_id);
+
 CREATE TABLE bot_settings (
     id SERIAL PRIMARY KEY,
     bot_version TEXT DEFAULT '1.0',
     timezone TEXT DEFAULT 'UTC',
-    available_modules TEXT[] DEFAULT ARRAY['core', 'limiter', 'statistics', 'reactions', 'scheduler', 'textfilter']
+    available_modules TEXT[] DEFAULT ARRAY['core', 'limiter', 'statistics', 'reactions', 'scheduler', 'textfilter', 'profanityfilter']
 );
 
 INSERT INTO bot_settings (id) VALUES (1) ON CONFLICT (id) DO NOTHING;
