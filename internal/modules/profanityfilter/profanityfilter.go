@@ -16,6 +16,7 @@ type ProfanityFilterModule struct {
 	db                *sql.DB
 	vipRepo           *repositories.VIPRepository
 	contentLimitsRepo *repositories.ContentLimitsRepository
+	eventRepo         *repositories.EventRepository
 	logger            *zap.Logger
 	bot               *telebot.Bot
 }
@@ -37,6 +38,7 @@ func New(
 	db *sql.DB,
 	vipRepo *repositories.VIPRepository,
 	contentLimitsRepo *repositories.ContentLimitsRepository,
+	eventRepo *repositories.EventRepository,
 	logger *zap.Logger,
 	bot *telebot.Bot,
 ) *ProfanityFilterModule {
@@ -44,6 +46,7 @@ func New(
 		db:                db,
 		vipRepo:           vipRepo,
 		contentLimitsRepo: contentLimitsRepo,
+		eventRepo:         eventRepo,
 		logger:            logger,
 		bot:               bot,
 	}
@@ -229,6 +232,15 @@ func (m *ProfanityFilterModule) loadDictionary() ([]ProfanityWord, error) {
 }
 
 func (m *ProfanityFilterModule) handleSetProfanity(c telebot.Context) error {
+	// Проверка прав администратора
+	isAdmin, err := core.IsUserAdmin(m.bot, c.Chat(), c.Sender().ID)
+	if err != nil {
+		return c.Send("Ошибка проверки прав администратора")
+	}
+	if !isAdmin {
+		return c.Send("❌ Команда доступна только администраторам")
+	}
+
 	action := c.Message().Payload
 	if action == "" {
 		action = "delete"
@@ -242,7 +254,7 @@ func (m *ProfanityFilterModule) handleSetProfanity(c telebot.Context) error {
 	chatID := c.Chat().ID
 	threadID := int64(c.Message().ThreadID)
 
-	_, err := m.db.Exec(`
+	_, err = m.db.Exec(`
 		INSERT INTO profanity_settings (chat_id, thread_id, action, updated_at)
 		VALUES ($1, $2, $3, NOW())
 		ON CONFLICT (chat_id, thread_id)
@@ -254,6 +266,10 @@ func (m *ProfanityFilterModule) handleSetProfanity(c telebot.Context) error {
 		return c.Reply("❌ Ошибка при настройке фильтра")
 	}
 
+	// Логируем событие
+	_ = m.eventRepo.Log(chatID, c.Sender().ID, "profanityfilter", "set_profanity",
+		fmt.Sprintf("Set profanity filter: action=%s (chat=%d, thread=%d)", action, chatID, threadID))
+
 	scope := "этого топика"
 	if threadID == 0 {
 		scope = "всего чата"
@@ -263,6 +279,15 @@ func (m *ProfanityFilterModule) handleSetProfanity(c telebot.Context) error {
 }
 
 func (m *ProfanityFilterModule) handleRemoveProfanity(c telebot.Context) error {
+	// Проверка прав администратора
+	isAdmin, err := core.IsUserAdmin(m.bot, c.Chat(), c.Sender().ID)
+	if err != nil {
+		return c.Send("Ошибка проверки прав администратора")
+	}
+	if !isAdmin {
+		return c.Send("❌ Команда доступна только администраторам")
+	}
+
 	chatID := c.Chat().ID
 	threadID := int64(c.Message().ThreadID)
 
@@ -280,6 +305,10 @@ func (m *ProfanityFilterModule) handleRemoveProfanity(c telebot.Context) error {
 	if rows == 0 {
 		return c.Reply("ℹ️ Фильтр мата не был настроен")
 	}
+
+	// Логируем событие
+	_ = m.eventRepo.Log(chatID, c.Sender().ID, "profanityfilter", "remove_profanity",
+		fmt.Sprintf("Removed profanity filter (chat=%d, thread=%d)", chatID, threadID))
 
 	scope := "этого топика"
 	if threadID == 0 {

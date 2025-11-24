@@ -118,11 +118,10 @@ func (m *SchedulerModule) RegisterCommands(bot *tele.Bot) {
 
 		return c.Send(msg, &tele.SendOptions{ParseMode: tele.ModeMarkdown})
 	})
-
-	bot.Handle("/listtasks", m.handleListTasks)
 }
 
 func (m *SchedulerModule) RegisterAdminCommands(bot *tele.Bot) {
+	bot.Handle("/listtasks", m.handleListTasks)
 	bot.Handle("/addtask", m.handleAddTask)
 	bot.Handle("/deltask", m.handleDeleteTask)
 	bot.Handle("/runtask", m.handleRunTask)
@@ -250,11 +249,25 @@ func (m *SchedulerModule) executeTask(task *repositories.ScheduledTask) {
 }
 
 func (m *SchedulerModule) handleListTasks(c tele.Context) error {
+	// Проверка прав администратора
+	isAdmin, err := core.IsUserAdmin(m.bot, c.Chat(), c.Sender().ID)
+	if err != nil {
+		m.logger.Error("failed to check user admin status", zap.Error(err))
+		return c.Send("❌ Ошибка проверки прав администратора")
+	}
+	if !isAdmin {
+		return c.Send("❌ Команда доступна только администраторам")
+	}
+
 	chatID := c.Chat().ID
 	threadID := 0
 	if c.Message().ThreadID != 0 {
 		threadID = c.Message().ThreadID
 	}
+
+	// Логируем событие
+	_ = m.eventRepo.Log(chatID, c.Sender().ID, "scheduler", "list_tasks",
+		fmt.Sprintf("Admin viewed tasks list (chat=%d, thread=%d)", chatID, threadID))
 
 	tasks, err := m.schedulerRepo.GetChatTasks(chatID, threadID)
 	if err != nil {
@@ -308,19 +321,13 @@ func (m *SchedulerModule) handleAddTask(c tele.Context) error {
 	chatID := c.Chat().ID
 	threadID := int(c.Message().ThreadID)
 
-	admins, err := m.bot.AdminsOf(c.Chat())
+	isAdmin, err := core.IsUserAdmin(m.bot, c.Chat(), c.Sender().ID)
 	if err != nil {
-		return c.Send("Ошибка проверки прав администратора")
-	}
-	isAdmin := false
-	for _, admin := range admins {
-		if admin.User.ID == c.Sender().ID {
-			isAdmin = true
-			break
-		}
+		m.logger.Error("failed to check user admin status", zap.Error(err))
+		return c.Send("❌ Ошибка проверки прав администратора")
 	}
 	if !isAdmin {
-		return c.Send("❌ Эта команда доступна только администраторам")
+		return c.Send("❌ Команда доступна только администраторам")
 	}
 
 	var taskType, taskData string
@@ -501,19 +508,13 @@ func (m *SchedulerModule) handleAddTask(c tele.Context) error {
 }
 
 func (m *SchedulerModule) handleDeleteTask(c tele.Context) error {
-	admins, err := m.bot.AdminsOf(c.Chat())
+	isAdmin, err := core.IsUserAdmin(m.bot, c.Chat(), c.Sender().ID)
 	if err != nil {
-		return c.Send("Ошибка проверки прав администратора")
-	}
-	isAdmin := false
-	for _, admin := range admins {
-		if admin.User.ID == c.Sender().ID {
-			isAdmin = true
-			break
-		}
+		m.logger.Error("failed to check user admin status", zap.Error(err))
+		return c.Send("❌ Ошибка проверки прав администратора")
 	}
 	if !isAdmin {
-		return c.Send("❌ Эта команда доступна только администраторам")
+		return c.Send("❌ Команда доступна только администраторам")
 	}
 
 	args := strings.Fields(c.Text())
@@ -547,19 +548,13 @@ func (m *SchedulerModule) handleDeleteTask(c tele.Context) error {
 }
 
 func (m *SchedulerModule) handleRunTask(c tele.Context) error {
-	admins, err := m.bot.AdminsOf(c.Chat())
+	isAdmin, err := core.IsUserAdmin(m.bot, c.Chat(), c.Sender().ID)
 	if err != nil {
-		return c.Send("Ошибка проверки прав администратора")
-	}
-	isAdmin := false
-	for _, admin := range admins {
-		if admin.User.ID == c.Sender().ID {
-			isAdmin = true
-			break
-		}
+		m.logger.Error("failed to check user admin status", zap.Error(err))
+		return c.Send("❌ Ошибка проверки прав администратора")
 	}
 	if !isAdmin {
-		return c.Send("❌ Эта команда доступна только администраторам")
+		return c.Send("❌ Команда доступна только администраторам")
 	}
 
 	args := strings.Fields(c.Text())

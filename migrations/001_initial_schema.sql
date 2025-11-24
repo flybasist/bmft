@@ -176,19 +176,25 @@ CREATE TABLE scheduled_tasks (
 CREATE INDEX idx_scheduled_tasks_active ON scheduled_tasks(chat_id, thread_id, is_active);
 
 CREATE TABLE event_log (
-    id BIGSERIAL PRIMARY KEY,
+    id BIGSERIAL,
     chat_id BIGINT NOT NULL,
     user_id BIGINT,
     module_name VARCHAR(50) NOT NULL,
     event_type VARCHAR(50) NOT NULL,
     details TEXT,
     metadata JSONB DEFAULT '{}',
-    created_at TIMESTAMPTZ DEFAULT NOW()
-);
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    PRIMARY KEY (id, created_at)
+) PARTITION BY RANGE (created_at);
 
 CREATE INDEX idx_event_log_chat ON event_log(chat_id, created_at DESC);
 CREATE INDEX idx_event_log_module ON event_log(module_name, created_at DESC);
 CREATE INDEX idx_event_log_metadata ON event_log USING GIN (metadata);
+
+-- Партиции для event_log (создаём для текущего и следующих месяцев)
+CREATE TABLE event_log_2025_10 PARTITION OF event_log FOR VALUES FROM ('2025-10-01') TO ('2025-11-01');
+CREATE TABLE event_log_2025_11 PARTITION OF event_log FOR VALUES FROM ('2025-11-01') TO ('2025-12-01');
+CREATE TABLE event_log_2025_12 PARTITION OF event_log FOR VALUES FROM ('2025-12-01') TO ('2026-01-01');
 
 -- Profanity Filter: глобальный словарь матерных слов
 CREATE TABLE profanity_dictionary (

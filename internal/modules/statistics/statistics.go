@@ -216,11 +216,20 @@ func (m *StatisticsModule) RegisterCommands(bot *tele.Bot) {
 func (m *StatisticsModule) RegisterAdminCommands(bot *tele.Bot) {
 	// /chatstats — статистика чата (только админы)
 	bot.Handle("/chatstats", func(c tele.Context) error {
-		if !m.isChatAdmin(c) {
+		isAdmin, err := core.IsUserAdmin(m.bot, c.Chat(), c.Sender().ID)
+		if err != nil {
+			return c.Reply("Ошибка проверки прав администратора")
+		}
+		if !isAdmin {
 			return c.Reply("❌ Эта команда доступна только администраторам.")
 		}
+
+		// Логируем событие
+		_ = m.eventRepo.Log(c.Chat().ID, c.Sender().ID, "statistics", "admin_view_chat_stats",
+			"Admin viewed chat statistics")
+
 		var today time.Time
-		err := m.db.QueryRow("SELECT CURRENT_DATE").Scan(&today)
+		err = m.db.QueryRow("SELECT CURRENT_DATE").Scan(&today)
 		if err != nil {
 			m.logger.Error("failed to get CURRENT_DATE from PostgreSQL", zap.Error(err))
 			today = time.Now()
@@ -230,11 +239,21 @@ func (m *StatisticsModule) RegisterAdminCommands(bot *tele.Bot) {
 
 	// /topchat — топ активных пользователей (только админы)
 	bot.Handle("/topchat", func(c tele.Context) error {
-		if !m.isChatAdmin(c) {
-			return c.Reply("❌ Эта команда доступна только администраторам.")
+		isAdmin, err := core.IsUserAdmin(m.bot, c.Chat(), c.Sender().ID)
+		if err != nil {
+			m.logger.Error("failed to check user admin status", zap.Error(err))
+			return c.Reply("❌ Не удалось проверить права доступа.")
 		}
+		if !isAdmin {
+			return c.Reply("❌ Команда доступна только администраторам.")
+		}
+
+		// Логируем событие
+		_ = m.eventRepo.Log(c.Chat().ID, c.Sender().ID, "statistics", "admin_view_top_chat",
+			"Admin viewed top chat users")
+
 		var today time.Time
-		err := m.db.QueryRow("SELECT CURRENT_DATE").Scan(&today)
+		err = m.db.QueryRow("SELECT CURRENT_DATE").Scan(&today)
 		if err != nil {
 			m.logger.Error("failed to get CURRENT_DATE from PostgreSQL", zap.Error(err))
 			today = time.Now()
@@ -622,25 +641,4 @@ func (m *StatisticsModule) formatTopUsers(topUsers []repositories.TopUser, date 
 	}
 
 	return sb.String()
-}
-
-// isChatAdmin проверяет, является ли пользователь админом чата в Telegram.
-func (m *StatisticsModule) isChatAdmin(c tele.Context) bool {
-	if c.Chat().Type == tele.ChatPrivate {
-		return true // В личке все команды доступны
-	}
-
-	admins, err := m.bot.AdminsOf(c.Chat())
-	if err != nil {
-		m.logger.Error("failed to get chat admins", zap.Error(err))
-		return false
-	}
-
-	for _, admin := range admins {
-		if admin.User.ID == c.Sender().ID {
-			return true
-		}
-	}
-
-	return false
 }

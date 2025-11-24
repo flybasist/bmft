@@ -64,8 +64,12 @@ func run() error {
 	}
 	time.Local = loc
 
-	// Инициализируем structured logger (zap)
-	logger, err := logx.NewLogger(cfg.LogLevel, cfg.LogPretty)
+	// Инициализируем structured logger (zap) с ротацией файлов
+	logger, err := logx.NewLogger(cfg.LogLevel, cfg.LogPretty, logx.LogRotationConfig{
+		MaxSizeMB:  cfg.LogMaxSizeMB,
+		MaxBackups: cfg.LogMaxBackups,
+		MaxAgeDays: cfg.LogMaxAgeDays,
+	})
 	if err != nil {
 		return fmt.Errorf("failed to init logger: %w", err)
 	}
@@ -77,6 +81,10 @@ func run() error {
 		zap.String("timezone", tz),
 		zap.Duration("shutdown_timeout", cfg.ShutdownTimeout),
 		zap.Int("polling_timeout", cfg.PollingTimeout),
+		zap.Int("log_max_size_mb", cfg.LogMaxSizeMB),
+		zap.Int("log_max_backups", cfg.LogMaxBackups),
+		zap.Int("log_max_age_days", cfg.LogMaxAgeDays),
+		zap.Int("db_retention_months", cfg.DBRetentionMonths),
 	)
 
 	// Подключаемся к PostgreSQL
@@ -128,7 +136,7 @@ func run() error {
 	)
 
 	// Создаём все модули
-	modules, err := initModules(db, bot, logger)
+	modules, err := initModules(db, bot, logger, cfg)
 	if err != nil {
 		return fmt.Errorf("failed to init modules: %w", err)
 	}

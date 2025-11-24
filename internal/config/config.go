@@ -22,6 +22,14 @@ type Config struct {
 	ShutdownTimeout  time.Duration // Таймаут graceful shutdown
 	MetricsAddr      string        // Адрес HTTP сервера метрик /healthz /metrics
 	PollingTimeout   int           // Таймаут Long Polling в секундах (default: 60)
+
+	// Параметры ротации логов
+	LogMaxSizeMB  int // Максимальный размер файла лога в MB (default: 100)
+	LogMaxBackups int // Количество старых файлов логов (default: 3)
+	LogMaxAgeDays int // Максимальный возраст файла лога в днях (default: 28)
+
+	// Параметры ротации данных в БД
+	DBRetentionMonths int // Количество месяцев хранения данных (default: 6)
 }
 
 // Load загружает и валидирует конфигурацию из окружения.
@@ -61,6 +69,14 @@ func Load() (*Config, error) {
 		cfg.PollingTimeout = 60 // default 60 секунд
 	}
 
+	// Параметры ротации логов
+	cfg.LogMaxSizeMB = getEnvInt("LOG_MAX_SIZE_MB", 100)
+	cfg.LogMaxBackups = getEnvInt("LOG_MAX_BACKUPS", 3)
+	cfg.LogMaxAgeDays = getEnvInt("LOG_MAX_AGE_DAYS", 28)
+
+	// Параметры ротации данных в БД
+	cfg.DBRetentionMonths = getEnvInt("DB_RETENTION_MONTHS", 6)
+
 	if err := cfg.validate(); err != nil {
 		return nil, err
 	}
@@ -89,6 +105,16 @@ func firstNonEmpty(values ...string) string {
 		}
 	}
 	return ""
+}
+
+// Helper: получает int из env с дефолтным значением.
+func getEnvInt(key string, defaultValue int) int {
+	if v := strings.TrimSpace(os.Getenv(key)); v != "" {
+		if iv, err := strconv.Atoi(v); err == nil && iv > 0 {
+			return iv
+		}
+	}
+	return defaultValue
 }
 
 // normalizeLevel приводит уровень логирования к одному из допустимых значений.

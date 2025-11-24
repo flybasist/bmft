@@ -4,7 +4,9 @@ import (
 	"database/sql"
 	"fmt"
 
+	"github.com/flybasist/bmft/internal/config"
 	"github.com/flybasist/bmft/internal/modules/limiter"
+	"github.com/flybasist/bmft/internal/modules/maintenance"
 	"github.com/flybasist/bmft/internal/modules/profanityfilter"
 	"github.com/flybasist/bmft/internal/modules/reactions"
 	"github.com/flybasist/bmft/internal/modules/scheduler"
@@ -25,12 +27,13 @@ type Modules struct {
 	Scheduler       *scheduler.SchedulerModule
 	TextFilter      *textfilter.TextFilterModule
 	ProfanityFilter *profanityfilter.ProfanityFilterModule
+	Maintenance     *maintenance.MaintenanceModule
 }
 
 // initModules создаёт и инициализирует все модули бота.
 // Русский комментарий: Централизованная инициализация всех модулей.
 // Возвращает структуру Modules со всеми готовыми к работе модулями.
-func initModules(db *sql.DB, bot *tele.Bot, logger *zap.Logger) (*Modules, error) {
+func initModules(db *sql.DB, bot *tele.Bot, logger *zap.Logger, cfg *config.Config) (*Modules, error) {
 	logger.Info("initializing modules")
 
 	// Создаём репозитории
@@ -43,17 +46,24 @@ func initModules(db *sql.DB, bot *tele.Bot, logger *zap.Logger) (*Modules, error
 	// Создаём модули
 	modules := &Modules{
 		Statistics:      statistics.New(db, statsRepo, eventRepo, logger, bot),
-		Limiter:         limiter.New(db, vipRepo, contentLimitsRepo, logger, bot),
+		Limiter:         limiter.New(db, vipRepo, contentLimitsRepo, eventRepo, logger, bot),
 		Scheduler:       scheduler.New(db, schedulerRepo, eventRepo, logger, bot),
-		Reactions:       reactions.New(db, vipRepo, logger, bot),
-		TextFilter:      textfilter.New(db, vipRepo, contentLimitsRepo, logger, bot),
-		ProfanityFilter: profanityfilter.New(db, vipRepo, contentLimitsRepo, logger, bot),
+		Reactions:       reactions.New(db, vipRepo, eventRepo, logger, bot),
+		TextFilter:      textfilter.New(db, vipRepo, contentLimitsRepo, eventRepo, logger, bot),
+		ProfanityFilter: profanityfilter.New(db, vipRepo, contentLimitsRepo, eventRepo, logger, bot),
+		Maintenance:     maintenance.New(db, logger, cfg.DBRetentionMonths),
 	}
 
 	// Запускаем scheduler (явный старт жизненного цикла)
 	logger.Info("starting scheduler module")
 	if err := modules.Scheduler.Start(); err != nil {
 		return nil, fmt.Errorf("failed to start scheduler: %w", err)
+	}
+
+	// Запускаем maintenance (автоматическая ротация данных)
+	logger.Info("starting maintenance module")
+	if err := modules.Maintenance.Start(); err != nil {
+		return nil, fmt.Errorf("failed to start maintenance: %w", err)
 	}
 
 	// Регистрируем команды всех модулей
@@ -89,14 +99,20 @@ func initModules(db *sql.DB, bot *tele.Bot, logger *zap.Logger) (*Modules, error
 }
 
 // shutdownModules выполняет graceful shutdown всех модулей.
-// Русский комментарий: Только scheduler требует явного shutdown (остановка cron).
+// Русский комментарий: Scheduler и Maintenance требуют явного shutdown (остановка cron).
 // Остальные модули stateless и не требуют очистки ресурсов.
 func (m *Modules) shutdownModules(logger *zap.Logger) error {
 	logger.Info("shutting down modules")
 
-	// Только Scheduler требует shutdown (остановка cron)
+	// Останавливаем Scheduler
 	if err := m.Scheduler.Shutdown(); err != nil {
 		logger.Error("failed to shutdown scheduler", zap.Error(err))
+		return err
+	}
+
+	// Останавливаем Maintenance
+	if err := m.Maintenance.Shutdown(); err != nil {
+		logger.Error("failed to shutdown maintenance", zap.Error(err))
 		return err
 	}
 

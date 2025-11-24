@@ -15,10 +15,11 @@ import (
 )
 
 type ReactionsModule struct {
-	db      *sql.DB
-	vipRepo *repositories.VIPRepository
-	logger  *zap.Logger
-	bot     *telebot.Bot
+	db        *sql.DB
+	vipRepo   *repositories.VIPRepository
+	eventRepo *repositories.EventRepository
+	logger    *zap.Logger
+	bot       *telebot.Bot
 }
 
 type KeywordReaction struct {
@@ -41,14 +42,16 @@ type KeywordReaction struct {
 func New(
 	db *sql.DB,
 	vipRepo *repositories.VIPRepository,
+	eventRepo *repositories.EventRepository,
 	logger *zap.Logger,
 	bot *telebot.Bot,
 ) *ReactionsModule {
 	return &ReactionsModule{
-		db:      db,
-		vipRepo: vipRepo,
-		logger:  logger,
-		bot:     bot,
+		db:        db,
+		vipRepo:   vipRepo,
+		eventRepo: eventRepo,
+		logger:    logger,
+		bot:       bot,
 	}
 }
 
@@ -523,6 +526,13 @@ func (m *ReactionsModule) handleAddReaction(c telebot.Context) error {
 		return c.Send("❌ Не удалось добавить реакцию")
 	}
 
+	// Логируем событие
+	details := fmt.Sprintf("Added reaction: pattern='%s', type=%s, thread=%d", pattern, responseType, threadID)
+	if userID > 0 {
+		details = fmt.Sprintf("Added personal reaction: pattern='%s', type=%s, user=%d, thread=%d", pattern, responseType, userID, threadID)
+	}
+	_ = m.eventRepo.Log(chatID, c.Sender().ID, "reactions", "add_reaction", details)
+
 	deleteMsg := ""
 	if deleteOnLimit {
 		deleteMsg = "\nУдалять при превышении лимита: да"
@@ -583,6 +593,10 @@ func (m *ReactionsModule) handleListReactions(c telebot.Context) error {
 		return c.Send("❌ Не удалось получить список реакций")
 	}
 	defer rows.Close()
+
+	// Логируем событие
+	_ = m.eventRepo.Log(chatID, c.Sender().ID, "reactions", "list_reactions",
+		fmt.Sprintf("Admin viewed reactions list (chat=%d, thread=%d)", chatID, threadID))
 
 	var reactions []struct {
 		ID                 int64
@@ -716,6 +730,10 @@ func (m *ReactionsModule) handleRemoveReaction(c telebot.Context) error {
 	if rows == 0 {
 		return c.Send("ℹ️ Реакция не найдена")
 	}
+
+	// Логируем событие
+	_ = m.eventRepo.Log(chatID, c.Sender().ID, "reactions", "remove_reaction",
+		fmt.Sprintf("Removed reaction ID=%s (chat=%d, thread=%d)", reactionID, chatID, threadID))
 
 	var scopeMsg string
 	if threadID != 0 {

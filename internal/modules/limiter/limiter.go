@@ -19,16 +19,18 @@ type LimiterModule struct {
 	vipRepo           *repositories.VIPRepository
 	contentLimitsRepo *repositories.ContentLimitsRepository
 	messageRepo       *repositories.MessageRepository
+	eventRepo         *repositories.EventRepository
 	logger            *zap.Logger
 	bot               *tele.Bot
 }
 
 // New создаёт новый экземпляр LimiterModule
-func New(db *sql.DB, vipRepo *repositories.VIPRepository, contentLimitsRepo *repositories.ContentLimitsRepository, logger *zap.Logger, bot *tele.Bot) *LimiterModule {
+func New(db *sql.DB, vipRepo *repositories.VIPRepository, contentLimitsRepo *repositories.ContentLimitsRepository, eventRepo *repositories.EventRepository, logger *zap.Logger, bot *tele.Bot) *LimiterModule {
 	return &LimiterModule{
 		vipRepo:           vipRepo,
 		contentLimitsRepo: contentLimitsRepo,
 		messageRepo:       repositories.NewMessageRepository(db, logger),
+		eventRepo:         eventRepo,
 		logger:            logger,
 		bot:               bot,
 	}
@@ -95,6 +97,10 @@ func (m *LimiterModule) RegisterCommands(bot *tele.Bot) {
 		msg += "   Отображает все установленные лимиты и сколько осталось до превышения\n"
 		msg += "   📌 Пример: `/mystats`\n\n"
 
+		msg += "🔹 `/getlimit` — Посмотреть текущие лимиты чата\n"
+		msg += "   Показывает все установленные лимиты для этого топика или чата\n"
+		msg += "   📌 Пример: `/getlimit`\n\n"
+
 		msg += "🔹 `/setvip @username` — Выдать VIP-статус (только админы)\n"
 		msg += "   VIP-пользователи игнорируют все лимиты\n"
 		msg += "   📌 Примеры:\n"
@@ -120,6 +126,7 @@ func (m *LimiterModule) RegisterCommands(bot *tele.Bot) {
 	})
 
 	bot.Handle("/mystats", m.handleMyStats)
+	bot.Handle("/getlimit", m.handleGetLimit)
 }
 
 // RegisterAdminCommands регистрирует административные команды
@@ -314,6 +321,65 @@ func (m *LimiterModule) handleMyStats(c tele.Context) error {
 	return c.Send(text, &tele.SendOptions{ParseMode: tele.ModeMarkdown})
 }
 
+// handleGetLimit показывает текущие лимиты чата (доступно всем пользователям)
+func (m *LimiterModule) handleGetLimit(c tele.Context) error {
+	chatID := c.Chat().ID
+	threadID := c.Message().ThreadID
+
+	limits, err := m.contentLimitsRepo.GetLimits(chatID, threadID, nil)
+	if err != nil {
+		return c.Send("❌ Не удалось получить лимиты")
+	}
+
+	// Все типы контента для вывода
+	types := []struct {
+		emoji string
+		name  string
+		value int
+	}{
+		{"📝", "Текст", limits.LimitText},
+		{"📷", "Фото", limits.LimitPhoto},
+		{"🎬", "Видео", limits.LimitVideo},
+		{"😀", "Стикеры", limits.LimitSticker},
+		{"🎞️", "Гифки", limits.LimitAnimation},
+		{"🎤", "Голосовые", limits.LimitVoice},
+		{"📎", "Документы", limits.LimitDocument},
+		{"🎵", "Аудио", limits.LimitAudio},
+		{"📍", "Геолокация", limits.LimitLocation},
+		{"👤", "Контакты", limits.LimitContact},
+		{"🔞", "Мат", limits.LimitBannedWords},
+		{"🎥", "Кружочки", limits.LimitVideoNote},
+	}
+
+	var scope string
+	if threadID != 0 {
+		scope = " (для этого топика)"
+	} else {
+		scope = " (для всего чата)"
+	}
+
+	text := fmt.Sprintf("🚦 Установленные лимиты%s:\n\n", scope)
+	hasLimits := false
+	for _, t := range types {
+		switch {
+		case t.value == -1:
+			text += fmt.Sprintf("%s %s: запрещено ⛔️\n", t.emoji, t.name)
+			hasLimits = true
+		case t.value > 0:
+			text += fmt.Sprintf("%s %s: %d в день\n", t.emoji, t.name, t.value)
+			hasLimits = true
+		}
+	}
+
+	if !hasLimits {
+		text += "✅ Лимиты не установлены. Все типы контента разрешены без ограничений.\n"
+	}
+
+	text += "\n💡 Используйте `/mystats` чтобы посмотреть вашу личную статистику"
+
+	return c.Send(text, &tele.SendOptions{ParseMode: tele.ModeMarkdown})
+}
+
 // handleSetLimit устанавливает лимит
 func (m *LimiterModule) handleSetLimit(c tele.Context) error {
 	chatID := c.Chat().ID
@@ -354,6 +420,13 @@ func (m *LimiterModule) handleSetLimit(c tele.Context) error {
 	if err := m.contentLimitsRepo.SetLimit(chatID, threadID, userID, contentType, limitValue); err != nil {
 		return c.Send("❌ Не удалось установить лимит")
 	}
+
+	// Логируем событие
+	details := fmt.Sprintf("Set limit: %s=%d (chat=%d, thread=%d)", contentType, limitValue, chatID, threadID)
+	if userID != nil {
+		details = fmt.Sprintf("Set limit: %s=%d for user %d (chat=%d, thread=%d)", contentType, limitValue, *userID, chatID, threadID)
+	}
+	_ = m.eventRepo.Log(chatID, c.Sender().ID, "limiter", "set_limit", details)
 
 	var msg string
 	if threadID != 0 {
@@ -404,6 +477,10 @@ func (m *LimiterModule) handleSetVIP(c tele.Context) error {
 		return c.Send("❌ Не удалось установить VIP-статус")
 	}
 
+	// Логируем событие
+	_ = m.eventRepo.Log(chatID, c.Sender().ID, "limiter", "grant_vip",
+		fmt.Sprintf("Granted VIP to user %d (chat=%d, thread=%d, reason: %s)", userID, chatID, threadID, reason))
+
 	username := c.Message().ReplyTo.Sender.Username
 	if username == "" {
 		username = c.Message().ReplyTo.Sender.FirstName
@@ -442,6 +519,10 @@ func (m *LimiterModule) handleRemoveVIP(c tele.Context) error {
 		return c.Send("❌ Не удалось снять VIP-статус")
 	}
 
+	// Логируем событие
+	_ = m.eventRepo.Log(chatID, c.Sender().ID, "limiter", "revoke_vip",
+		fmt.Sprintf("Revoked VIP from user %d (chat=%d, thread=%d)", userID, chatID, threadID))
+
 	username := c.Message().ReplyTo.Sender.Username
 	if username == "" {
 		username = c.Message().ReplyTo.Sender.FirstName
@@ -474,6 +555,10 @@ func (m *LimiterModule) handleListVIPs(c tele.Context) error {
 	if err != nil {
 		return c.Send("❌ Не удалось получить список VIP")
 	}
+
+	// Логируем событие
+	_ = m.eventRepo.Log(chatID, c.Sender().ID, "limiter", "list_vips",
+		fmt.Sprintf("Admin viewed VIP list (chat=%d, thread=%d)", chatID, threadID))
 
 	if len(vips) == 0 {
 		location := "чате"

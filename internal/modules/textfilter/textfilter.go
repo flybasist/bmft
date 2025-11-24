@@ -16,6 +16,7 @@ type TextFilterModule struct {
 	db                *sql.DB
 	vipRepo           *repositories.VIPRepository
 	contentLimitsRepo *repositories.ContentLimitsRepository
+	eventRepo         *repositories.EventRepository
 	logger            *zap.Logger
 	bot               *telebot.Bot
 }
@@ -34,6 +35,7 @@ func New(
 	db *sql.DB,
 	vipRepo *repositories.VIPRepository,
 	contentLimitsRepo *repositories.ContentLimitsRepository,
+	eventRepo *repositories.EventRepository,
 	logger *zap.Logger,
 	bot *telebot.Bot,
 ) *TextFilterModule {
@@ -41,6 +43,7 @@ func New(
 		db:                db,
 		vipRepo:           vipRepo,
 		contentLimitsRepo: contentLimitsRepo,
+		eventRepo:         eventRepo,
 		logger:            logger,
 		bot:               bot,
 	}
@@ -228,6 +231,10 @@ func (m *TextFilterModule) handleAddBan(c telebot.Context) error {
 		return c.Send("❌ Не удалось добавить запрещённое слово")
 	}
 
+	// Логируем событие
+	_ = m.eventRepo.Log(chatID, c.Sender().ID, "textfilter", "add_filter",
+		fmt.Sprintf("Added filter: pattern='%s', action=%s (chat=%d, thread=%d)", pattern, action, chatID, threadID))
+
 	var scopeMsg string
 	if threadID != 0 {
 		scopeMsg = fmt.Sprintf("✅ Запрещённое слово добавлено **для этого топика**\n\n💡 Для настройки всего чата используйте команду в основном чате\n\nПаттерн: %s\nДействие: %s", pattern, action)
@@ -257,6 +264,10 @@ func (m *TextFilterModule) handleListBans(c telebot.Context) error {
 	if err != nil {
 		return c.Send("❌ Не удалось получить список")
 	}
+
+	// Логируем событие
+	_ = m.eventRepo.Log(chatID, c.Sender().ID, "textfilter", "list_filters",
+		fmt.Sprintf("Admin viewed filters list (chat=%d, thread=%d)", chatID, threadID))
 
 	if len(words) == 0 {
 		if threadID != 0 {
@@ -322,6 +333,10 @@ func (m *TextFilterModule) handleRemoveBan(c telebot.Context) error {
 	if rows == 0 {
 		return c.Send("ℹ️ Запись не найдена")
 	}
+
+	// Логируем событие
+	_ = m.eventRepo.Log(chatID, c.Sender().ID, "textfilter", "remove_filter",
+		fmt.Sprintf("Removed filter ID=%s (chat=%d, thread=%d)", banID, chatID, threadID))
 
 	var scopeMsg string
 	if threadID != 0 {

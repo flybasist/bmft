@@ -69,13 +69,5 @@ settings.yaml
 /data/logs
 
 ##############################
-# Private documentation (audits, analysis, internal notes)
-##############################
-
-/docs
-
-##############################
 # Go module files (опционально)
 ##############################
-# Internal documentation
-docs/
