@@ -135,6 +135,10 @@ func run() error {
 		zap.Int64("bot_id", bot.Me.ID),
 	)
 
+	// Регистрируем middleware ПЕРВЫМИ (до регистрации любых команд)
+	bot.Use(core.LoggerMiddleware(logger))
+	bot.Use(core.PanicRecoveryMiddleware(logger))
+
 	// Создаём все модули
 	modules, err := initModules(db, bot, logger, cfg)
 	if err != nil {
@@ -154,10 +158,6 @@ func run() error {
 		)
 		botVersion = "1.0"
 	}
-
-	// Регистрируем middleware
-	bot.Use(core.LoggerMiddleware(logger))
-	bot.Use(core.PanicRecoveryMiddleware(logger))
 
 	// Регистрируем базовые команды
 	registerCommands(bot, modules, chatRepo, eventRepo, logger, db, botVersion)
