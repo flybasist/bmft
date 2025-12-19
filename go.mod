@@ -1,6 +1,6 @@
 module github.com/flybasist/bmft
 
-go 1.25.1
+go 1.25.5
 
 require (
 	github.com/joho/godotenv v1.5.1

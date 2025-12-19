@@ -59,8 +59,6 @@ func (m *SchedulerModule) Start() error {
 	return nil
 }
 
-// SetAdminUsers устанавливает список администраторов.
-
 // OnMessage обрабатывает входящие сообщения.
 func (m *SchedulerModule) OnMessage(ctx *core.MessageContext) error {
 	return nil

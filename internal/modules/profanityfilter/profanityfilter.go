@@ -52,10 +52,6 @@ func New(
 	}
 }
 
-func (m *ProfanityFilterModule) Name() string {
-	return "profanityfilter"
-}
-
 func (m *ProfanityFilterModule) RegisterCommands(bot *telebot.Bot) {
 	bot.Handle("/profanity", func(c telebot.Context) error {
 		msg := "🚫 **Модуль ProfanityFilter** — Фильтр матерных слов\n\n"

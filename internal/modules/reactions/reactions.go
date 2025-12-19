@@ -55,10 +55,6 @@ func New(
 	}
 }
 
-func (m *ReactionsModule) Name() string {
-	return "reactions"
-}
-
 // RegisterCommands регистрирует команды модуля в боте.
 func (m *ReactionsModule) RegisterCommands(bot *telebot.Bot) {
 	// /reactions — справка по модулю

@@ -27,7 +27,6 @@ type StatisticsModule struct {
 // New создаёт новый экземпляр модуля статистики.
 func New(
 	db *sql.DB,
-	statsRepo *repositories.StatisticsRepository,
 	eventRepo *repositories.EventRepository,
 	logger *zap.Logger,
 	bot *tele.Bot,
@@ -40,8 +39,6 @@ func New(
 		bot:         bot,
 	}
 }
-
-// SetAdminUsers устанавливает список администраторов модуля.
 
 // OnMessage обрабатывает входящее сообщение.
 // Русский комментарий: При каждом сообщении инкрементим счётчик в БД.

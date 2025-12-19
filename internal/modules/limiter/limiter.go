@@ -82,6 +82,10 @@ func (m *LimiterModule) detectContentType(msg *tele.Message) string {
 func (m *LimiterModule) RegisterCommands(bot *tele.Bot) {
 	// /limiter — справка по модулю
 	bot.Handle("/limiter", func(c tele.Context) error {
+		m.logger.Info("handling /limiter command",
+			zap.Int64("chat_id", c.Chat().ID),
+			zap.Int64("user_id", c.Sender().ID))
+
 		msg := "🚦 **Модуль Limiter** — Контроль лимитов контента\n\n"
 		msg += "Устанавливает ограничения на количество сообщений разных типов в день.\n\n"
 		msg += "**Доступные команды:**\n\n"
@@ -121,6 +125,10 @@ func (m *LimiterModule) RegisterCommands(bot *tele.Bot) {
 		msg += "• Если лимит для топика не установлен, используется общий лимит чата\n\n"
 
 		msg += "⚠️ *Предупреждения:* После 2-х превышений лимита пользователь получает предупреждение."
+
+		m.logger.Info("sending /limiter help message",
+			zap.Int64("chat_id", c.Chat().ID),
+			zap.Int("msg_length", len(msg)))
 
 		return c.Send(msg, &tele.SendOptions{ParseMode: tele.ModeMarkdown})
 	})

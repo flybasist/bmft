@@ -49,14 +49,14 @@ func New(
 	}
 }
 
-func (m *TextFilterModule) Name() string {
-	return "textfilter"
-}
-
 // RegisterCommands регистрирует команды модуля в боте.
 func (m *TextFilterModule) RegisterCommands(bot *telebot.Bot) {
 	// /textfilter — справка по модулю
 	bot.Handle("/textfilter", func(c telebot.Context) error {
+		m.logger.Info("handling /textfilter command",
+			zap.Int64("chat_id", c.Chat().ID),
+			zap.Int64("user_id", c.Sender().ID))
+
 		msg := "🚫 **Модуль TextFilter** — Фильтр запрещённых слов\n\n"
 		msg += "Автоматическое удаление сообщений с запрещёнными словами и фразами.\n\n"
 		msg += "**Доступные команды:**\n\n"
@@ -88,6 +88,10 @@ func (m *TextFilterModule) RegisterCommands(bot *telebot.Bot) {
 		msg += "• `delete_warn` — удалить сообщение И отправить предупреждение\n\n"
 
 		msg += "🛡️ *VIP-защита:* VIP-пользователи не попадают под фильтр запрещённых слов."
+
+		m.logger.Info("sending /textfilter help message",
+			zap.Int64("chat_id", c.Chat().ID),
+			zap.Int("msg_length", len(msg)))
 
 		return c.Send(msg, &telebot.SendOptions{ParseMode: telebot.ModeMarkdown})
 	})

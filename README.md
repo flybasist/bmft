@@ -12,7 +12,6 @@ BMFT — модульный бот для управления Telegram-чата
 - 📡 **Long Polling** — без webhook и публичного IP
 - 🐳 **Docker-ready** — простое развертывание для self-hosted
 
-> ✅ **Статус:** Production Ready  
 > **Версия:** 1.0  
 > **Готовый бот:** [@bmft_bot](https://t.me/bmft_bot)  
 > **Self-hosted:** Инструкции ниже
@@ -119,7 +118,7 @@ docker logs -f bmft_bot
 - 🗄️ **[docs/architecture/DATABASE.md](docs/architecture/DATABASE.md)** — структура БД
 - 🔄 **[docs/guides/ROTATION.md](docs/guides/ROTATION.md)** — ротация логов и данных
 - 📋 **[docs/COMMANDS_ACCESS.md](docs/COMMANDS_ACCESS.md)** — все 27 команд
-- 📝 **[docs/CHANGELOG.md](docs/CHANGELOG.md)** — история изменений
+- 📝 **[CHANGELOG.md](CHANGELOG.md)** — история изменений
 
 ---
 

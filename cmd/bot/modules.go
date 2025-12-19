@@ -40,12 +40,11 @@ func initModules(db *sql.DB, bot *tele.Bot, logger *zap.Logger, cfg *config.Conf
 	eventRepo := repositories.NewEventRepository(db)
 	vipRepo := repositories.NewVIPRepository(db)
 	contentLimitsRepo := repositories.NewContentLimitsRepository(db)
-	statsRepo := repositories.NewStatisticsRepository(db)
 	schedulerRepo := repositories.NewSchedulerRepository(db)
 
 	// Создаём модули
 	modules := &Modules{
-		Statistics:      statistics.New(db, statsRepo, eventRepo, logger, bot),
+		Statistics:      statistics.New(db, eventRepo, logger, bot),
 		Limiter:         limiter.New(db, vipRepo, contentLimitsRepo, eventRepo, logger, bot),
 		Scheduler:       scheduler.New(db, schedulerRepo, eventRepo, logger, bot),
 		Reactions:       reactions.New(db, vipRepo, eventRepo, logger, bot),
