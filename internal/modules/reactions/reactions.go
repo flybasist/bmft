@@ -553,7 +553,7 @@ func (m *ReactionsModule) handleAddReaction(c telebot.Context) error {
 	// Русский комментарий: Убеждаемся что chat_id существует в таблице chats (для foreign key)
 	// Используем ON CONFLICT DO NOTHING чтобы не перезаписывать существующие данные
 	_, err = m.db.Exec(`
-		INSERT INTO chats (chat_id, chat_type, chat_title)
+		INSERT INTO chats (chat_id, chat_type, title)
 		VALUES ($1, 'unknown', 'unknown')
 		ON CONFLICT (chat_id) DO NOTHING
 	`, chatID)
