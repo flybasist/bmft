@@ -17,7 +17,7 @@ services:
       - LOGGER_PRETTY=${LOGGER_PRETTY:-false}
       - TZ=Europe/Moscow
     volumes:
-      - ./data/logs:/app/logs
+      - bot_logs:/app/logs
       - ./migrations:/app/migrations:ro
     ports:
       - "9090:9090"
@@ -34,6 +34,10 @@ services:
       options:
         max-size: "10m"
         max-file: "3"
+
+volumes:
+  bot_logs:
+    driver: local
 
 networks:
   bmft_network:
