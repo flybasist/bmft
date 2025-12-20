@@ -45,7 +45,7 @@ LABEL description="BMFT Bot - Modular Telegram Bot Framework"
 LABEL version="0.6.0"
 
 # Установка CA сертификатов и timezone data (для TLS и правильного времени)
-RUN apk --no-cache add ca-certificates tzdata
+RUN apk --no-cache add ca-certificates tzdata su-exec
 
 # Создаём непривилегированного пользователя для безопасности
 RUN addgroup -g 1000 bmft && \
@@ -54,17 +54,18 @@ RUN addgroup -g 1000 bmft && \
 # Рабочая директория
 WORKDIR /app
 
-# Создаём необходимые директории для логов и миграций
-RUN mkdir -p /app/logs && chown -R bmft:bmft /app/logs
-
 # Копируем бинарник из builder stage
 COPY --from=builder --chown=bmft:bmft /build/bot /app/bot
+
+# Копируем entrypoint скрипт
+COPY entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
 
 # Устанавливаем timezone (опционально, можно переопределить через env)
 ENV TZ=Europe/Moscow
 
-# Переключаемся на непривилегированного пользователя
-USER bmft
+# НЕ переключаемся на bmft здесь - entrypoint.sh сделает это после настройки прав
+# USER bmft - закомментировано, entrypoint запустится от root и сам переключится
 
 # Healthcheck для Kubernetes/Docker Compose
 # Проверяем, что бот отвечает на metrics endpoint (:9090/healthz)
@@ -74,5 +75,5 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
 # Expose порт для метрик
 EXPOSE 9090
 
-# Запуск бота
-ENTRYPOINT ["/app/bot"]
+# Используем entrypoint для настройки прав перед запуском
+ENTRYPOINT ["/entrypoint.sh"]
