@@ -48,3 +48,4 @@ func GetThreadIDFromMessage(db *sql.DB, msg *telebot.Message) int {
 
 	// Это реально форум с топиками
 	return msg.ThreadID
+}
