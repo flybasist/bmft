@@ -377,6 +377,13 @@ func (m *ReactionsModule) handleAddReaction(c telebot.Context) error {
 		if len(args) < 1 {
 			return c.Send("Использование: /addreaction [user:<user_id>] <pattern> [<content_type>] [<cooldown>] [limit] [delete] (reply на сообщение)\nПример: /addreaction user:303724504 \"\" photo 86400 (reply на стикер) - персональная реакция на фото раз в сутки")
 		}
+
+		m.logger.Info("reply mode addreaction",
+			zap.Int64("chat_id", chatID),
+			zap.Int64("user_id", userID),
+			zap.Strings("args", args),
+			zap.Int("args_count", len(args)))
+
 		pattern = args[0]
 		dailyLimit = 0
 		deleteOnLimit = false
@@ -402,16 +409,29 @@ func (m *ReactionsModule) handleAddReaction(c telebot.Context) error {
 			}
 		}
 
+		// Проверяем delete flag
 		if len(remainingArgs) > 0 && remainingArgs[len(remainingArgs)-1] == "delete" {
 			deleteOnLimit = true
 			remainingArgs = remainingArgs[:len(remainingArgs)-1]
 		}
+
+		// Проверяем daily limit (должно быть числом)
 		if len(remainingArgs) > 0 {
-			if l, err := strconv.Atoi(remainingArgs[0]); err == nil {
+			if l, err := strconv.Atoi(remainingArgs[0]); err == nil && l > 0 {
 				dailyLimit = l
+				remainingArgs = remainingArgs[1:]
 			}
 		}
+
 		description = strings.Join(remainingArgs, " ")
+
+		m.logger.Info("reply mode parsed",
+			zap.String("pattern", pattern),
+			zap.String("trigger_content_type", triggerContentType),
+			zap.Int("cooldown", cooldown),
+			zap.Int("daily_limit", dailyLimit),
+			zap.Bool("delete_on_limit", deleteOnLimit),
+			zap.String("description", description))
 
 		replyMsg := c.Message().ReplyTo
 		if replyMsg.Sticker != nil {

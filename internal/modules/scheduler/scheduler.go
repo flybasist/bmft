@@ -326,13 +326,30 @@ func (m *SchedulerModule) handleAddTask(c tele.Context) error {
 
 	if c.Message().ReplyTo != nil {
 		// Reply mode: get content from replied message
-		args := strings.Fields(c.Text())
-		if len(args) < 3 {
+		// Русский комментарий: Парсим команду /addtask <name> "<cron>" с учётом кавычек
+		text := strings.TrimSpace(c.Text())
+		if !strings.HasPrefix(text, "/addtask ") {
+			return c.Send("❌ Неверный формат команды")
+		}
+		text = text[len("/addtask "):]
+
+		parts := strings.SplitN(text, " ", 2)
+		if len(parts) < 2 {
 			return c.Send("Использование: /addtask <name> \"<cron>\" (reply на сообщение со стикером/фото/гифкой/etc.)\nПример: /addtask monday_sticker \"0 9 * * 1\"")
 		}
 
-		name := args[1]
-		cronExpr := strings.Trim(args[2], "\"")
+		name := parts[0]
+		remaining := strings.TrimSpace(parts[1])
+
+		// Parse cron expression in quotes
+		if !strings.HasPrefix(remaining, "\"") {
+			return c.Send("❌ Cron выражение должно быть в кавычках")
+		}
+		endQuote := strings.Index(remaining[1:], "\"")
+		if endQuote == -1 {
+			return c.Send("❌ Неверный формат cron выражения")
+		}
+		cronExpr := remaining[1 : endQuote+1]
 
 		if _, err := cron.ParseStandard(cronExpr); err != nil {
 			return c.Send(fmt.Sprintf("❌ Неверное cron выражение: %v", err))
