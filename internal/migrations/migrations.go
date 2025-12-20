@@ -34,6 +34,8 @@ var ExpectedSchema = []ExpectedTable{
 
 	// Reactions Module
 	{Name: "keyword_reactions", Columns: []string{"id", "chat_id", "thread_id", "pattern", "response_type", "response_content", "is_active"}},
+	{Name: "reaction_triggers", Columns: []string{"chat_id", "reaction_id", "user_id", "last_triggered_at", "trigger_count"}},
+	{Name: "reaction_daily_counters", Columns: []string{"chat_id", "reaction_id", "counter_date", "count"}},
 	{Name: "banned_words", Columns: []string{"id", "chat_id", "thread_id", "pattern", "action", "is_active"}},
 
 	// Scheduler Module

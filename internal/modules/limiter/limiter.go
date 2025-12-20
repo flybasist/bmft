@@ -239,6 +239,15 @@ func (m *LimiterModule) OnMessage(ctx *core.MessageContext) error {
 
 	// Если лимит -1 (запрещено) или достигнут
 	if limitValue == -1 || (limitValue > 0 && counter > limitValue) {
+		// Логируем превышение лимита
+		m.logger.Info("limit exceeded, deleting message",
+			zap.Int64("user_id", ctx.Sender.ID),
+			zap.String("username", ctx.Sender.Username),
+			zap.Int64("chat_id", ctx.Chat.ID),
+			zap.String("content_type", contentType),
+			zap.Int("counter", counter),
+			zap.Int("limit", limitValue))
+
 		// Удаляем сообщение
 		if err := ctx.Bot.Delete(ctx.Message); err != nil {
 			m.logger.Error("failed to delete message", zap.Error(err))

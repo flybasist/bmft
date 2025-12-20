@@ -137,22 +137,28 @@ CREATE TABLE keyword_reactions (
 CREATE INDEX idx_keyword_reactions_chat ON keyword_reactions(chat_id, thread_id, is_active);
 CREATE INDEX idx_keyword_reactions_user ON keyword_reactions(chat_id, thread_id, user_id) WHERE user_id IS NOT NULL;
 
--- Materialized view для статистики реакций (заменяет reaction_triggers и reaction_daily_counters)
-CREATE MATERIALIZED VIEW daily_reaction_stats AS
-SELECT 
-    chat_id,
-    thread_id,
-    DATE(created_at) as stat_date,
-    jsonb_array_elements_text(metadata->'reactions'->'triggered')::INTEGER as reaction_id,
-    COUNT(*) as trigger_count
-FROM messages
-WHERE metadata ? 'reactions' 
-  AND metadata->'reactions' ? 'triggered'
-  AND was_deleted = FALSE
-GROUP BY chat_id, thread_id, DATE(created_at), reaction_id;
+-- Счётчик срабатываний реакций (для cooldown)
+CREATE TABLE reaction_triggers (
+    chat_id BIGINT NOT NULL,
+    reaction_id BIGINT NOT NULL,
+    user_id BIGINT NOT NULL,
+    last_triggered_at TIMESTAMPTZ DEFAULT NOW(),
+    trigger_count BIGINT DEFAULT 1,
+    PRIMARY KEY (chat_id, reaction_id)
+);
 
-CREATE UNIQUE INDEX idx_daily_reaction_stats_pk 
-    ON daily_reaction_stats(chat_id, thread_id, stat_date, reaction_id);
+CREATE INDEX idx_reaction_triggers_time ON reaction_triggers(last_triggered_at);
+
+-- Дневной счётчик срабатываний (для daily_limit)
+CREATE TABLE reaction_daily_counters (
+    chat_id BIGINT NOT NULL,
+    reaction_id BIGINT NOT NULL,
+    counter_date DATE NOT NULL DEFAULT CURRENT_DATE,
+    count INTEGER DEFAULT 0,
+    PRIMARY KEY (chat_id, reaction_id, counter_date)
+);
+
+CREATE INDEX idx_reaction_daily_counters_date ON reaction_daily_counters(counter_date);
 
 CREATE TABLE banned_words (
     id BIGSERIAL PRIMARY KEY,

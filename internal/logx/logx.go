@@ -1,6 +1,7 @@
 package logx
 
 import (
+	"fmt"
 	"os"
 
 	"go.uber.org/zap"
@@ -26,9 +27,15 @@ type LogRotationConfig struct {
 // Использует lumberjack для автоматической ротации файлов логов.
 func NewLogger(level string, pretty bool, rotationCfg LogRotationConfig) (*zap.Logger, error) {
 	// Парсим уровень логирования
+	// Поддерживаемые уровни: debug, info, warn, error
+	if level == "" {
+		level = "info" // default level
+	}
 	zapLevel, err := zapcore.ParseLevel(level)
 	if err != nil {
-		zapLevel = zapcore.InfoLevel // fallback to info
+		// Если передан неверный уровень, используем info и выводим warning
+		fmt.Fprintf(os.Stderr, "WARNING: invalid log level '%s', using 'info'\n", level)
+		zapLevel = zapcore.InfoLevel
 	}
 
 	// Настраиваем encoder

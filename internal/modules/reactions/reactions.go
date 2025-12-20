@@ -335,6 +335,42 @@ func (m *ReactionsModule) incrementDailyCount(chatID, reactionID int64) {
 	}
 }
 
+// parseQuotedArgs парсит строку команды с учётом кавычек
+// Пример: `/addreaction "text with spaces" sticker` → ["text with spaces", "sticker"]
+func parseQuotedArgs(text string) []string {
+	// Убираем команду в начале
+	text = strings.TrimPrefix(text, "/addreaction")
+	text = strings.TrimSpace(text)
+
+	var args []string
+	var current strings.Builder
+	inQuote := false
+
+	for i := 0; i < len(text); i++ {
+		ch := text[i]
+
+		switch ch {
+		case '"':
+			inQuote = !inQuote
+		case ' ', '\t':
+			if inQuote {
+				current.WriteByte(ch)
+			} else if current.Len() > 0 {
+				args = append(args, current.String())
+				current.Reset()
+			}
+		default:
+			current.WriteByte(ch)
+		}
+	}
+
+	if current.Len() > 0 {
+		args = append(args, current.String())
+	}
+
+	return args
+}
+
 func (m *ReactionsModule) handleAddReaction(c telebot.Context) error {
 	chatID := c.Chat().ID
 	threadID := int64(0)
@@ -359,16 +395,13 @@ func (m *ReactionsModule) handleAddReaction(c telebot.Context) error {
 		return c.Send("❌ Команда доступна только администраторам")
 	}
 
-	args := c.Args()
+	// Русский комментарий: Парсим аргументы с учётом кавычек
+	// Проблема: telebot.v3 Args() разбивает текст по пробелам, игнорируя кавычки
+	// Решение: парсим вручную, учитывая кавычки как границы одного аргумента
+	args := parseQuotedArgs(c.Text())
 	m.logger.Info("parsed args",
 		zap.Strings("args", args),
 		zap.Int("args_count", len(args)))
-
-	// Русский комментарий: Убираем кавычки из всех аргументов
-	// telebot.v3 Args() не убирает кавычки автоматически
-	for i := range args {
-		args[i] = strings.Trim(args[i], "\"")
-	}
 
 	var responseType, responseContent, description string
 	var pattern string
@@ -571,6 +604,11 @@ func (m *ReactionsModule) handleAddReaction(c telebot.Context) error {
 		m.logger.Error("failed to add reaction", zap.Error(err))
 		return c.Send("❌ Не удалось добавить реакцию")
 	}
+
+	m.logger.Info("reaction added successfully",
+		zap.Int64("chat_id", chatID),
+		zap.Int64("thread_id", threadID),
+		zap.String("pattern", pattern))
 
 	// Логируем событие
 	details := fmt.Sprintf("Added reaction: pattern='%s', type=%s, thread=%d", pattern, responseType, threadID)
