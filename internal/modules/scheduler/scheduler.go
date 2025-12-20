@@ -365,10 +365,10 @@ func (m *SchedulerModule) handleAddTask(c tele.Context) error {
 		}
 
 		// Валидация имени задачи
-		if len(taskName) == 0 {
+		if len(name) == 0 {
 			return c.Send("❌ Имя задачи не может быть пустым")
 		}
-		if len(taskName) > 200 {
+		if len(name) > 200 {
 			return c.Send("❌ Имя задачи слишком длинное (макс. 200 символов)")
 		}
 
