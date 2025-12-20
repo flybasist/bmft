@@ -364,6 +364,12 @@ func (m *ReactionsModule) handleAddReaction(c telebot.Context) error {
 		zap.Strings("args", args),
 		zap.Int("args_count", len(args)))
 
+	// Русский комментарий: Убираем кавычки из всех аргументов
+	// telebot.v3 Args() не убирает кавычки автоматически
+	for i := range args {
+		args[i] = strings.Trim(args[i], "\"")
+	}
+
 	var responseType, responseContent, description string
 	var pattern string
 	var dailyLimit int
@@ -543,6 +549,18 @@ func (m *ReactionsModule) handleAddReaction(c telebot.Context) error {
 		zap.Int("cooldown", cooldown),
 		zap.Int("daily_limit", dailyLimit),
 		zap.Bool("delete_on_limit", deleteOnLimit))
+
+	// Русский комментарий: Убеждаемся что chat_id существует в таблице chats (для foreign key)
+	// Используем ON CONFLICT DO NOTHING чтобы не перезаписывать существующие данные
+	_, err = m.db.Exec(`
+		INSERT INTO chats (chat_id, chat_type, chat_title)
+		VALUES ($1, 'unknown', 'unknown')
+		ON CONFLICT (chat_id) DO NOTHING
+	`, chatID)
+	if err != nil {
+		m.logger.Error("failed to ensure chat exists", zap.Error(err))
+		return c.Send("❌ Ошибка при проверке чата")
+	}
 
 	_, err = m.db.Exec(`
 		INSERT INTO keyword_reactions (chat_id, thread_id, user_id, pattern, response_type, response_content, description, is_regex, trigger_content_type, cooldown, daily_limit, delete_on_limit, is_active)

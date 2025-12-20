@@ -73,6 +73,7 @@ func (r *MessageRepository) InsertMessage(
 	text string,
 	caption string,
 	fileID string,
+	chatName string,
 	metadata MessageMetadata,
 ) (int64, error) {
 	metadataJSON, err := json.Marshal(metadata)
@@ -81,13 +82,13 @@ func (r *MessageRepository) InsertMessage(
 	}
 
 	query := `
-		INSERT INTO messages (chat_id, thread_id, user_id, message_id, content_type, text, caption, file_id, metadata)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+		INSERT INTO messages (chat_id, thread_id, user_id, message_id, content_type, text, caption, file_id, chat_name, metadata)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 		RETURNING id
 	`
 
 	var id int64
-	err = r.db.QueryRow(query, chatID, threadID, userID, messageID, contentType, text, caption, fileID, metadataJSON).Scan(&id)
+	err = r.db.QueryRow(query, chatID, threadID, userID, messageID, contentType, text, caption, fileID, chatName, metadataJSON).Scan(&id)
 	if err != nil {
 		return 0, fmt.Errorf("failed to insert message: %w", err)
 	}

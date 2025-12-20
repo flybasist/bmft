@@ -1,5 +1,12 @@
 -- BMFT v0.8.0 Initial Schema with Topics Support
 
+-- Schema migrations tracking table
+CREATE TABLE IF NOT EXISTS schema_migrations (
+    version INTEGER PRIMARY KEY,
+    description TEXT NOT NULL,
+    applied_at TIMESTAMPTZ DEFAULT NOW()
+);
+
 CREATE TABLE chats (
     chat_id BIGINT PRIMARY KEY,
     chat_type VARCHAR(20) NOT NULL,
@@ -46,6 +53,7 @@ CREATE TABLE messages (
     text TEXT,
     caption TEXT,
     file_id TEXT,
+    chat_name TEXT,  -- Username пользователя (для ЛС) или название чата (для групп)
     metadata JSONB DEFAULT '{}',
     was_deleted BOOLEAN DEFAULT FALSE,
     deletion_reason TEXT,
@@ -56,6 +64,7 @@ CREATE TABLE messages (
 CREATE INDEX idx_messages_chat_user ON messages(chat_id, thread_id, user_id, created_at DESC);
 CREATE INDEX idx_messages_content_type ON messages(chat_id, thread_id, content_type, created_at DESC);
 CREATE INDEX idx_messages_metadata ON messages USING GIN (metadata);
+CREATE INDEX idx_messages_chat_name ON messages(chat_name);
 
 CREATE TABLE messages_2025_10 PARTITION OF messages FOR VALUES FROM ('2025-10-01') TO ('2025-11-01');
 CREATE TABLE messages_2025_11 PARTITION OF messages FOR VALUES FROM ('2025-11-01') TO ('2025-12-01');
@@ -238,3 +247,8 @@ BEGIN
     REFRESH MATERIALIZED VIEW CONCURRENTLY daily_reaction_stats;
 END;
 $$ LANGUAGE plpgsql;
+
+-- Record migration version 1
+INSERT INTO schema_migrations (version, description) 
+VALUES (1, 'Initial schema with topics support and chat_name field')
+ON CONFLICT (version) DO NOTHING;

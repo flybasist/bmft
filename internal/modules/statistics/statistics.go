@@ -61,6 +61,27 @@ func (m *StatisticsModule) OnMessage(ctx *core.MessageContext) error {
 	contentType := m.detectContentType(ctx.Message)
 	m.logger.Debug("statistics: detected content type", zap.String("content_type", contentType))
 
+	// Русский комментарий: Формируем chat_name для удобства статистики
+	// Для ЛС: username пользователя
+	// Для групп: название чата
+	// Если нет - используем пустую строку (не падаем)
+	chatName := ""
+	if ctx.Chat.Type == "private" {
+		// Личные сообщения - используем username отправителя
+		if ctx.Sender.Username != "" {
+			chatName = "@" + ctx.Sender.Username
+		} else if ctx.Sender.FirstName != "" {
+			chatName = ctx.Sender.FirstName
+		}
+	} else {
+		// Группы/супергруппы/каналы - используем название чата
+		if ctx.Chat.Title != "" {
+			chatName = ctx.Chat.Title
+		} else if ctx.Chat.Username != "" {
+			chatName = "@" + ctx.Chat.Username
+		}
+	}
+
 	// Сохраняем сообщение с metadata
 	metadata := repositories.MessageMetadata{
 		Statistics: &repositories.StatisticsMetadata{
@@ -78,6 +99,7 @@ func (m *StatisticsModule) OnMessage(ctx *core.MessageContext) error {
 		ctx.Message.Text,
 		ctx.Message.Caption,
 		m.getFileID(ctx.Message),
+		chatName,
 		metadata,
 	)
 	if err != nil {

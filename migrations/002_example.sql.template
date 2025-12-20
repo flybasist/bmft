@@ -1,0 +1,26 @@
+-- ============================================================================
+-- Migration 002: Example Future Migration
+-- ============================================================================
+-- Этот файл - пример для будущих миграций
+-- Удалите этот комментарий и замените на реальные изменения
+-- ============================================================================
+
+-- Пример: Добавление нового поля
+-- ALTER TABLE messages ADD COLUMN IF NOT EXISTS example_field TEXT;
+-- CREATE INDEX IF NOT EXISTS idx_messages_example_field ON messages(example_field);
+
+-- Пример: Создание новой таблицы
+-- CREATE TABLE IF NOT EXISTS example_table (
+--     id BIGSERIAL PRIMARY KEY,
+--     name TEXT NOT NULL,
+--     created_at TIMESTAMPTZ DEFAULT NOW()
+-- );
+
+-- ⚠️ ВАЖНО: Всегда используйте IF EXISTS / IF NOT EXISTS
+-- ⚠️ ВАЖНО: Всегда используйте ON CONFLICT DO NOTHING
+-- ⚠️ ВАЖНО: Миграция должна быть идемпотентной (можно запускать повторно)
+
+-- Record migration version (обязательно в конце файла)
+-- INSERT INTO schema_migrations (version, description) 
+-- VALUES (2, 'Description of what this migration does')
+-- ON CONFLICT (version) DO NOTHING;

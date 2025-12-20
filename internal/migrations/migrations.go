@@ -27,7 +27,7 @@ var ExpectedSchema = []ExpectedTable{
 	{Name: "chats", Columns: []string{"chat_id", "chat_type", "title", "is_forum", "is_active"}},
 	{Name: "users", Columns: []string{"user_id", "username", "first_name"}},
 	{Name: "chat_vips", Columns: []string{"id", "chat_id", "thread_id", "user_id", "granted_at"}},
-	{Name: "messages", Columns: []string{"id", "chat_id", "thread_id", "user_id", "message_id", "content_type", "metadata"}},
+	{Name: "messages", Columns: []string{"id", "chat_id", "thread_id", "user_id", "message_id", "content_type", "chat_name", "metadata"}},
 
 	// Limiter Module
 	{Name: "content_limits", Columns: []string{"id", "chat_id", "thread_id", "limit_text", "limit_photo", "limit_banned_words"}},
@@ -40,52 +40,49 @@ var ExpectedSchema = []ExpectedTable{
 	{Name: "scheduled_tasks", Columns: []string{"id", "chat_id", "cron_expression", "action_type", "is_active"}},
 
 	// System tables
+	{Name: "schema_migrations", Columns: []string{"version", "description", "applied_at"}},
 	{Name: "bot_settings", Columns: []string{"id", "bot_version", "timezone"}},
 	{Name: "event_log", Columns: []string{"id", "chat_id", "module_name", "event_type"}},
 }
 
+// LatestSchemaVersion - текущая версия схемы базы данных
+// Русский комментарий: Увеличивайте эту константу при добавлении новых миграций
+const LatestSchemaVersion = 1
+
 // RunMigrationsIfNeeded проверяет схему БД и выполняет миграции если требуется
 // Возвращает ошибку если схема несовместима или миграция не удалась
 // Русский комментарий: Вызывается при старте бота сразу после подключения к PostgreSQL.
+// Поддерживает версионирование миграций через таблицу schema_migrations.
 func RunMigrationsIfNeeded(db *sql.DB, logger *zap.Logger) error {
 	logger.Info("starting database schema validation and migrations")
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	// 1. Проверяем какие таблицы существуют
-	existingTables, err := getExistingTables(ctx, db)
+	// 1. Проверяем текущую версию схемы
+	currentVersion, err := getCurrentSchemaVersion(ctx, db)
 	if err != nil {
-		return fmt.Errorf("failed to get existing tables: %w", err)
+		// Если таблицы schema_migrations нет - это пустая БД
+		if err == sql.ErrNoRows || strings.Contains(err.Error(), "does not exist") {
+			logger.Info("database is empty (no schema_migrations table), running initial migration")
+			return runInitialMigration(ctx, db, logger)
+		}
+		return fmt.Errorf("failed to get current schema version: %w", err)
 	}
 
-	logger.Info("found existing tables", zap.Int("count", len(existingTables)), zap.Strings("tables", existingTables))
+	logger.Info("current schema version", zap.Int("version", currentVersion))
 
-	// 2. Анализируем состояние схемы
-	schemaState := analyzeSchemaState(existingTables)
-
-	switch schemaState {
-	case SchemaEmpty:
-		logger.Info("database schema is empty, running initial migration from 001_initial_schema.sql")
-		return runInitialMigration(ctx, db, logger)
-
-	case SchemaComplete:
-		logger.Info("database schema is complete, validating structure")
-		return validateExistingSchema(ctx, db, logger)
-
-	case SchemaPartial:
-		return fmt.Errorf("database schema is partially created - this indicates corrupted migration state. "+
-			"Expected tables: %v, found: %v. Please DROP DATABASE and recreate",
-			getExpectedTableNames(), existingTables)
-
-	case SchemaUnknown:
-		logger.Warn("database contains extra tables not part of expected schema",
-			zap.Strings("extra_tables", findUnknownTables(existingTables)))
-		// Продолжаем работу, но логируем warning
-		return validateExistingSchema(ctx, db, logger)
+	// 2. Проверяем нужно ли применить новые миграции
+	if currentVersion < LatestSchemaVersion {
+		logger.Info("applying pending migrations",
+			zap.Int("current", currentVersion),
+			zap.Int("target", LatestSchemaVersion))
+		return applyPendingMigrations(ctx, db, logger, currentVersion)
 	}
 
-	return nil
+	// 3. Валидируем корректность существующей схемы
+	logger.Info("schema is up to date, validating structure")
+	return validateExistingSchema(ctx, db, logger)
 }
 
 // SchemaState представляет состояние схемы БД
@@ -402,4 +399,59 @@ func checkColumnExists(ctx context.Context, db *sql.DB, tableName, columnName st
 	var exists bool
 	err := db.QueryRowContext(ctx, query, tableName, columnName).Scan(&exists)
 	return exists, err
+}
+
+// getCurrentSchemaVersion возвращает текущую версию схемы из таблицы schema_migrations
+func getCurrentSchemaVersion(ctx context.Context, db *sql.DB) (int, error) {
+	query := `SELECT version FROM schema_migrations ORDER BY version DESC LIMIT 1`
+	var version int
+	err := db.QueryRowContext(ctx, query).Scan(&version)
+	if err != nil {
+		return 0, err
+	}
+	return version, nil
+}
+
+// applyPendingMigrations применяет все миграции от currentVersion+1 до LatestSchemaVersion
+func applyPendingMigrations(ctx context.Context, db *sql.DB, logger *zap.Logger, currentVersion int) error {
+	for version := currentVersion + 1; version <= LatestSchemaVersion; version++ {
+		migrationFile := fmt.Sprintf("migrations/%03d_migration.sql", version)
+
+		// Проверяем существование файла
+		if _, err := os.Stat(migrationFile); os.IsNotExist(err) {
+			logger.Warn("migration file not found, skipping",
+				zap.Int("version", version),
+				zap.String("file", migrationFile))
+			continue
+		}
+
+		logger.Info("applying migration",
+			zap.Int("version", version),
+			zap.String("file", migrationFile))
+
+		if err := runMigrationFile(ctx, db, migrationFile, logger); err != nil {
+			return fmt.Errorf("failed to apply migration %d: %w", version, err)
+		}
+
+		// Записываем успешно примененную миграцию
+		description := fmt.Sprintf("Migration %d", version)
+		if err := recordMigration(ctx, db, version, description); err != nil {
+			return fmt.Errorf("failed to record migration %d: %w", version, err)
+		}
+
+		logger.Info("migration applied successfully", zap.Int("version", version))
+	}
+
+	return nil
+}
+
+// recordMigration записывает информацию о примененной миграции
+func recordMigration(ctx context.Context, db *sql.DB, version int, description string) error {
+	query := `
+		INSERT INTO schema_migrations (version, description, applied_at)
+		VALUES ($1, $2, NOW())
+		ON CONFLICT (version) DO NOTHING
+	`
+	_, err := db.ExecContext(ctx, query, version, description)
+	return err
 }
