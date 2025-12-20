@@ -95,18 +95,26 @@ func (m *SchedulerModule) RegisterCommands(bot *tele.Bot) {
 
 		msg += "🔹 <code>/listtasks</code> — Список всех активных задач\n\n"
 
-		msg += "🔹 <code>/removetask &lt;ID&gt;</code> — Удалить задачу\n"
+		msg += "🔹 <code>/removetask &lt;ID&gt;</code> — Удалить задачу (только админы)\n"
 		msg += "   📌 Пример: <code>/removetask 3</code>\n\n"
+
+		msg += "🔹 <code>/runtask &lt;ID&gt;</code> — Запустить задачу немедленно (только админы)\n"
+		msg += "   📌 Пример: <code>/runtask 3</code>\n\n"
 
 		msg += "📅 <b>Формат cron:</b> минута час день месяц день_недели\n"
 		msg += "• <code>0 9 * * *</code> — каждый день в 9:00\n"
 		msg += "• <code>0 */6 * * *</code> — каждые 6 часов\n"
 		msg += "• <code>0 9 * * 1</code> — каждый понедельник в 9:00\n"
-		msg += "• <code>0 0 1 * *</code> — 1-го числа каждого месяца\n\n"
+		msg += "• <code>0 0 1 * *</code> — 1-го числа каждого месяца в 00:00\n"
+		msg += "⏰ Время указывается в часовом поясе сервера (UTC)\n\n"
 
-		msg += "⚙️ <b>Топики:</b> команда в топике → задача для топика\n\n"
+		msg += "⚙️ <b>Работа с топиками:</b>\n"
+		msg += "• Команда в топике → задача отправляется только в этот топик\n"
+		msg += "• Команда в основном чате → задача для всего чата\n\n"
 
-		msg += "💡 <i>Подсказка:</i> Проверяйте cron на сайте crontab.guru"
+		msg += "💡 <i>Подсказки:</i>\n"
+		msg += "• Проверяйте cron на сайте <b>crontab.guru</b>\n"
+		msg += "• Конвертер времени: <b>worldtimebuddy.com</b>"
 
 		return c.Send(msg, &tele.SendOptions{ParseMode: tele.ModeHTML})
 	})
@@ -241,6 +249,8 @@ func (m *SchedulerModule) executeTask(task *repositories.ScheduledTask) {
 }
 
 func (m *SchedulerModule) handleListTasks(c tele.Context) error {
+	m.logger.Info("handleListTasks called", zap.Int64("chat_id", c.Chat().ID), zap.Int64("user_id", c.Sender().ID))
+
 	// Проверка прав администратора
 	isAdmin, err := core.IsUserAdmin(m.bot, c.Chat(), c.Sender().ID)
 	if err != nil {
@@ -310,6 +320,8 @@ func (m *SchedulerModule) handleAddTask(c tele.Context) error {
 	chatID := c.Chat().ID
 	threadID := int(core.GetThreadID(m.db, c))
 
+	m.logger.Info("handleAddTask called", zap.Int64("chat_id", chatID), zap.Int("thread_id", threadID), zap.Int64("user_id", c.Sender().ID))
+
 	isAdmin, err := core.IsUserAdmin(m.bot, c.Chat(), c.Sender().ID)
 	if err != nil {
 		m.logger.Error("failed to check user admin status", zap.Error(err))
@@ -350,6 +362,14 @@ func (m *SchedulerModule) handleAddTask(c tele.Context) error {
 
 		if _, err := cron.ParseStandard(cronExpr); err != nil {
 			return c.Send(fmt.Sprintf("❌ Неверное cron выражение: %v", err))
+		}
+
+		// Валидация имени задачи
+		if len(taskName) == 0 {
+			return c.Send("❌ Имя задачи не может быть пустым")
+		}
+		if len(taskName) > 200 {
+			return c.Send("❌ Имя задачи слишком длинное (макс. 200 символов)")
 		}
 
 		replyMsg := c.Message().ReplyTo
@@ -511,6 +531,8 @@ func (m *SchedulerModule) handleAddTask(c tele.Context) error {
 }
 
 func (m *SchedulerModule) handleDeleteTask(c tele.Context) error {
+	m.logger.Info("handleDeleteTask called", zap.Int64("chat_id", c.Chat().ID), zap.Int64("user_id", c.Sender().ID))
+
 	isAdmin, err := core.IsUserAdmin(m.bot, c.Chat(), c.Sender().ID)
 	if err != nil {
 		m.logger.Error("failed to check user admin status", zap.Error(err))
@@ -551,6 +573,8 @@ func (m *SchedulerModule) handleDeleteTask(c tele.Context) error {
 }
 
 func (m *SchedulerModule) handleRunTask(c tele.Context) error {
+	m.logger.Info("handleRunTask called", zap.Int64("chat_id", c.Chat().ID), zap.Int64("user_id", c.Sender().ID))
+
 	isAdmin, err := core.IsUserAdmin(m.bot, c.Chat(), c.Sender().ID)
 	if err != nil {
 		m.logger.Error("failed to check user admin status", zap.Error(err))

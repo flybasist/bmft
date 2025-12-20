@@ -173,6 +173,8 @@ func (m *ProfanityFilterModule) performAction(ctx *core.MessageContext, settings
 }
 
 func (m *ProfanityFilterModule) loadSettings(chatID, threadID int64) (*ProfanitySettings, error) {
+	m.logger.Debug("loadSettings called", zap.Int64("chat_id", chatID), zap.Int64("thread_id", threadID))
+
 	// Сначала пробуем загрузить для конкретного топика
 	settings, err := m.querySettings(chatID, threadID)
 	if err != nil {
@@ -204,9 +206,11 @@ func (m *ProfanityFilterModule) querySettings(chatID, threadID int64) (*Profanit
 	)
 
 	if err == sql.ErrNoRows {
+		m.logger.Debug("querySettings no rows", zap.Int64("chat_id", chatID), zap.Int64("thread_id", threadID))
 		return nil, nil
 	}
 	if err != nil {
+		m.logger.Error("querySettings failed", zap.Error(err), zap.Int64("chat_id", chatID))
 		return nil, err
 	}
 
@@ -237,6 +241,8 @@ func (m *ProfanityFilterModule) loadDictionary() ([]ProfanityWord, error) {
 }
 
 func (m *ProfanityFilterModule) handleSetProfanity(c telebot.Context) error {
+	m.logger.Info("handleSetProfanity called", zap.Int64("chat_id", c.Chat().ID), zap.Int64("user_id", c.Sender().ID))
+
 	// Проверка прав администратора
 	isAdmin, err := core.IsUserAdmin(m.bot, c.Chat(), c.Sender().ID)
 	if err != nil {
@@ -284,6 +290,8 @@ func (m *ProfanityFilterModule) handleSetProfanity(c telebot.Context) error {
 }
 
 func (m *ProfanityFilterModule) handleRemoveProfanity(c telebot.Context) error {
+	m.logger.Info("handleRemoveProfanity called", zap.Int64("chat_id", c.Chat().ID), zap.Int64("user_id", c.Sender().ID))
+
 	// Проверка прав администратора
 	isAdmin, err := core.IsUserAdmin(m.bot, c.Chat(), c.Sender().ID)
 	if err != nil {
@@ -326,6 +334,8 @@ func (m *ProfanityFilterModule) handleRemoveProfanity(c telebot.Context) error {
 func (m *ProfanityFilterModule) handleProfanityStatus(c telebot.Context) error {
 	chatID := c.Chat().ID
 	threadID := core.GetThreadID(m.db, c)
+
+	m.logger.Info("handleProfanityStatus called", zap.Int64("chat_id", chatID), zap.Int64("thread_id", threadID), zap.Int64("user_id", c.Sender().ID))
 
 	settings, err := m.loadSettings(chatID, threadID)
 	if err != nil {

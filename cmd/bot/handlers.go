@@ -167,27 +167,31 @@ func handleHelp(logger *zap.Logger) func(tele.Context) error {
 /help — эта справка
 /version — информация о версии бота
 
-� Модули бота (работают автоматически):
+🤖 Модули бота (работают автоматически):
 
-🔹 **statistics** — статистика активности
+🔹 statistics — статистика активности
    Собирает данные о сообщениях пользователей
    📌 /statistics, /myweek, /chatstats, /topchat
 
-🔹 **limiter** — контроль лимитов контента
+🔹 limiter — контроль лимитов контента
    Ограничивает фото, видео, стикеры и т.д.
    📌 /limiter, /setlimit, /setvip, /removevip, /listvips
 
-🔹 **reactions** — автоматические реакции
+🔹 reactions — автоматические реакции
    Отвечает на ключевые слова
    📌 /reactions, /addreaction, /listreactions, /removereaction
 
-🔹 **textfilter** — фильтр запрещённых слов
+🔹 textfilter — фильтр запрещённых слов
    Удаляет сообщения с бан-словами
    📌 /textfilter, /addban, /listbans, /removeban
 
-🔹 **scheduler** — запланированные задачи
+🔹 profanity — фильтр матов
+   Фильтрует ненормативную лексику
+   📌 /profanity, /setprofanity, /profanitystatus, /removeprofanity
+
+🔹 scheduler — запланированные задачи
    Выполняет задачи по расписанию (cron)
-   📌 /scheduler, /addtask, /listtasks, /deletetask
+   📌 /scheduler, /addtask, /listtasks, /removetask, /runtask
 
 💡 Используйте команду модуля (например /reactions) для подробной справки.`
 

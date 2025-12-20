@@ -21,7 +21,14 @@ func GetThreadID(db *sql.DB, c telebot.Context) int64 {
 	err := db.QueryRow(`SELECT is_forum FROM chats WHERE chat_id = $1`, c.Chat().ID).Scan(&isForum)
 
 	// Если ошибка или не форум - возвращаем 0
-	if err != nil || !isForum {
+	if err != nil {
+		// Логируем только если это не "нет строк" (это нормально для новых чатов)
+		if err != sql.ErrNoRows {
+			// Можно добавить логгер в параметры функции, но пока просто возвращаем 0
+		}
+		return 0
+	}
+	if !isForum {
 		return 0
 	}
 
@@ -42,7 +49,13 @@ func GetThreadIDFromMessage(db *sql.DB, msg *telebot.Message) int {
 	err := db.QueryRow(`SELECT is_forum FROM chats WHERE chat_id = $1`, msg.Chat.ID).Scan(&isForum)
 
 	// Если ошибка или не форум - возвращаем 0
-	if err != nil || !isForum {
+	if err != nil {
+		if err != sql.ErrNoRows {
+			// Можно добавить логгер в параметры функции
+		}
+		return 0
+	}
+	if !isForum {
 		return 0
 	}
 

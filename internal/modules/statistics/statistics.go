@@ -284,6 +284,8 @@ func (m *StatisticsModule) handleMyStats(c tele.Context, date time.Time) error {
 	threadID := int(core.GetThreadID(m.db, c))
 	userID := c.Sender().ID
 
+	m.logger.Info("handleMyStats called", zap.Int64("chat_id", chatID), zap.Int("thread_id", threadID), zap.Int64("user_id", userID))
+
 	// Получаем статистику за сегодня (1 день) для текущего топика
 	stats, err := m.messageRepo.GetUserStats(chatID, threadID, userID, 1)
 	if err != nil {
@@ -312,6 +314,8 @@ func (m *StatisticsModule) handleMyStats(c tele.Context, date time.Time) error {
 func (m *StatisticsModule) handleMyWeekStats(c tele.Context) error {
 	chatID := c.Chat().ID
 	threadID := int(core.GetThreadID(m.db, c))
+
+	m.logger.Info("handleMyWeekStats called", zap.Int64("chat_id", chatID), zap.Int("thread_id", threadID), zap.Int64("user_id", c.Sender().ID))
 
 	userID := c.Sender().ID
 
@@ -377,6 +381,8 @@ func (m *StatisticsModule) handleChatStats(c tele.Context, date time.Time) error
 	chatID := c.Chat().ID
 	threadID := int(core.GetThreadID(m.db, c))
 
+	m.logger.Info("handleChatStats called", zap.Int64("chat_id", chatID), zap.Int("thread_id", threadID), zap.Int64("user_id", c.Sender().ID))
+
 	// По умолчанию - статистика за сегодня (1 день)
 	days := 1
 
@@ -437,6 +443,8 @@ func (m *StatisticsModule) handleChatStats(c tele.Context, date time.Time) error
 func (m *StatisticsModule) handleTopChat(c tele.Context, date time.Time) error {
 	chatID := c.Chat().ID
 	threadID := int(core.GetThreadID(m.db, c))
+
+	m.logger.Info("handleTopChat called", zap.Int64("chat_id", chatID), zap.Int("thread_id", threadID), zap.Int64("user_id", c.Sender().ID))
 
 	// По умолчанию - топ за сегодня (1 день), 10 пользователей
 	days := 1

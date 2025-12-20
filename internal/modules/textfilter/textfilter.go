@@ -65,9 +65,9 @@ func (m *TextFilterModule) RegisterCommands(bot *telebot.Bot) {
 		msg += "   📌 Примеры:\n"
 		msg += "   • <code>/addban спам delete</code> — банить слово \"спам\"\n"
 		msg += "   • <code>/addban реклама warn</code> — предупреждать за \"реклама\"\n"
-		msg += "   • <code>/addban (привет|здравствуй) delete</code> — regex: любое из двух\n"
-		msg += "   • <code>/addban (?i)бот delete</code> — regex без учёта регистра (БоТ тоже)\n"
-		msg += "   • <code>/addban https?:// delete</code> — regex: любая ссылка\n\n"
+		msg += "   • <code>/addban спам|реклама|продам delete_warn</code> — regex: любое слово\n"
+		msg += "   • <code>/addban (?i)бот delete</code> — regex: игнор регистра (бОт, БоТ)\n"
+		msg += "   • <code>/addban https?://[^ ]+ delete</code> — regex: любая ссылка\n\n"
 
 		msg += "🔹 <code>/listbans</code> — Список всех запрещённых слов\n\n"
 
@@ -79,10 +79,11 @@ func (m *TextFilterModule) RegisterCommands(bot *telebot.Bot) {
 		msg += "• <code>warn</code> — предупредить (сообщение остаётся)\n"
 		msg += "• <code>delete_warn</code> — удалить И предупредить\n\n"
 
-		msg += "💡 <b>Паттерны:</b>\n"
-		msg += "• Обычный текст — точное совпадение слова\n"
-		msg += "• Regex — используйте ()|.*+? для гибких правил\n"
-		msg += "• (?i) в начале — игнорировать регистр\n\n"
+		msg += "💡 <b>Как работают паттерны:</b>\n"
+		msg += "• <b>Обычный текст</b> — ищет подстроку (\"спам\" найдёт в \"это спам\")\n"
+		msg += "• <b>Regex</b> — если есть ()|.*+? то автоматически regex\n"
+		msg += "• <b>(?i)</b> в начале — игнорировать регистр (бот=Бот=БОТ)\n"
+		msg += "• <b>|</b> — ИЛИ (спам|реклама найдёт оба слова)\n\n"
 
 		msg += "⚙️ <b>Работа с топиками:</b>\n"
 		msg += "• Команда в топике — фильтры только для топика\n"
@@ -172,6 +173,8 @@ func (m *TextFilterModule) OnMessage(ctx *core.MessageContext) error {
 }
 
 func (m *TextFilterModule) loadBannedWords(chatID int64, threadID int64) ([]BannedWord, error) {
+	m.logger.Debug("loadBannedWords called", zap.Int64("chat_id", chatID), zap.Int64("thread_id", threadID))
+
 	// Русский комментарий: Читаем запрещённые слова напрямую из БД (без кеша).
 	// Чтение ~1-2ms, не критично для производительности.
 	// Fallback: сначала для топика, потом для всего чата
@@ -182,6 +185,7 @@ func (m *TextFilterModule) loadBannedWords(chatID int64, threadID int64) ([]Bann
 		ORDER BY thread_id DESC, id
 	`, chatID, threadID)
 	if err != nil {
+		m.logger.Error("loadBannedWords query failed", zap.Error(err), zap.Int64("chat_id", chatID))
 		return nil, err
 	}
 	defer rows.Close()
@@ -196,12 +200,16 @@ func (m *TextFilterModule) loadBannedWords(chatID int64, threadID int64) ([]Bann
 		words = append(words, w)
 	}
 
+	m.logger.Debug("loadBannedWords completed", zap.Int("count", len(words)))
+
 	return words, nil
 }
 
 func (m *TextFilterModule) handleAddBan(c telebot.Context) error {
 	chatID := c.Chat().ID
 	threadID := core.GetThreadID(m.db, c)
+
+	m.logger.Info("handleAddBan called", zap.Int64("chat_id", chatID), zap.Int64("thread_id", threadID), zap.Int64("user_id", c.Sender().ID))
 
 	isAdmin, err := core.IsUserAdmin(m.bot, c.Chat(), c.Sender().ID)
 	if err != nil {
@@ -223,6 +231,14 @@ func (m *TextFilterModule) handleAddBan(c telebot.Context) error {
 
 	if action != "delete" && action != "warn" && action != "delete_warn" {
 		return c.Send("❌ Action должен быть: delete, warn или delete_warn")
+	}
+
+	// Валидация длины pattern
+	if len(pattern) == 0 {
+		return c.Send("❌ Паттерн не может быть пустым")
+	}
+	if len(pattern) > 500 {
+		return c.Send("❌ Паттерн слишком длинный (макс. 500 символов)")
 	}
 
 	_, err = m.db.Exec(`
@@ -252,6 +268,8 @@ func (m *TextFilterModule) handleAddBan(c telebot.Context) error {
 func (m *TextFilterModule) handleListBans(c telebot.Context) error {
 	chatID := c.Chat().ID
 	threadID := core.GetThreadID(m.db, c)
+
+	m.logger.Info("handleListBans called", zap.Int64("chat_id", chatID), zap.Int64("thread_id", threadID), zap.Int64("user_id", c.Sender().ID))
 
 	isAdmin, err := core.IsUserAdmin(m.bot, c.Chat(), c.Sender().ID)
 	if err != nil {
@@ -303,6 +321,8 @@ func (m *TextFilterModule) handleListBans(c telebot.Context) error {
 func (m *TextFilterModule) handleRemoveBan(c telebot.Context) error {
 	chatID := c.Chat().ID
 	threadID := core.GetThreadID(m.db, c)
+
+	m.logger.Info("handleRemoveBan called", zap.Int64("chat_id", chatID), zap.Int64("thread_id", threadID), zap.Int64("user_id", c.Sender().ID))
 
 	isAdmin, err := core.IsUserAdmin(m.bot, c.Chat(), c.Sender().ID)
 	if err != nil {

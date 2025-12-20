@@ -67,31 +67,39 @@ func (m *ReactionsModule) RegisterCommands(bot *telebot.Bot) {
 
 		msg += "<b>Способ 1 - Текстовая реакция:</b>\n"
 		msg += "<code>/addreaction &lt;слово&gt; \"&lt;ответ&gt;\" \"&lt;описание&gt;\"</code>\n"
-		msg += "📌 Пример:\n"
-		msg += "<code>/addreaction привет \"Привет всем!\" \"Приветствие\"</code>\n\n"
+		msg += "📌 Примеры:\n"
+		msg += "• <code>/addreaction привет \"Привет всем!\" \"Приветствие\"</code>\n"
+		msg += "• <code>/addreaction пельмени \"🥟 Ммм, пельмешки!\" \"Реакция на пельмени\"</code>\n\n"
 
-		msg += "<b>Способ 2 - Медиа-реакция:</b>\n"
-		msg += "Ответьте на стикер/фото/гифку и напишите:\n"
-		msg += "<code>/addreaction &lt;слово&gt; \"&lt;описание&gt;\"</code>\n"
-		msg += "📌 Пример:\n"
-		msg += "<code>/addreaction котики \"Реакция на котиков\"</code> (reply на фото)\n\n"
+		msg += "<b>Способ 2 - Медиа-реакция (reply на сообщение):</b>\n"
+		msg += "Ответьте на стикер/фото/гифку командой:\n"
+		msg += "<code>/addreaction &lt;слово&gt; &lt;описание&gt;</code>\n"
+		msg += "📌 Примеры:\n"
+		msg += "• <code>/addreaction котики \"Реакция на котиков\"</code> (reply на фото)\n"
+		msg += "• <code>/addreaction \"\" описание</code> — пустой паттерн (всегда срабатывает)\n\n"
 
-		msg += "<b>Дополнительные параметры:</b>\n"
-		msg += "• Фильтр по типу: <code>photo</code>, <code>sticker</code>, <code>video</code>\n"
-		msg += "• Cooldown (сек): задержка между срабатываниями\n"
-		msg += "• Daily limit: макс. срабатываний в день\n"
+		msg += "<b>Дополнительные параметры (опционально):</b>\n"
+		msg += "• <code>photo/sticker/video</code> — триггер только на этот тип контента\n"
+		msg += "• <code>3600</code> — cooldown в секундах (задержка между срабатываниями)\n"
+		msg += "• <code>10</code> — daily limit (макс. срабатываний в день)\n"
+		msg += "• <code>delete</code> — удалять сообщение при превышении лимита\n"
 		msg += "📌 Полный формат:\n"
-		msg += "<code>/addreaction слово \"ответ\" \"описание\" photo 3600 10</code>\n"
-		msg += "(только на фото, раз в час, макс 10 раз/день)\n\n"
+		msg += "<code>/addreaction слово \"ответ\" \"описание\" photo 3600 10 delete</code>\n"
+		msg += "(триггер на фото, cooldown 1 час, лимит 10/день, удалять при превышении)\n\n"
 
 		msg += "🔹 <code>/listreactions</code> — Список всех активных реакций\n\n"
 
-		msg += "🔹 <code>/removereaction &lt;ID&gt;</code> — Удалить реакцию\n"
+		msg += "🔹 <code>/removereaction &lt;ID&gt;</code> — Удалить реакцию (только админы)\n"
 		msg += "   📌 Пример: <code>/removereaction 5</code>\n\n"
 
-		msg += "⚙️ <b>Топики:</b> команда в топике → реакция для топика\n\n"
+		msg += "⚙️ <b>Работа с топиками:</b>\n"
+		msg += "• Команда в топике → реакция работает только в этом топике\n"
+		msg += "• Команда в основном чате → реакция для всего чата\n\n"
 
-		msg += "💡 <i>Подсказка:</i> Персональные реакции на конкретного юзера: <code>user:123456</code>"
+		msg += "👤 <b>Персональные реакции:</b>\n"
+		msg += "Чтобы реакция срабатывала только на конкретного пользователя:\n"
+		msg += "<code>/addreaction user:123456 пельмени \"Астролюкс опять про пельмени\" \"Личная реакция\"</code>\n"
+		msg += "Узнать user_id: forward сообщение боту @userinfobot"
 
 		return c.Send(msg, &telebot.SendOptions{ParseMode: telebot.ModeHTML})
 	})
@@ -117,6 +125,8 @@ func (m *ReactionsModule) OnMessage(ctx *core.MessageContext) error {
 	threadID := core.GetThreadIDFromMessage(m.db, msg)
 	userID := msg.Sender.ID
 
+	m.logger.Debug("reactions OnMessage", zap.Int64("chat_id", chatID), zap.Int("thread_id", threadID), zap.Int64("user_id", userID), zap.String("text", msg.Text))
+
 	isVIP, _ := m.vipRepo.IsVIP(chatID, threadID, userID)
 	if isVIP {
 		return nil
@@ -127,6 +137,8 @@ func (m *ReactionsModule) OnMessage(ctx *core.MessageContext) error {
 		m.logger.Error("failed to load reactions", zap.Error(err))
 		return nil
 	}
+
+	m.logger.Debug("loaded reactions", zap.Int("count", len(reactions)))
 
 	for _, reaction := range reactions {
 		if !reaction.IsActive {
@@ -253,6 +265,8 @@ func (m *ReactionsModule) OnMessage(ctx *core.MessageContext) error {
 }
 
 func (m *ReactionsModule) loadReactions(chatID int64, threadID int64, userID int64) ([]KeywordReaction, error) {
+	m.logger.Debug("loadReactions called", zap.Int64("chat_id", chatID), zap.Int64("thread_id", threadID), zap.Int64("user_id", userID))
+
 	// Русский комментарий: Читаем реакции напрямую из БД (без кеша).
 	// Чтение ~1-2ms, не критично для производительности.
 	// Fallback логика (приоритет сверху вниз):
@@ -273,6 +287,7 @@ func (m *ReactionsModule) loadReactions(chatID int64, threadID int64, userID int
 		  id
 	`, chatID, threadID, userID)
 	if err != nil {
+		m.logger.Error("loadReactions query failed", zap.Error(err), zap.Int64("chat_id", chatID), zap.Int64("thread_id", threadID))
 		return nil, err
 	}
 	defer rows.Close()
@@ -286,6 +301,8 @@ func (m *ReactionsModule) loadReactions(chatID int64, threadID int64, userID int
 		}
 		reactions = append(reactions, r)
 	}
+
+	m.logger.Debug("loadReactions completed", zap.Int("count", len(reactions)))
 
 	return reactions, nil
 }
@@ -580,6 +597,23 @@ func (m *ReactionsModule) handleAddReaction(c telebot.Context) error {
 		zap.Int("daily_limit", dailyLimit),
 		zap.Bool("delete_on_limit", deleteOnLimit))
 
+	// Валидация входных данных
+	if len(pattern) > 1000 {
+		return c.Send("❌ Паттерн слишком длинный (макс. 1000 символов)")
+	}
+	if len(description) > 500 {
+		return c.Send("❌ Описание слишком длинное (макс. 500 символов)")
+	}
+	if len(responseContent) > 5000 {
+		return c.Send("❌ Содержимое ответа слишком длинное (макс. 5000 символов)")
+	}
+	if cooldown < 0 || cooldown > 2592000 { // 30 дней
+		return c.Send("❌ Кулдаун должен быть от 0 до 2592000 секунд (30 дней)")
+	}
+	if dailyLimit < 0 || dailyLimit > 10000 {
+		return c.Send("❌ Дневной лимит должен быть от 0 до 10000")
+	}
+
 	// Русский комментарий: Убеждаемся что chat_id существует в таблице chats (для foreign key)
 	// Используем ON CONFLICT DO NOTHING чтобы не перезаписывать существующие данные
 	_, err = m.db.Exec(`
@@ -651,6 +685,8 @@ func (m *ReactionsModule) handleListReactions(c telebot.Context) error {
 	chatID := c.Chat().ID
 	threadID := core.GetThreadID(m.db, c)
 
+	m.logger.Info("handleListReactions called", zap.Int64("chat_id", chatID), zap.Int64("thread_id", threadID))
+
 	isAdmin, err := core.IsUserAdmin(m.bot, c.Chat(), c.Sender().ID)
 	if err != nil {
 		return c.Send("Ошибка проверки прав администратора")
@@ -668,9 +704,12 @@ func (m *ReactionsModule) handleListReactions(c telebot.Context) error {
 	`, chatID, threadID)
 
 	if err != nil {
+		m.logger.Error("handleListReactions query failed", zap.Error(err))
 		return c.Send("❌ Не удалось получить список реакций")
 	}
 	defer rows.Close()
+
+	m.logger.Debug("handleListReactions query executed")
 
 	// Логируем событие
 	_ = m.eventRepo.Log(chatID, c.Sender().ID, "reactions", "list_reactions",
@@ -712,6 +751,8 @@ func (m *ReactionsModule) handleListReactions(c telebot.Context) error {
 		}
 		reactions = append(reactions, r)
 	}
+
+	m.logger.Debug("handleListReactions scanned reactions", zap.Int("count", len(reactions)))
 
 	if len(reactions) == 0 {
 		if threadID != 0 {
@@ -771,12 +812,16 @@ func (m *ReactionsModule) handleListReactions(c telebot.Context) error {
 		text += fmt.Sprintf("%d. %s ID: %d [%s]\n   Паттерн: `%s`\n   Тип ответа: %s\n   Содержимое: %s\n   Описание: %s\n   Дневной лимит: %d\n   Удалять при превышении лимита: %s%s%s%s\n\n", i+1, status, r.ID, scope, r.Pattern, r.ResponseType, r.ResponseContent, r.Description, r.DailyLimit, deleteMsg, userInfo, contentTypeInfo, cooldownInfo)
 	}
 
+	m.logger.Debug("handleListReactions formatted response", zap.Int("text_length", len(text)))
+
 	return c.Send(text, &telebot.SendOptions{ParseMode: telebot.ModeMarkdown})
 }
 
 func (m *ReactionsModule) handleRemoveReaction(c telebot.Context) error {
 	chatID := c.Chat().ID
 	threadID := core.GetThreadID(m.db, c)
+
+	m.logger.Info("handleRemoveReaction called", zap.Int64("chat_id", chatID), zap.Int64("thread_id", threadID), zap.Int64("user_id", c.Sender().ID))
 
 	isAdmin, err := core.IsUserAdmin(m.bot, c.Chat(), c.Sender().ID)
 	if err != nil {

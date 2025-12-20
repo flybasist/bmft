@@ -92,17 +92,18 @@ func (m *LimiterModule) RegisterCommands(bot *tele.Bot) {
 		msg += "Устанавливает ограничения на количество сообщений разных типов в день.\n\n"
 		msg += "<b>Доступные команды:</b>\n\n"
 
-		msg += "🔹 <code>/setlimit &lt;тип&gt; &lt;количество&gt;</code> — Установить лимит (только админы)\n\n"
+		msg += "🔹 <code>/setlimit &lt;тип&gt; &lt;кол-во&gt;</code> — Установить лимит (только админы)\n\n"
 		msg += "<b>Доступные типы:</b>\n"
 		msg += "• <code>text</code>, <code>photo</code>, <code>video</code>, <code>sticker</code>\n"
 		msg += "• <code>animation</code>, <code>voice</code>, <code>video_note</code>, <code>audio</code>\n"
 		msg += "• <code>document</code>, <code>location</code>, <code>contact</code>\n"
-		msg += "• <code>banned_words</code> — лимит на маты\n\n"
+		msg += "• <code>banned_words</code> — лимит на маты из profanityfilter\n\n"
 		msg += "📌 Примеры:\n"
-		msg += "• <code>/setlimit photo 10</code> — макс 10 фото/день\n"
+		msg += "• <code>/setlimit photo 10</code> — макс 10 фото/день для всех\n"
 		msg += "• <code>/setlimit sticker 20</code> — макс 20 стикеров/день\n"
-		msg += "• <code>/setlimit banned_words 3</code> — макс 3 мата/день\n"
-		msg += "• <code>/setlimit text 0</code> — отключить лимит\n\n"
+		msg += "• <code>/setlimit banned_words 3</code> — 3 мата/день (потом бан)\n"
+		msg += "• <code>/setlimit text 0</code> — 0 = отключить лимит\n"
+		msg += "• <code>/setlimit photo -1</code> — -1 = полный запрет\n\n"
 
 		msg += "🔹 <code>/mystats</code> — Показать ваши текущие лимиты\n"
 		msg += "   Отображает все установленные лимиты и сколько осталось до превышения\n"
@@ -274,6 +275,8 @@ func (m *LimiterModule) handleMyStats(c tele.Context) error {
 	chatID := c.Chat().ID
 	threadID := int(core.GetThreadID(m.db, c))
 
+	m.logger.Info("handleMyStats called", zap.Int64("chat_id", chatID), zap.Int("thread_id", threadID), zap.Int64("user_id", c.Sender().ID))
+
 	userID := c.Sender().ID
 
 	isVIP, err := m.vipRepo.IsVIP(chatID, threadID, userID)
@@ -350,6 +353,8 @@ func (m *LimiterModule) handleGetLimit(c tele.Context) error {
 	chatID := c.Chat().ID
 	threadID := int(core.GetThreadID(m.db, c))
 
+	m.logger.Info("handleGetLimit called", zap.Int64("chat_id", chatID), zap.Int("thread_id", threadID), zap.Int64("user_id", c.Sender().ID))
+
 	limits, err := m.contentLimitsRepo.GetLimits(chatID, threadID, nil)
 	if err != nil {
 		return c.Send("❌ Не удалось получить лимиты")
@@ -408,6 +413,8 @@ func (m *LimiterModule) handleGetLimit(c tele.Context) error {
 func (m *LimiterModule) handleSetLimit(c tele.Context) error {
 	chatID := c.Chat().ID
 	threadID := int(core.GetThreadID(m.db, c))
+
+	m.logger.Info("handleSetLimit called", zap.Int64("chat_id", chatID), zap.Int("thread_id", threadID), zap.Int64("user_id", c.Sender().ID))
 
 	isAdmin, err := core.IsUserAdmin(m.bot, c.Chat(), c.Sender().ID)
 	if err != nil {
@@ -477,6 +484,8 @@ func (m *LimiterModule) handleSetVIP(c tele.Context) error {
 	chatID := c.Chat().ID
 	threadID := int(core.GetThreadID(m.db, c))
 
+	m.logger.Info("handleSetVIP called", zap.Int64("chat_id", chatID), zap.Int("thread_id", threadID), zap.Int64("user_id", c.Sender().ID))
+
 	isAdmin, err := core.IsUserAdmin(m.bot, c.Chat(), c.Sender().ID)
 	if err != nil {
 		return c.Send("Ошибка проверки прав администратора")
@@ -525,6 +534,8 @@ func (m *LimiterModule) handleRemoveVIP(c tele.Context) error {
 	chatID := c.Chat().ID
 	threadID := int(core.GetThreadID(m.db, c))
 
+	m.logger.Info("handleRemoveVIP called", zap.Int64("chat_id", chatID), zap.Int("thread_id", threadID), zap.Int64("user_id", c.Sender().ID))
+
 	isAdmin, err := core.IsUserAdmin(m.bot, c.Chat(), c.Sender().ID)
 	if err != nil {
 		return c.Send("Ошибка проверки прав администратора")
@@ -566,6 +577,8 @@ func (m *LimiterModule) handleRemoveVIP(c tele.Context) error {
 func (m *LimiterModule) handleListVIPs(c tele.Context) error {
 	chatID := c.Chat().ID
 	threadID := int(core.GetThreadID(m.db, c))
+
+	m.logger.Info("handleListVIPs called", zap.Int64("chat_id", chatID), zap.Int("thread_id", threadID), zap.Int64("user_id", c.Sender().ID))
 
 	isAdmin, err := core.IsUserAdmin(m.bot, c.Chat(), c.Sender().ID)
 	if err != nil {
