@@ -88,7 +88,7 @@ func (m *ProfanityFilterModule) OnMessage(ctx *core.MessageContext) error {
 	}
 
 	chatID := msg.Chat.ID
-	threadID := int64(core.GetThreadIDFromMessage(m.db, msg))
+	threadID := core.GetThreadIDFromMessage(m.db, msg)
 	userID := msg.Sender.ID
 
 	// VIP-иммунитет
