@@ -54,6 +54,9 @@ RUN addgroup -g 1000 bmft && \
 # Рабочая директория
 WORKDIR /app
 
+# Создаём необходимые директории для логов и миграций
+RUN mkdir -p /app/logs && chown -R bmft:bmft /app/logs
+
 # Копируем бинарник из builder stage
 COPY --from=builder --chown=bmft:bmft /build/bot /app/bot
 
