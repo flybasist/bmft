@@ -48,7 +48,7 @@ func (m *StatisticsModule) OnMessage(ctx *core.MessageContext) error {
 		return nil
 	}
 
-	threadID := ctx.Message.ThreadID // Telegram API предоставляет ThreadID для топиков
+	threadID := core.GetThreadIDFromMessage(m.db, ctx.Message)
 
 	m.logger.Debug("statistics: received message",
 		zap.Int64("chat_id", ctx.Chat.ID),
