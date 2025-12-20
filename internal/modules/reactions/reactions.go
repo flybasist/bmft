@@ -342,15 +342,27 @@ func (m *ReactionsModule) handleAddReaction(c telebot.Context) error {
 		threadID = int64(c.Message().ThreadID)
 	}
 
+	m.logger.Info("handleAddReaction called",
+		zap.Int64("chat_id", chatID),
+		zap.Int64("thread_id", threadID),
+		zap.Int64("user_id", c.Sender().ID),
+		zap.String("message_text", c.Text()),
+		zap.Bool("has_reply", c.Message().ReplyTo != nil))
+
 	isAdmin, err := core.IsUserAdmin(m.bot, c.Chat(), c.Sender().ID)
 	if err != nil {
+		m.logger.Error("failed to check admin status", zap.Error(err))
 		return c.Send("Ошибка проверки прав администратора")
 	}
 	if !isAdmin {
+		m.logger.Warn("non-admin tried to add reaction", zap.Int64("user_id", c.Sender().ID))
 		return c.Send("❌ Команда доступна только администраторам")
 	}
 
 	args := c.Args()
+	m.logger.Info("parsed args",
+		zap.Strings("args", args),
+		zap.Int("args_count", len(args)))
 
 	var responseType, responseContent, description string
 	var pattern string
@@ -518,6 +530,19 @@ func (m *ReactionsModule) handleAddReaction(c telebot.Context) error {
 	} else {
 		triggerContentTypeParam = nil
 	}
+
+	m.logger.Info("inserting reaction into DB",
+		zap.Int64("chat_id", chatID),
+		zap.Int64("thread_id", threadID),
+		zap.Any("user_id_param", userIDParam),
+		zap.String("pattern", pattern),
+		zap.String("response_type", responseType),
+		zap.String("response_content", responseContent),
+		zap.String("description", description),
+		zap.Any("trigger_content_type", triggerContentTypeParam),
+		zap.Int("cooldown", cooldown),
+		zap.Int("daily_limit", dailyLimit),
+		zap.Bool("delete_on_limit", deleteOnLimit))
 
 	_, err = m.db.Exec(`
 		INSERT INTO keyword_reactions (chat_id, thread_id, user_id, pattern, response_type, response_content, description, is_regex, trigger_content_type, cooldown, daily_limit, delete_on_limit, is_active)

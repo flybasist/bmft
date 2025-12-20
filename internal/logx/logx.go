@@ -49,6 +49,12 @@ func NewLogger(level string, pretty bool, rotationCfg LogRotationConfig) (*zap.L
 		encoder = zapcore.NewJSONEncoder(encoderCfg)
 	}
 
+	// Русский комментарий: Убеждаемся что папка logs существует перед созданием lumberjack
+	// lumberjack не создаёт родительские директории автоматически
+	if err := os.MkdirAll("logs", 0755); err != nil {
+		return nil, err
+	}
+
 	// Настраиваем ротацию логов через lumberjack
 	logFile := &lumberjack.Logger{
 		Filename:   "logs/bot.log",
