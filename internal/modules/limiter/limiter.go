@@ -16,6 +16,7 @@ import (
 // Русский комментарий: v0.8.0 - использует messageRepo.GetTodayCountByType()
 // для подсчёта сообщений вместо отдельной таблицы content_counters.
 type LimiterModule struct {
+	db                *sql.DB
 	vipRepo           *repositories.VIPRepository
 	contentLimitsRepo *repositories.ContentLimitsRepository
 	messageRepo       *repositories.MessageRepository
@@ -27,6 +28,7 @@ type LimiterModule struct {
 // New создаёт новый экземпляр LimiterModule
 func New(db *sql.DB, vipRepo *repositories.VIPRepository, contentLimitsRepo *repositories.ContentLimitsRepository, eventRepo *repositories.EventRepository, logger *zap.Logger, bot *tele.Bot) *LimiterModule {
 	return &LimiterModule{
+		db:                db,
 		vipRepo:           vipRepo,
 		contentLimitsRepo: contentLimitsRepo,
 		messageRepo:       repositories.NewMessageRepository(db, logger),
@@ -270,7 +272,7 @@ func (m *LimiterModule) OnMessage(ctx *core.MessageContext) error {
 // handleMyStats показывает статистику пользователя
 func (m *LimiterModule) handleMyStats(c tele.Context) error {
 	chatID := c.Chat().ID
-	threadID := c.Message().ThreadID
+	threadID := int(core.GetThreadID(m.db, c))
 
 	userID := c.Sender().ID
 
@@ -346,7 +348,7 @@ func (m *LimiterModule) handleMyStats(c tele.Context) error {
 // handleGetLimit показывает текущие лимиты чата (доступно всем пользователям)
 func (m *LimiterModule) handleGetLimit(c tele.Context) error {
 	chatID := c.Chat().ID
-	threadID := c.Message().ThreadID
+	threadID := int(core.GetThreadID(m.db, c))
 
 	limits, err := m.contentLimitsRepo.GetLimits(chatID, threadID, nil)
 	if err != nil {
@@ -405,7 +407,7 @@ func (m *LimiterModule) handleGetLimit(c tele.Context) error {
 // handleSetLimit устанавливает лимит
 func (m *LimiterModule) handleSetLimit(c tele.Context) error {
 	chatID := c.Chat().ID
-	threadID := c.Message().ThreadID
+	threadID := int(core.GetThreadID(m.db, c))
 
 	isAdmin, err := core.IsUserAdmin(m.bot, c.Chat(), c.Sender().ID)
 	if err != nil {
@@ -473,7 +475,7 @@ func (m *LimiterModule) handleSetLimit(c tele.Context) error {
 // handleSetVIP устанавливает VIP-статус
 func (m *LimiterModule) handleSetVIP(c tele.Context) error {
 	chatID := c.Chat().ID
-	threadID := c.Message().ThreadID
+	threadID := int(core.GetThreadID(m.db, c))
 
 	isAdmin, err := core.IsUserAdmin(m.bot, c.Chat(), c.Sender().ID)
 	if err != nil {
@@ -521,7 +523,7 @@ func (m *LimiterModule) handleSetVIP(c tele.Context) error {
 // handleRemoveVIP снимает VIP-статус
 func (m *LimiterModule) handleRemoveVIP(c tele.Context) error {
 	chatID := c.Chat().ID
-	threadID := c.Message().ThreadID
+	threadID := int(core.GetThreadID(m.db, c))
 
 	isAdmin, err := core.IsUserAdmin(m.bot, c.Chat(), c.Sender().ID)
 	if err != nil {
@@ -563,7 +565,7 @@ func (m *LimiterModule) handleRemoveVIP(c tele.Context) error {
 // handleListVIPs показывает список VIP-пользователей
 func (m *LimiterModule) handleListVIPs(c tele.Context) error {
 	chatID := c.Chat().ID
-	threadID := c.Message().ThreadID
+	threadID := int(core.GetThreadID(m.db, c))
 
 	isAdmin, err := core.IsUserAdmin(m.bot, c.Chat(), c.Sender().ID)
 	if err != nil {

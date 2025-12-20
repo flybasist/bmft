@@ -281,7 +281,7 @@ func (m *StatisticsModule) RegisterAdminCommands(bot *tele.Bot) {
 // handleMyStats обрабатывает команду /mystats.
 func (m *StatisticsModule) handleMyStats(c tele.Context, date time.Time) error {
 	chatID := c.Chat().ID
-	threadID := c.Message().ThreadID
+	threadID := int(core.GetThreadID(m.db, c))
 	userID := c.Sender().ID
 
 	// Получаем статистику за сегодня (1 день) для текущего топика
@@ -311,10 +311,7 @@ func (m *StatisticsModule) handleMyStats(c tele.Context, date time.Time) error {
 // handleMyWeekStats обрабатывает команду /myweek.
 func (m *StatisticsModule) handleMyWeekStats(c tele.Context) error {
 	chatID := c.Chat().ID
-	threadID := 0
-	if c.Message().ThreadID != 0 {
-		threadID = c.Message().ThreadID
-	}
+	threadID := int(core.GetThreadID(m.db, c))
 
 	userID := c.Sender().ID
 
@@ -378,10 +375,7 @@ func (m *StatisticsModule) handleMyWeekStats(c tele.Context) error {
 // handleChatStats обрабатывает команду /chatstats.
 func (m *StatisticsModule) handleChatStats(c tele.Context, date time.Time) error {
 	chatID := c.Chat().ID
-	threadID := 0
-	if c.Message().ThreadID != 0 {
-		threadID = c.Message().ThreadID
-	}
+	threadID := int(core.GetThreadID(m.db, c))
 
 	// По умолчанию - статистика за сегодня (1 день)
 	days := 1
@@ -442,10 +436,7 @@ func (m *StatisticsModule) handleChatStats(c tele.Context, date time.Time) error
 // handleTopChat обрабатывает команду /topchat.
 func (m *StatisticsModule) handleTopChat(c tele.Context, date time.Time) error {
 	chatID := c.Chat().ID
-	threadID := 0
-	if c.Message().ThreadID != 0 {
-		threadID = c.Message().ThreadID
-	}
+	threadID := int(core.GetThreadID(m.db, c))
 
 	// По умолчанию - топ за сегодня (1 день), 10 пользователей
 	days := 1

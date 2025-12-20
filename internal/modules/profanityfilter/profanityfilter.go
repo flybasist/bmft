@@ -88,7 +88,7 @@ func (m *ProfanityFilterModule) OnMessage(ctx *core.MessageContext) error {
 	}
 
 	chatID := msg.Chat.ID
-	threadID := msg.ThreadID
+	threadID := int64(core.GetThreadIDFromMessage(m.db, msg))
 	userID := msg.Sender.ID
 
 	// VIP-иммунитет
@@ -257,7 +257,7 @@ func (m *ProfanityFilterModule) handleSetProfanity(c telebot.Context) error {
 	}
 
 	chatID := c.Chat().ID
-	threadID := int64(c.Message().ThreadID)
+	threadID := core.GetThreadID(m.db, c)
 
 	_, err = m.db.Exec(`
 		INSERT INTO profanity_settings (chat_id, thread_id, action, updated_at)
@@ -294,7 +294,7 @@ func (m *ProfanityFilterModule) handleRemoveProfanity(c telebot.Context) error {
 	}
 
 	chatID := c.Chat().ID
-	threadID := int64(c.Message().ThreadID)
+	threadID := core.GetThreadID(m.db, c)
 
 	result, err := m.db.Exec(`
 		DELETE FROM profanity_settings
@@ -325,7 +325,7 @@ func (m *ProfanityFilterModule) handleRemoveProfanity(c telebot.Context) error {
 
 func (m *ProfanityFilterModule) handleProfanityStatus(c telebot.Context) error {
 	chatID := c.Chat().ID
-	threadID := int64(c.Message().ThreadID)
+	threadID := core.GetThreadID(m.db, c)
 
 	settings, err := m.loadSettings(chatID, threadID)
 	if err != nil {

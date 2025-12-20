@@ -112,7 +112,7 @@ func (m *TextFilterModule) OnMessage(ctx *core.MessageContext) error {
 	}
 
 	chatID := msg.Chat.ID
-	threadID := msg.ThreadID
+	threadID := int64(core.GetThreadIDFromMessage(m.db, msg))
 	userID := msg.Sender.ID
 
 	isVIP, _ := m.vipRepo.IsVIP(chatID, threadID, userID)
@@ -201,10 +201,7 @@ func (m *TextFilterModule) loadBannedWords(chatID int64, threadID int64) ([]Bann
 
 func (m *TextFilterModule) handleAddBan(c telebot.Context) error {
 	chatID := c.Chat().ID
-	threadID := int64(0)
-	if c.Message().ThreadID != 0 {
-		threadID = int64(c.Message().ThreadID)
-	}
+	threadID := core.GetThreadID(m.db, c)
 
 	isAdmin, err := core.IsUserAdmin(m.bot, c.Chat(), c.Sender().ID)
 	if err != nil {
@@ -254,10 +251,7 @@ func (m *TextFilterModule) handleAddBan(c telebot.Context) error {
 
 func (m *TextFilterModule) handleListBans(c telebot.Context) error {
 	chatID := c.Chat().ID
-	threadID := int64(0)
-	if c.Message().ThreadID != 0 {
-		threadID = int64(c.Message().ThreadID)
-	}
+	threadID := core.GetThreadID(m.db, c)
 
 	isAdmin, err := core.IsUserAdmin(m.bot, c.Chat(), c.Sender().ID)
 	if err != nil {
@@ -308,10 +302,7 @@ func (m *TextFilterModule) handleListBans(c telebot.Context) error {
 
 func (m *TextFilterModule) handleRemoveBan(c telebot.Context) error {
 	chatID := c.Chat().ID
-	threadID := int64(0)
-	if c.Message().ThreadID != 0 {
-		threadID = int64(c.Message().ThreadID)
-	}
+	threadID := core.GetThreadID(m.db, c)
 
 	isAdmin, err := core.IsUserAdmin(m.bot, c.Chat(), c.Sender().ID)
 	if err != nil {

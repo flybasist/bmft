@@ -252,10 +252,7 @@ func (m *SchedulerModule) handleListTasks(c tele.Context) error {
 	}
 
 	chatID := c.Chat().ID
-	threadID := 0
-	if c.Message().ThreadID != 0 {
-		threadID = c.Message().ThreadID
-	}
+	threadID := int(core.GetThreadID(m.db, c))
 
 	// Логируем событие
 	_ = m.eventRepo.Log(chatID, c.Sender().ID, "scheduler", "list_tasks",
@@ -311,7 +308,7 @@ func (m *SchedulerModule) handleListTasks(c tele.Context) error {
 
 func (m *SchedulerModule) handleAddTask(c tele.Context) error {
 	chatID := c.Chat().ID
-	threadID := int(c.Message().ThreadID)
+	threadID := int(core.GetThreadID(m.db, c))
 
 	isAdmin, err := core.IsUserAdmin(m.bot, c.Chat(), c.Sender().ID)
 	if err != nil {
@@ -472,10 +469,7 @@ func (m *SchedulerModule) handleAddTask(c tele.Context) error {
 		}
 
 		chatID := c.Chat().ID
-		threadID := 0
-		if c.Message().ThreadID != 0 {
-			threadID = c.Message().ThreadID
-		}
+		threadID := int(core.GetThreadID(m.db, c))
 
 		taskID, err := m.schedulerRepo.CreateTask(chatID, threadID, name, cronExpr, taskType, taskData)
 		if err != nil {
