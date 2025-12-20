@@ -610,10 +610,10 @@ func (m *LimiterModule) handleListVIPs(c tele.Context) error {
 		location = "топика"
 	}
 
-	text := fmt.Sprintf("👑 *VIP-пользователи %s:*\n\n", location)
+	text := fmt.Sprintf("👑 <b>VIP-пользователи %s:</b>\n\n", location)
 	for i, vip := range vips {
-		text += fmt.Sprintf("%d. User ID: `%d`\n   Причина: %s\n\n", i+1, vip.UserID, vip.Reason)
+		text += fmt.Sprintf("%d. User ID: <code>%d</code>\n   Причина: %s\n\n", i+1, vip.UserID, vip.Reason)
 	}
 
-	return c.Send(text, &tele.SendOptions{ParseMode: tele.ModeMarkdown})
+	return c.Send(text, &tele.SendOptions{ParseMode: tele.ModeHTML})
 }

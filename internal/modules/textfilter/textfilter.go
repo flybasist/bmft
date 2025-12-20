@@ -257,12 +257,12 @@ func (m *TextFilterModule) handleAddBan(c telebot.Context) error {
 
 	var scopeMsg string
 	if threadID != 0 {
-		scopeMsg = fmt.Sprintf("✅ Запрещённое слово добавлено **для этого топика**\n\n💡 Для настройки всего чата используйте команду в основном чате\n\nПаттерн: %s\nДействие: %s", pattern, action)
+		scopeMsg = fmt.Sprintf("✅ Запрещённое слово добавлено <b>для этого топика</b>\n\n💡 Для настройки всего чата используйте команду в основном чате\n\nПаттерн: <code>%s</code>\nДействие: %s", pattern, action)
 	} else {
-		scopeMsg = fmt.Sprintf("✅ Запрещённое слово добавлено **для всего чата**\n\n💡 Для настройки топика используйте команду внутри топика\n\nПаттерн: %s\nДействие: %s", pattern, action)
+		scopeMsg = fmt.Sprintf("✅ Запрещённое слово добавлено <b>для всего чата</b>\n\n💡 Для настройки топика используйте команду внутри топика\n\nПаттерн: <code>%s</code>\nДействие: %s", pattern, action)
 	}
 
-	return c.Send(scopeMsg, &telebot.SendOptions{ParseMode: telebot.ModeMarkdown})
+	return c.Send(scopeMsg, &telebot.SendOptions{ParseMode: telebot.ModeHTML})
 }
 
 func (m *TextFilterModule) handleListBans(c telebot.Context) error {
@@ -297,9 +297,9 @@ func (m *TextFilterModule) handleListBans(c telebot.Context) error {
 
 	var scopeHeader string
 	if threadID != 0 {
-		scopeHeader = "🚫 *Запрещённые слова (для этого топика):*\n\n"
+		scopeHeader = "🚫 <b>Запрещённые слова (для этого топика):</b>\n\n"
 	} else {
-		scopeHeader = "🚫 *Запрещённые слова (для всего чата):*\n\n"
+		scopeHeader = "🚫 <b>Запрещённые слова (для всего чата):</b>\n\n"
 	}
 
 	text := scopeHeader
@@ -312,10 +312,10 @@ func (m *TextFilterModule) handleListBans(c telebot.Context) error {
 		if w.ThreadID != 0 {
 			scope = "топик"
 		}
-		text += fmt.Sprintf("%d. %s ID: %d [%s]\n   Паттерн: `%s`\n   Действие: %s\n\n", i+1, status, w.ID, scope, w.Pattern, w.Action)
+		text += fmt.Sprintf("%d. %s ID: %d [%s]\n   Паттерн: <code>%s</code>\n   Действие: %s\n\n", i+1, status, w.ID, scope, w.Pattern, w.Action)
 	}
 
-	return c.Send(text, &telebot.SendOptions{ParseMode: telebot.ModeMarkdown})
+	return c.Send(text, &telebot.SendOptions{ParseMode: telebot.ModeHTML})
 }
 
 func (m *TextFilterModule) handleRemoveBan(c telebot.Context) error {
@@ -358,10 +358,10 @@ func (m *TextFilterModule) handleRemoveBan(c telebot.Context) error {
 
 	var scopeMsg string
 	if threadID != 0 {
-		scopeMsg = fmt.Sprintf("✅ Запрет #%s удалён **для этого топика**\n\n💡 Для удаления запрета всего чата используйте команду в основном чате", banID)
+		scopeMsg = fmt.Sprintf("✅ Запрет #%s удалён <b>для этого топика</b>\n\n💡 Для удаления запрета всего чата используйте команду в основном чате", banID)
 	} else {
-		scopeMsg = fmt.Sprintf("✅ Запрет #%s удалён **для всего чата**\n\n💡 Для удаления запрета топика используйте команду внутри топика", banID)
+		scopeMsg = fmt.Sprintf("✅ Запрет #%s удалён <b>для всего чата</b>\n\n💡 Для удаления запрета топика используйте команду внутри топика", banID)
 	}
 
-	return c.Send(scopeMsg, &telebot.SendOptions{ParseMode: telebot.ModeMarkdown})
+	return c.Send(scopeMsg, &telebot.SendOptions{ParseMode: telebot.ModeHTML})
 }

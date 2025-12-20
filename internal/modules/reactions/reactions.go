@@ -673,12 +673,18 @@ func (m *ReactionsModule) handleAddReaction(c telebot.Context) error {
 
 	var scopeMsg string
 	if threadID != 0 {
-		scopeMsg = "✅ Реакция добавлена **для этого топика**\n\n💡 Для настройки всего чата используйте команду в основном чате\n\n"
+		scopeMsg = "✅ Реакция добавлена <b>для этого топика</b>\n\n💡 Для настройки всего чата используйте команду в основном чате\n\n"
 	} else {
-		scopeMsg = "✅ Реакция добавлена **для всего чата**\n\n💡 Для настройки топика используйте команду внутри топика\n\n"
+		scopeMsg = "✅ Реакция добавлена <b>для всего чата</b>\n\n💡 Для настройки топика используйте команду внутри топика\n\n"
 	}
 
-	return c.Send(fmt.Sprintf("%sПаттерн: %s\nТип ответа: %s\nСодержимое: %s\nОписание: %s\nДневной лимит: %d%s%s%s", scopeMsg, pattern, responseType, responseContent, description, dailyLimit, deleteMsg, contentTypeMsg, cooldownMsg), &telebot.SendOptions{ParseMode: telebot.ModeMarkdown})
+	// Обрезаем длинные FileID
+	displayContent := responseContent
+	if len(displayContent) > 50 {
+		displayContent = displayContent[:50] + "..."
+	}
+
+	return c.Send(fmt.Sprintf("%sПаттерн: <code>%s</code>\nТип ответа: %s\nСодержимое: <code>%s</code>\nОписание: %s\nДневной лимит: %d%s%s%s", scopeMsg, pattern, responseType, displayContent, description, dailyLimit, deleteMsg, contentTypeMsg, cooldownMsg), &telebot.SendOptions{ParseMode: telebot.ModeHTML})
 }
 
 func (m *ReactionsModule) handleListReactions(c telebot.Context) error {
@@ -763,9 +769,9 @@ func (m *ReactionsModule) handleListReactions(c telebot.Context) error {
 
 	var scopeHeader string
 	if threadID != 0 {
-		scopeHeader = "📋 *Список реакций (для этого топика):*\n\n"
+		scopeHeader = "📋 <b>Список реакций (для этого топика):</b>\n\n"
 	} else {
-		scopeHeader = "📋 *Список реакций (для всего чата):*\n\n"
+		scopeHeader = "📋 <b>Список реакций (для всего чата):</b>\n\n"
 	}
 
 	text := scopeHeader
@@ -786,13 +792,13 @@ func (m *ReactionsModule) handleListReactions(c telebot.Context) error {
 		// Русский комментарий: Показываем user_id если реакция персональная
 		userInfo := ""
 		if r.UserID > 0 {
-			userInfo = fmt.Sprintf("\n   🎯 **Персональная для user_id:** %d", r.UserID)
+			userInfo = fmt.Sprintf("\n   🎯 <b>Персональная для user_id:</b> %d", r.UserID)
 		}
 
 		// Русский комментарий: Показываем trigger_content_type если задан
 		contentTypeInfo := ""
 		if r.TriggerContentType != "" {
-			contentTypeInfo = fmt.Sprintf("\n   📎 **Только для:** %s", r.TriggerContentType)
+			contentTypeInfo = fmt.Sprintf("\n   📎 <b>Только для:</b> %s", r.TriggerContentType)
 		}
 
 		// Русский комментарий: Показываем cooldown если не стандартный
@@ -800,21 +806,33 @@ func (m *ReactionsModule) handleListReactions(c telebot.Context) error {
 		if r.Cooldown != 30 {
 			if r.Cooldown >= 86400 {
 				days := r.Cooldown / 86400
-				cooldownInfo = fmt.Sprintf("\n   ⏰ **Кулдаун:** %d сек (%d дн.)", r.Cooldown, days)
+				cooldownInfo = fmt.Sprintf("\n   ⏰ <b>Кулдаун:</b> %d сек (%d дн.)", r.Cooldown, days)
 			} else if r.Cooldown >= 3600 {
 				hours := r.Cooldown / 3600
-				cooldownInfo = fmt.Sprintf("\n   ⏰ **Кулдаун:** %d сек (%d ч.)", r.Cooldown, hours)
+				cooldownInfo = fmt.Sprintf("\n   ⏰ <b>Кулдаун:</b> %d сек (%d ч.)", r.Cooldown, hours)
 			} else {
-				cooldownInfo = fmt.Sprintf("\n   ⏰ **Кулдаун:** %d сек", r.Cooldown)
+				cooldownInfo = fmt.Sprintf("\n   ⏰ <b>Кулдаун:</b> %d сек", r.Cooldown)
 			}
 		}
 
-		text += fmt.Sprintf("%d. %s ID: %d [%s]\n   Паттерн: `%s`\n   Тип ответа: %s\n   Содержимое: %s\n   Описание: %s\n   Дневной лимит: %d\n   Удалять при превышении лимита: %s%s%s%s\n\n", i+1, status, r.ID, scope, r.Pattern, r.ResponseType, r.ResponseContent, r.Description, r.DailyLimit, deleteMsg, userInfo, contentTypeInfo, cooldownInfo)
+		// Обрезаем длинные FileID для стикеров/фото
+		displayContent := r.ResponseContent
+		if len(displayContent) > 50 {
+			displayContent = displayContent[:50] + "..."
+		}
+
+		text += fmt.Sprintf("%d. %s ID: %d [%s]\n   Паттерн: <code>%s</code>\n   Тип ответа: %s\n   Содержимое: <code>%s</code>\n   Описание: %s\n   Дневной лимит: %d\n   Удалять при превышении: %s%s%s%s\n\n", i+1, status, r.ID, scope, r.Pattern, r.ResponseType, displayContent, r.Description, r.DailyLimit, deleteMsg, userInfo, contentTypeInfo, cooldownInfo)
 	}
 
 	m.logger.Debug("handleListReactions formatted response", zap.Int("text_length", len(text)))
 
-	return c.Send(text, &telebot.SendOptions{ParseMode: telebot.ModeMarkdown})
+	if err := c.Send(text, &telebot.SendOptions{ParseMode: telebot.ModeHTML}); err != nil {
+		m.logger.Error("handleListReactions send failed", zap.Error(err), zap.Int("text_length", len(text)))
+		return c.Send("❌ Не удалось отправить список реакций (сообщение слишком длинное или ошибка API)")
+	}
+
+	m.logger.Info("handleListReactions completed successfully", zap.Int("reactions_count", len(reactions)))
+	return nil
 }
 
 func (m *ReactionsModule) handleRemoveReaction(c telebot.Context) error {
@@ -857,10 +875,10 @@ func (m *ReactionsModule) handleRemoveReaction(c telebot.Context) error {
 
 	var scopeMsg string
 	if threadID != 0 {
-		scopeMsg = fmt.Sprintf("✅ Реакция #%s удалена **для этого топика**\n\n💡 Для удаления реакции всего чата используйте команду в основном чате", reactionID)
+		scopeMsg = fmt.Sprintf("✅ Реакция #%s удалена <b>для этого топика</b>\n\n💡 Для удаления реакции всего чата используйте команду в основном чате", reactionID)
 	} else {
-		scopeMsg = fmt.Sprintf("✅ Реакция #%s удалена **для всего чата**\n\n💡 Для удаления реакции топика используйте команду внутри топика", reactionID)
+		scopeMsg = fmt.Sprintf("✅ Реакция #%s удалена <b>для всего чата</b>\n\n💡 Для удаления реакции топика используйте команду внутри топика", reactionID)
 	}
 
-	return c.Send(scopeMsg, &telebot.SendOptions{ParseMode: telebot.ModeMarkdown})
+	return c.Send(scopeMsg, &telebot.SendOptions{ParseMode: telebot.ModeHTML})
 }

@@ -351,7 +351,7 @@ func (m *ProfanityFilterModule) handleProfanityStatus(c telebot.Context) error {
 		scope = "чата"
 	}
 
-	msg := "📊 **Статус фильтра мата**\n\n"
+	msg := "📊 <b>Статус фильтра мата</b>\n\n"
 	msg += fmt.Sprintf("Область: %s\n", scope)
 	msg += fmt.Sprintf("Действие: %s\n", settings.Action)
 
@@ -359,5 +359,5 @@ func (m *ProfanityFilterModule) handleProfanityStatus(c telebot.Context) error {
 	m.db.QueryRow("SELECT COUNT(*) FROM profanity_dictionary").Scan(&wordCount)
 	msg += fmt.Sprintf("\nСлов в словаре: %d", wordCount)
 
-	return c.Send(msg, &telebot.SendOptions{ParseMode: telebot.ModeMarkdown})
+	return c.Send(msg, &telebot.SendOptions{ParseMode: telebot.ModeHTML})
 }
