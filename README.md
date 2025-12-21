@@ -16,64 +16,6 @@ BMFT — модульный бот для управления Telegram-чата
 > **Готовый бот:** [@bmft_bot](https://t.me/bmft_bot)  
 > **Self-hosted:** Инструкции ниже
 
-```
-┌─────────────────────────────┐
-│        Telegram API         │
-│  (Topics/Forums support)    │
-└─────────────┬───────────────┘
-              │ Long Polling
-              │ Message.ThreadID
-              ▼
-        ┌─────────────────────┐
-        │   Bot (telebot.v3)  │
-        └─────────┬───────────┘
-                  │
-             ┌────┴────┐
-             │ Pipeline│ ← Явный порядок: Statistics→Limiter→TextFilter→Reactions
-             │ (cmd/   │   Конфигурация per-chat/per-topic через БД
-             │  bot/)  │   thread_id = 0 → весь чат, >0 → конкретный топик
-             └────┬────┘   Модули работают если есть конфиг в БД
-                  │
-     ┌────────────┼────────────┬────────────┐
-     ▼            ▼            ▼            ▼
-┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐
-│Statistics│ │ Limiter  │ │TextFilter│ │Reactions │
-│ (единый  │ │ (VIP     │ │ (banned  │ │ (keyword │
-│  источник│ │  bypass) │ │  words)  │ │  reply)  │
-│  правды) │ │ +topics) │ │ +topics) │ │ +topics) │
-└────┬─────┘ └────┬─────┘ └────┬─────┘ └────┬─────┘
-     └────────────┴────────────┴────────────┘
-                  │
-                  ▼
-        ┌──────────────────────────┐
-        │ MessageRepository        │ ← Единый источник правды
-        │ ✅ InsertMessage()       │   Statistics пишет ВСЕГДА
-        │    (chatID, threadID)    │   Limiter читает отсюда
-        │ ✅ GetTodayCountByType() │   с JSONB metadata
-        │ ✅ GetUserStats()        │   + thread_id для топиков
-        └────────────┬─────────────┘
-                     │
-        ┌────────────┴─────────────┐
-        │    PostgreSQL 16+        │
-        │  ┌─────────────────────┐ │
-        │  │ messages (JSONB)    │ │ ← Партиционирование по месяцам
-        │  │ thread_id BIGINT    │ │   0 = основной чат
-        │  │ metadata: {         │ │   >0 = конкретный топик
-        │  │   "limiter": {...}, │ │
-        │  │   "statistics": {}  │ │
-        │  │ }                   │ │
-        │  └─────────────────────┘ │
-        └──────────────────────────┘
-```
-
-**Ключевые принципы:**
-- Statistics работает **всегда** (записывает в `messages`) — единый источник правды
-- Остальные модули: **есть конфиг в БД = работают**, нет конфига = ничего не делают
-- Нет механизма enable/disable — модули активируются наличием настроек в соответствующих таблицах
-- Limiter зависит от Statistics (читает из `messages` таблицы)
-
----
-
 ##  Быстрый старт
 
 ### ⚡ Вариант 1: Готовый бот (рекомендуется)
@@ -107,20 +49,7 @@ docker-compose -f docker-compose.bot.yaml up -d  # Бот
 docker logs -f bmft_bot
 ```
 
-**Подробная инструкция:** [docs/QUICKSTART.md](docs/QUICKSTART.md)
-
----
-
-## � Документация
-
-- 📖 **[docs/QUICKSTART.md](docs/QUICKSTART.md)** — пошаговая установка и настройка
-- 🧩 **[docs/modules/MODULES.md](docs/modules/MODULES.md)** — описание всех 7 модулей
-- 🗄️ **[docs/architecture/DATABASE.md](docs/architecture/DATABASE.md)** — структура БД
-- 🔄 **[docs/guides/ROTATION.md](docs/guides/ROTATION.md)** — ротация логов и данных
-- 📋 **[docs/COMMANDS_ACCESS.md](docs/COMMANDS_ACCESS.md)** — все 27 команд
-- 📝 **[CHANGELOG.md](CHANGELOG.md)** — история изменений
-
----
+**Подробная документация:** [docs/README.md](docs/README.md)
 
 ## 💡 Основные возможности
 
@@ -151,8 +80,6 @@ docker logs -f bmft_bot
 - ✅ Старые данные в БД удаляются автоматически
 - ✅ Настраивается через `.env`
 
-**Подробнее:** [docs/guides/ROTATION.md](docs/guides/ROTATION.md)
-
 ---
 
 ## 📧 Контакты и поддержка
@@ -173,14 +100,6 @@ docker logs -f bmft_bot
 - 🤝 **Коммерческое сотрудничество** — интеграции, кастомизация
 
 **Приоритет в разработке получают спонсируемые функции!**
-
-### 🗺️ Roadmap
-
-- **Версия 1.0** — текущая стабильная версия
-- **Версия 1.1+** — капча, антиспам API, web-админка, экспорт статистики
-- **Премиум-модули** — AI-модерация, расширенная аналитика, интеграции
-
----
 
 ## � Лицензия
 
