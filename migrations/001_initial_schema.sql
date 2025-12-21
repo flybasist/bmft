@@ -150,15 +150,18 @@ CREATE TABLE reaction_triggers (
 CREATE INDEX idx_reaction_triggers_time ON reaction_triggers(last_triggered_at);
 
 -- Дневной счётчик срабатываний (для daily_limit)
+-- Поддержка индивидуальных лимитов через user_id (0 = общий лимит чата, >0 = персональный)
 CREATE TABLE reaction_daily_counters (
     chat_id BIGINT NOT NULL,
     reaction_id BIGINT NOT NULL,
+    user_id BIGINT NOT NULL DEFAULT 0,
     counter_date DATE NOT NULL DEFAULT CURRENT_DATE,
     count INTEGER DEFAULT 0,
-    PRIMARY KEY (chat_id, reaction_id, counter_date)
+    PRIMARY KEY (chat_id, reaction_id, user_id, counter_date)
 );
 
 CREATE INDEX idx_reaction_daily_counters_date ON reaction_daily_counters(counter_date);
+COMMENT ON TABLE reaction_daily_counters IS 'Счётчики срабатываний реакций по дням с поддержкой индивидуальных лимитов (user_id=0 для общих лимитов)';
 
 CREATE TABLE banned_words (
     id BIGSERIAL PRIMARY KEY,

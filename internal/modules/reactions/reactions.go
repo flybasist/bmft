@@ -60,46 +60,47 @@ func (m *ReactionsModule) RegisterCommands(bot *telebot.Bot) {
 	// /reactions — справка по модулю
 	bot.Handle("/reactions", func(c telebot.Context) error {
 		msg := "🤖 <b>Модуль Reactions</b> — Автоматические реакции\n\n"
-		msg += "Создаёт автоматические ответы бота на ключевые слова и фразы.\n\n"
-		msg += "<b>Доступные команды:</b>\n\n"
+		msg += "Бот автоматически отвечает на ключевые слова в чате.\n\n"
+		msg += "<b>Команды:</b>\n\n"
 
-		msg += "🔹 <code>/addreaction</code> — Добавить реакцию (только админы)\n\n"
+		msg += "🔹 <code>/addreaction</code> — Добавить реакцию (только админы)\n"
+		msg += "🔹 <code>/listreactions</code> — Показать все реакции\n"
+		msg += "🔹 <code>/removereaction &lt;ID&gt;</code> — Удалить реакцию\n\n"
 
-		msg += "<b>Способ 1 - Текстовая реакция:</b>\n"
-		msg += "<code>/addreaction &lt;слово&gt; \"&lt;ответ&gt;\" \"&lt;описание&gt;\"</code>\n"
-		msg += "📌 Примеры:\n"
+		msg += "<b>КАК ДОБАВИТЬ РЕАКЦИЮ:</b>\n\n"
+
+		msg += "<b>1️⃣ Текстовая реакция:</b>\n"
+		msg += "🔸 Когда кто-то пишет <u>слово</u>, бот отвечает <u>текстом</u>\n\n"
+		msg += "📝 <b>Формат:</b>\n"
+		msg += "<code>/addreaction слово \"<u>текст ответа</u>\" \"<u>описание</u>\"</code>\n\n"
+		msg += "📌 <b>Примеры:</b>\n"
 		msg += "• <code>/addreaction привет \"Привет всем!\" \"Приветствие\"</code>\n"
-		msg += "• <code>/addreaction пельмени \"🥟 Ммм, пельмешки!\" \"Реакция на пельмени\"</code>\n\n"
+		msg += "  → Кто-то пишет 'привет' → бот ответит 'Привет всем!'\n"
+		msg += "• <code>/addreaction пельмени \"🥟 Ммм!\" \"Реакция\"</code>\n\n"
 
-		msg += "<b>Способ 2 - Медиа-реакция (reply на сообщение):</b>\n"
-		msg += "Ответьте на стикер/фото/гифку командой:\n"
-		msg += "<code>/addreaction &lt;слово&gt; &lt;описание&gt;</code>\n"
-		msg += "📌 Примеры:\n"
-		msg += "• <code>/addreaction котики \"Реакция на котиков\"</code> (reply на фото)\n"
-		msg += "• <code>/addreaction \"\" описание</code> — пустой паттерн (всегда срабатывает)\n\n"
+		msg += "<b>2️⃣ Реакция стикером/фото:</b>\n"
+		msg += "🔸 Когда кто-то пишет <u>слово</u>, бот отвечает <u>стикером/фото</u>\n\n"
+		msg += "📝 <b>Как добавить:</b>\n"
+		msg += "1. Найдите стикер/фото в чате\n"
+		msg += "2. Нажмите 'Ответить' на это сообщение\n"
+		msg += "3. Напишите: <code>/addreaction слово описание</code>\n\n"
+		msg += "📌 <b>Пример:</b>\n"
+		msg += "• Ответьте на стикер и напишите:\n"
+		msg += "  <code>/addreaction котики Котики_стикер</code>\n"
+		msg += "  → Кто-то пишет 'котики' → бот отправит этот стикер\n\n"
 
-		msg += "<b>Дополнительные параметры (опционально):</b>\n"
-		msg += "• <code>photo/sticker/video</code> — триггер только на этот тип контента\n"
-		msg += "• <code>3600</code> — cooldown в секундах (задержка между срабатываниями)\n"
-		msg += "• <code>10</code> — daily limit (макс. срабатываний в день)\n"
-		msg += "• <code>delete</code> — удалять сообщение при превышении лимита\n"
-		msg += "📌 Полный формат:\n"
-		msg += "<code>/addreaction слово \"ответ\" \"описание\" photo 3600 10 delete</code>\n"
-		msg += "(триггер на фото, cooldown 1 час, лимит 10/день, удалять при превышении)\n\n"
+		msg += "<b>⚙️ Дополнительные настройки:</b>\n"
+		msg += "• Добавьте <code>photo</code> или <code>sticker</code> - реагировать только на этот тип\n"
+		msg += "• Добавьте число - задержка в секундах (3600 = 1 час)\n\n"
 
-		msg += "🔹 <code>/listreactions</code> — Список всех активных реакций\n\n"
+		msg += "<b>👤 Персональная реакция для одного человека:</b>\n"
+		msg += "<code>/addreaction user:123456 привет \"Здравствуй!\" \"Личное\"</code>\n"
+		msg += "ℹ️ Узнать ID: перешлите сообщение боту @userinfobot\n\n"
 
-		msg += "🔹 <code>/removereaction &lt;ID&gt;</code> — Удалить реакцию (только админы)\n"
-		msg += "   📌 Пример: <code>/removereaction 5</code>\n\n"
+		msg += "<b>📋 Чтобы посмотреть все реакции:</b>\n"
+		msg += "<code>/listreactions</code> - покажет ID каждой реакции\n\n"
 
-		msg += "⚙️ <b>Работа с топиками:</b>\n"
-		msg += "• Команда в топике → реакция работает только в этом топике\n"
-		msg += "• Команда в основном чате → реакция для всего чата\n\n"
-
-		msg += "👤 <b>Персональные реакции:</b>\n"
-		msg += "Чтобы реакция срабатывала только на конкретного пользователя:\n"
-		msg += "<code>/addreaction user:123456 пельмени \"Астролюкс опять про пельмени\" \"Личная реакция\"</code>\n"
-		msg += "Узнать user_id: forward сообщение боту @userinfobot"
+		msg += "⚠️ <b>Топики:</b> Команда в топике = реакция только в нём"
 
 		return c.Send(msg, &telebot.SendOptions{ParseMode: telebot.ModeHTML})
 	})
@@ -206,7 +207,14 @@ func (m *ReactionsModule) OnMessage(ctx *core.MessageContext) error {
 			}
 
 			if reaction.DailyLimit > 0 {
-				count, err := m.getDailyCount(chatID, reaction.ID)
+				// Для персональной реакции (user_id>0) проверяем индивидуальный лимит
+				// Для общей реакции (user_id=0) проверяем общий лимит чата
+				countUserID := reaction.UserID
+				if countUserID == 0 {
+					// Общая реакция - считаем для всего чата (user_id=0)
+					countUserID = 0
+				}
+				count, err := m.getDailyCount(chatID, reaction.ID, countUserID)
 				if err != nil {
 					m.logger.Error("failed to get daily count", zap.Error(err))
 					continue
@@ -255,7 +263,12 @@ func (m *ReactionsModule) OnMessage(ctx *core.MessageContext) error {
 
 			m.recordTrigger(chatID, reaction.ID, userID)
 			if reaction.DailyLimit > 0 {
-				m.incrementDailyCount(chatID, reaction.ID)
+				// Инкрементируем счётчик для того же user_id, что проверяли выше
+				countUserID := reaction.UserID
+				if countUserID == 0 {
+					countUserID = 0
+				}
+				m.incrementDailyCount(chatID, reaction.ID, countUserID)
 			}
 			break
 		}
@@ -328,28 +341,37 @@ func (m *ReactionsModule) recordTrigger(chatID, reactionID, userID int64) {
 	}
 }
 
-func (m *ReactionsModule) getDailyCount(chatID, reactionID int64) (int, error) {
+func (m *ReactionsModule) getDailyCount(chatID, reactionID, userID int64) (int, error) {
 	var count int
 	err := m.db.QueryRow(`
 		SELECT count FROM reaction_daily_counters
-		WHERE chat_id = $1 AND reaction_id = $2 AND counter_date = CURRENT_DATE
-	`, chatID, reactionID).Scan(&count)
+		WHERE chat_id = $1 AND reaction_id = $2 AND user_id = $3 AND counter_date = CURRENT_DATE
+	`, chatID, reactionID, userID).Scan(&count)
 	if err != nil && err != sql.ErrNoRows {
 		return 0, err
 	}
+	m.logger.Debug("getDailyCount",
+		zap.Int64("chat_id", chatID),
+		zap.Int64("reaction_id", reactionID),
+		zap.Int64("user_id", userID),
+		zap.Int("count", count))
 	return count, nil
 }
 
-func (m *ReactionsModule) incrementDailyCount(chatID, reactionID int64) {
+func (m *ReactionsModule) incrementDailyCount(chatID, reactionID, userID int64) {
 	_, err := m.db.Exec(`
-		INSERT INTO reaction_daily_counters (chat_id, reaction_id, counter_date, count)
-		VALUES ($1, $2, CURRENT_DATE, 1)
-		ON CONFLICT (chat_id, reaction_id, counter_date) DO UPDATE
+		INSERT INTO reaction_daily_counters (chat_id, reaction_id, user_id, counter_date, count)
+		VALUES ($1, $2, $3, CURRENT_DATE, 1)
+		ON CONFLICT (chat_id, reaction_id, user_id, counter_date) DO UPDATE
 		SET count = reaction_daily_counters.count + 1
-	`, chatID, reactionID)
+	`, chatID, reactionID, userID)
 	if err != nil {
 		m.logger.Error("failed to increment daily count", zap.Error(err))
 	}
+	m.logger.Debug("incrementDailyCount",
+		zap.Int64("chat_id", chatID),
+		zap.Int64("reaction_id", reactionID),
+		zap.Int64("user_id", userID))
 }
 
 // parseQuotedArgs парсит строку команды с учётом кавычек
@@ -426,7 +448,7 @@ func (m *ReactionsModule) handleAddReaction(c telebot.Context) error {
 	var cooldown int = 30              // по умолчанию 30 секунд
 
 	// Русский комментарий: Проверяем префикс user:<user_id> для персональной реакции
-	// Пример: /addreaction user:303724504 "" "@Astrolux, опять ты что то спылесосил!" "Пасхалка" photo 86400
+	// Пример: /addreaction user:123456 "" "Привет, рад тебя видеть!" "Персональное приветствие" photo 86400
 	if len(args) > 0 && strings.HasPrefix(args[0], "user:") {
 		userIDStr := strings.TrimPrefix(args[0], "user:")
 		parsedUserID, err := strconv.ParseInt(userIDStr, 10, 64)
@@ -440,7 +462,7 @@ func (m *ReactionsModule) handleAddReaction(c telebot.Context) error {
 	if c.Message().ReplyTo != nil {
 		// Reply mode: get response from replied message
 		if len(args) < 1 {
-			return c.Send("Использование: /addreaction [user:<user_id>] <pattern> [<content_type>] [<cooldown>] [limit] [delete] (reply на сообщение)\nПример: /addreaction user:303724504 \"\" photo 86400 (reply на стикер) - персональная реакция на фото раз в сутки")
+			return c.Send("Использование: /addreaction [user:<user_id>] <pattern> [<content_type>] [<cooldown>] [<daily_limit>] [delete] (reply на сообщение)\n\nПримеры:\n• /addreaction привет (ответьте на стикер) - простая реакция\n• /addreaction user:123456 \"\" photo 86400 (ответьте на фото) - персональная реакция на фото раз в сутки")
 		}
 
 		m.logger.Info("reply mode addreaction",
@@ -527,7 +549,7 @@ func (m *ReactionsModule) handleAddReaction(c telebot.Context) error {
 	} else {
 		// Text mode
 		if len(args) < 3 {
-			return c.Send("Использование: /addreaction [user:<user_id>] <pattern> <response> <description> [<content_type>] [<cooldown>] [limit] [delete]\nИли reply на сообщение со стикером/фото/etc.\nПример: /addreaction user:303724504 \"\" \"@Astrolux, опять ты что то спылесосил!\" \"Пасхалка\" photo 86400")
+			return c.Send("Использование: /addreaction [user:<user_id>] <pattern> <response> <description> [<content_type>] [<cooldown>] [limit] [delete]\nИли reply на сообщение со стикером/фото/etc.\nПример: /addreaction user:123456 \"\" \"Привет, рад тебя видеть!\" \"Персональное приветствие\" text 86400")
 		}
 		pattern = args[0]
 		responseType = "text"
