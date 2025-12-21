@@ -38,48 +38,6 @@ func New(db *sql.DB, vipRepo *repositories.VIPRepository, contentLimitsRepo *rep
 	}
 }
 
-// detectContentType определяет тип контента сообщения
-func (m *LimiterModule) detectContentType(msg *tele.Message) string {
-	if msg.Photo != nil {
-		return "photo"
-	}
-	if msg.Video != nil {
-		return "video"
-	}
-	if msg.Sticker != nil {
-		return "sticker"
-	}
-	if msg.Animation != nil {
-		return "animation"
-	}
-	if msg.Voice != nil {
-		return "voice"
-	}
-	if msg.VideoNote != nil {
-		return "video_note"
-	}
-	if msg.Audio != nil {
-		return "audio"
-	}
-	if msg.Document != nil {
-		// Специальная проверка для гифок, отправленных как файлы
-		if msg.Document.MIME == "image/gif" {
-			return "animation"
-		}
-		return "document"
-	}
-	if msg.Location != nil {
-		return "location"
-	}
-	if msg.Contact != nil {
-		return "contact"
-	}
-	if msg.Text != "" {
-		return "text"
-	}
-	return "unknown"
-}
-
 // RegisterCommands регистрирует пользовательские команды
 func (m *LimiterModule) RegisterCommands(bot *tele.Bot) {
 	// /limiter — справка по модулю
@@ -174,7 +132,7 @@ func (m *LimiterModule) OnMessage(ctx *core.MessageContext) error {
 	}
 
 	// Определяем тип контента
-	contentType := m.detectContentType(ctx.Message)
+	contentType := core.DetectContentType(ctx.Message)
 	if contentType == "unknown" {
 		return nil
 	}
@@ -195,7 +153,6 @@ func (m *LimiterModule) OnMessage(ctx *core.MessageContext) error {
 
 	// counter уже включает текущее сообщение (так как Statistics его уже сохранил)
 	// Но если Statistics ещё не обработал, добавляем +1
-	// TODO: Правильнее координировать порядок модулей через pipeline
 	counter++ // Предполагаем что текущее сообщение ещё не учтено
 
 	// Проверяем лимит
@@ -229,13 +186,14 @@ func (m *LimiterModule) OnMessage(ctx *core.MessageContext) error {
 
 	// Отправляем предупреждения в чате, если близко к лимиту
 	if limitValue > 0 {
-		if counter == limitValue {
+		switch counter {
+		case limitValue:
 			// Лимит достигнут, но сообщение остается
 			warning := fmt.Sprintf("⚠️ @%s, лимит на %s достигнут (%d/%d)", ctx.Sender.Username, contentType, counter, limitValue)
 			if _, err := ctx.Bot.Send(ctx.Chat, warning); err != nil {
 				m.logger.Error("failed to send warning", zap.Error(err))
 			}
-		} else if counter == limitValue-1 {
+		case limitValue - 1:
 			// Остался 1 до лимита
 			warning := fmt.Sprintf("⚠️ @%s, остался 1 %s до лимита", ctx.Sender.Username, contentType)
 			if _, err := ctx.Bot.Send(ctx.Chat, warning); err != nil {

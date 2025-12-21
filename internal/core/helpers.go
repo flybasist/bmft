@@ -62,3 +62,47 @@ func GetThreadIDFromMessage(db *sql.DB, msg *telebot.Message) int {
 	// Это реально форум с топиками
 	return msg.ThreadID
 }
+
+// DetectContentType определяет тип контента сообщения.
+// Русский комментарий: Общая функция для определения типа контента.
+// Используется в модулях limiter и statistics.
+func DetectContentType(msg *telebot.Message) string {
+	if msg.Photo != nil {
+		return "photo"
+	}
+	if msg.Video != nil {
+		return "video"
+	}
+	if msg.Sticker != nil {
+		return "sticker"
+	}
+	if msg.Animation != nil {
+		return "animation"
+	}
+	if msg.Voice != nil {
+		return "voice"
+	}
+	if msg.VideoNote != nil {
+		return "video_note"
+	}
+	if msg.Audio != nil {
+		return "audio"
+	}
+	if msg.Document != nil {
+		// Специальная проверка для гифок, отправленных как файлы
+		if msg.Document.MIME == "image/gif" {
+			return "animation"
+		}
+		return "document"
+	}
+	if msg.Location != nil {
+		return "location"
+	}
+	if msg.Contact != nil {
+		return "contact"
+	}
+	if msg.Text != "" {
+		return "text"
+	}
+	return "unknown"
+}

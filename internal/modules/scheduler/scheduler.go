@@ -95,8 +95,8 @@ func (m *SchedulerModule) RegisterCommands(bot *tele.Bot) {
 
 		msg += "🔹 <code>/listtasks</code> — Список всех активных задач\n\n"
 
-		msg += "🔹 <code>/removetask &lt;ID&gt;</code> — Удалить задачу (только админы)\n"
-		msg += "   📌 Пример: <code>/removetask 3</code>\n\n"
+		msg += "🔹 <code>/deltask &lt;ID&gt;</code> — Удалить задачу (только админы)\n"
+		msg += "   📌 Пример: <code>/deltask 3</code>\n\n"
 
 		msg += "🔹 <code>/runtask &lt;ID&gt;</code> — Запустить задачу немедленно (только админы)\n"
 		msg += "   📌 Пример: <code>/runtask 3</code>\n\n"
@@ -339,8 +339,7 @@ func (m *SchedulerModule) handleAddTask(c tele.Context) error {
 	var taskType, taskData string
 
 	if c.Message().ReplyTo != nil {
-		// Reply mode: get content from replied message
-		// Русский комментарий: Парсим команду /addtask <name> "<cron>" с учётом кавычек
+		// Парсим параметры команды /addtask
 		text := strings.TrimSpace(c.Text())
 		if !strings.HasPrefix(text, "/addtask ") {
 			return c.Send("❌ Неверный формат команды")

@@ -160,7 +160,7 @@ func run() error {
 	}
 
 	// Регистрируем базовые команды
-	registerCommands(bot, modules, chatRepo, eventRepo, logger, db, botVersion)
+	registerCommands(bot, chatRepo, eventRepo, logger, botVersion)
 
 	// Создаём контекст для graceful shutdown
 	ctx, cancel := context.WithCancel(context.Background())

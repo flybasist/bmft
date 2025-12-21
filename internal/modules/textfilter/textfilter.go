@@ -226,8 +226,6 @@ func (m *TextFilterModule) handleAddBan(c telebot.Context) error {
 		return c.Send("❌ Команда доступна только администраторам")
 	}
 
-	// Русский комментарий: Парсим последний аргумент как action, остальное как pattern
-	// Это позволяет pattern содержать пробелы: /addban плохое слово delete
 	args := c.Args()
 	if len(args) < 2 {
 		return c.Send("Использование: /addban <pattern> <action>\nAction: delete, warn, delete_warn\nПример: /addban мат delete_warn")

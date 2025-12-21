@@ -116,8 +116,7 @@ func (m *ReactionsModule) RegisterAdminCommands(bot *telebot.Bot) {
 func (m *ReactionsModule) OnMessage(ctx *core.MessageContext) error {
 	msg := ctx.Message
 
-	// Русский комментарий: Пропускаем приватные сообщения и команды.
-	// Для персональных реакций (например, на фото без текста) убираем проверку msg.Text == ""
+	// Пропускаем приватные сообщения и команды
 	if msg.Private() || (msg.Text != "" && strings.HasPrefix(msg.Text, "/")) {
 		return nil
 	}

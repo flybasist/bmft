@@ -9,8 +9,6 @@ import (
 )
 
 // LoggerMiddleware логирует все входящие сообщения.
-// Русский комментарий: Middleware для логирования всех сообщений, которые приходят боту.
-// Логи на английском для единообразия операционных сообщений.
 func LoggerMiddleware(logger *zap.Logger) tele.MiddlewareFunc {
 	return func(next tele.HandlerFunc) tele.HandlerFunc {
 		return func(c tele.Context) error {

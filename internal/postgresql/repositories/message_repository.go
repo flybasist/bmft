@@ -105,41 +105,6 @@ func (r *MessageRepository) InsertMessage(
 	return id, nil
 }
 
-// UpdateMetadata обновляет metadata существующего сообщения.
-// Используется если модуль обрабатывает сообщение асинхронно.
-// TODO: В текущей версии не используется ни одним модулем. Может понадобиться для будущих функций.
-func (r *MessageRepository) UpdateMetadata(messageID int64, metadata MessageMetadata) error {
-	metadataJSON, err := json.Marshal(metadata)
-	if err != nil {
-		return fmt.Errorf("failed to marshal metadata: %w", err)
-	}
-
-	query := `UPDATE messages SET metadata = $1 WHERE id = $2`
-	_, err = r.db.Exec(query, metadataJSON, messageID)
-	if err != nil {
-		return fmt.Errorf("failed to update metadata: %w", err)
-	}
-
-	return nil
-}
-
-// MarkDeleted помечает сообщение как удалённое.
-// TODO: В текущей версии не используется ни одним модулем. Может понадобиться для будущих функций.
-func (r *MessageRepository) MarkDeleted(chatID int64, threadID int, messageID int, reason string) error {
-	query := `
-		UPDATE messages 
-		SET was_deleted = TRUE, deletion_reason = $1 
-		WHERE chat_id = $2 AND thread_id = $3 AND message_id = $4
-	`
-
-	_, err := r.db.Exec(query, reason, chatID, threadID, messageID)
-	if err != nil {
-		return fmt.Errorf("failed to mark message as deleted: %w", err)
-	}
-
-	return nil
-}
-
 // GetTodayCountByType возвращает количество сообщений определённого типа за сегодня.
 // Используется Limiter для проверки лимитов.
 // threadID = 0 означает подсчёт для всего чата, >0 - только для конкретного топика.

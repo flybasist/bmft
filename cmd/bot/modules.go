@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/flybasist/bmft/internal/config"
+	"github.com/flybasist/bmft/internal/core"
 	"github.com/flybasist/bmft/internal/modules/limiter"
 	"github.com/flybasist/bmft/internal/modules/maintenance"
 	"github.com/flybasist/bmft/internal/modules/profanityfilter"
@@ -94,6 +95,10 @@ func initModules(db *sql.DB, bot *tele.Bot, logger *zap.Logger, cfg *config.Conf
 
 	logger.Info("all modules initialized successfully")
 
+	// Регистрируем pipeline обработки сообщений
+	logger.Info("registering message pipeline")
+	registerPipeline(bot, modules, logger)
+
 	return modules, nil
 }
 
@@ -117,4 +122,70 @@ func (m *Modules) shutdownModules(logger *zap.Logger) error {
 
 	logger.Info("all modules shutdown complete")
 	return nil
+}
+
+// registerPipeline регистрирует явный pipeline обработки сообщений через bot.Use().
+// Русский комментарий: Каждый модуль регистрируется как middleware в правильном порядке.
+// ВАЖНО: Порядок модулей критичен!
+// 1. Statistics — записывает все сообщения в таблицу messages
+// 2. Limiter — проверяет лимиты, может удалить сообщение
+// 3. ProfanityFilter — фильтр мата, может удалить сообщение
+// 4. TextFilter — фильтр запрещённых слов, может удалить сообщение
+// 5. Reactions — автореакции на сообщения
+func registerPipeline(bot *tele.Bot, modules *Modules, logger *zap.Logger) {
+	// Конвертируем OnMessage модулей в telebot middleware
+	bot.Use(wrapModuleMiddleware(modules.Statistics.OnMessage, "statistics", logger))
+	bot.Use(wrapModuleMiddleware(modules.Limiter.OnMessage, "limiter", logger))
+	bot.Use(wrapModuleMiddleware(modules.ProfanityFilter.OnMessage, "profanityfilter", logger))
+	bot.Use(wrapModuleMiddleware(modules.TextFilter.OnMessage, "textfilter", logger))
+	bot.Use(wrapModuleMiddleware(modules.Reactions.OnMessage, "reactions", logger))
+
+	logger.Info("message pipeline registered", zap.Int("modules", 5))
+}
+
+// wrapModuleMiddleware конвертирует функцию Module.OnMessage в telebot.MiddlewareFunc.
+// Русский комментарий: Адаптер между core.MessageContext и telebot.Context.
+func wrapModuleMiddleware(
+	onMessage func(*core.MessageContext) error,
+	moduleName string,
+	logger *zap.Logger,
+) tele.MiddlewareFunc {
+	return func(next tele.HandlerFunc) tele.HandlerFunc {
+		return func(c tele.Context) error {
+			msg := c.Message()
+			if msg == nil {
+				return next(c) // пропускаем не-сообщения
+			}
+
+			// Создаём контекст для модуля
+			ctx := &core.MessageContext{
+				Message:         msg,
+				Chat:            msg.Chat,
+				Sender:          msg.Sender,
+				Bot:             c.Bot(),
+				StopPropagation: false,
+			}
+
+			// Вызываем модуль
+			if err := onMessage(ctx); err != nil {
+				logger.Error("module failed to process message",
+					zap.String("module", moduleName),
+					zap.Int64("chat_id", msg.Chat.ID),
+					zap.Int("message_id", msg.ID),
+					zap.Error(err))
+				// Не прерываем обработку — даём другим модулям шанс
+			}
+
+			// Проверяем StopPropagation
+			if ctx.StopPropagation {
+				logger.Debug("pipeline stopped by module",
+					zap.String("module", moduleName),
+					zap.Int64("chat_id", msg.Chat.ID),
+					zap.Int("message_id", msg.ID))
+				return nil // останавливаем дальнейшую обработку
+			}
+
+			return next(c) // продолжаем цепочку
+		}
+	}
 }

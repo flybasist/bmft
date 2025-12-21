@@ -58,7 +58,7 @@ func (m *StatisticsModule) OnMessage(ctx *core.MessageContext) error {
 		zap.String("text", ctx.Message.Text),
 	)
 
-	contentType := m.detectContentType(ctx.Message)
+	contentType := core.DetectContentType(ctx.Message)
 	m.logger.Debug("statistics: detected content type", zap.String("content_type", contentType))
 
 	// Русский комментарий: Формируем chat_name для удобства статистики
@@ -120,51 +120,6 @@ func (m *StatisticsModule) OnMessage(ctx *core.MessageContext) error {
 	)
 
 	return nil
-}
-
-// detectContentType определяет тип контента сообщения.
-func (m *StatisticsModule) detectContentType(msg *tele.Message) string {
-	if msg.Photo != nil {
-		return "photo"
-	}
-	if msg.Video != nil {
-		return "video"
-	}
-	if msg.Sticker != nil {
-		return "sticker"
-	}
-	if msg.Animation != nil {
-		return "animation"
-	}
-	if msg.Voice != nil {
-		return "voice"
-	}
-	if msg.VideoNote != nil {
-		return "video_note"
-	}
-	if msg.Audio != nil {
-		return "audio"
-	}
-	if msg.Document != nil {
-		// Специальная проверка для гифок, отправленных как файлы
-		if msg.Document.MIME == "image/gif" {
-			return "animation"
-		}
-		return "document"
-	}
-	if msg.Location != nil {
-		return "location"
-	}
-	if msg.Contact != nil {
-		return "contact"
-	}
-	if msg.Poll != nil {
-		return "poll"
-	}
-	if msg.Text != "" {
-		return "text"
-	}
-	return "other"
 }
 
 // getFileID извлекает file_id из сообщения если есть медиа.
@@ -276,38 +231,6 @@ func (m *StatisticsModule) RegisterAdminCommands(bot *tele.Bot) {
 		}
 		return m.handleTopChat(c, today)
 	})
-}
-
-// handleMyStats обрабатывает команду /mystats.
-func (m *StatisticsModule) handleMyStats(c tele.Context, date time.Time) error {
-	chatID := c.Chat().ID
-	threadID := int(core.GetThreadID(m.db, c))
-	userID := c.Sender().ID
-
-	m.logger.Info("handleMyStats called", zap.Int64("chat_id", chatID), zap.Int("thread_id", threadID), zap.Int64("user_id", userID))
-
-	// Получаем статистику за сегодня (1 день) для текущего топика
-	stats, err := m.messageRepo.GetUserStats(chatID, threadID, userID, 1)
-	if err != nil {
-		m.logger.Error("failed to get user stats", zap.Error(err))
-		return c.Reply("Произошла ошибка при получении статистики.")
-	}
-
-	if len(stats) == 0 {
-		locationMsg := "чата"
-		if threadID != 0 {
-			locationMsg = "топика"
-		}
-		return c.Reply(fmt.Sprintf("📊 У вас пока нет статистики за %s в этом %s", date.Format("02.01.2006"), locationMsg))
-	}
-
-	// Форматируем ответ
-	msg := m.formatUserStatsMap(stats, date)
-
-	// Логируем событие
-	_ = m.eventRepo.Log(chatID, userID, "statistics", "view_my_stats", "User viewed personal statistics")
-
-	return c.Reply(msg, &tele.SendOptions{ParseMode: tele.ModeHTML})
 }
 
 // handleMyWeekStats обрабатывает команду /myweek.
@@ -500,160 +423,4 @@ func (m *StatisticsModule) handleTopChat(c tele.Context, date time.Time) error {
 	}
 
 	return c.Reply(sb.String(), &tele.SendOptions{ParseMode: tele.ModeHTML})
-}
-
-// formatUserStatsMap форматирует статистику пользователя из map[string]int.
-func (m *StatisticsModule) formatUserStatsMap(stats map[string]int, date time.Time) string {
-	var sb strings.Builder
-
-	sb.WriteString(fmt.Sprintf("📊 <b>Твоя статистика за %s</b>\n\n", date.Format("02.01.2006")))
-
-	total := 0
-	contentTypeEmoji := map[string]string{
-		"text":       "💬",
-		"photo":      "📷",
-		"video":      "🎥",
-		"sticker":    "😊",
-		"animation":  "🎬",
-		"voice":      "🎤",
-		"video_note": "📹",
-		"audio":      "🎵",
-		"document":   "📄",
-		"location":   "📍",
-		"contact":    "👤",
-		"poll":       "📊",
-	}
-
-	for contentType, count := range stats {
-		if count > 0 {
-			emoji, ok := contentTypeEmoji[contentType]
-			if !ok {
-				emoji = "📎"
-			}
-			sb.WriteString(fmt.Sprintf("%s %s: <b>%d</b>\n", emoji, contentType, count))
-			total += count
-		}
-	}
-
-	sb.WriteString(fmt.Sprintf("\n<b>Всего: %d сообщений</b>", total))
-
-	return sb.String()
-}
-
-// formatUserStats форматирует статистику пользователя (DEPRECATED - используется старыми командами).
-func (m *StatisticsModule) formatUserStats(stats *repositories.UserDailyStats, date time.Time) string {
-	var sb strings.Builder
-
-	sb.WriteString(fmt.Sprintf("📊 <b>Твоя статистика за %s</b>\n\n", date.Format("02.01.2006")))
-
-	if stats.TextCount > 0 {
-		sb.WriteString(fmt.Sprintf("💬 Текст: <b>%d</b> сообщений\n", stats.TextCount))
-	}
-	if stats.PhotoCount > 0 {
-		sb.WriteString(fmt.Sprintf("📷 Фото: <b>%d</b>\n", stats.PhotoCount))
-	}
-	if stats.VideoCount > 0 {
-		sb.WriteString(fmt.Sprintf("🎥 Видео: <b>%d</b>\n", stats.VideoCount))
-	}
-	if stats.StickerCount > 0 {
-		sb.WriteString(fmt.Sprintf("😊 Стикеры: <b>%d</b>\n", stats.StickerCount))
-	}
-	if stats.VoiceCount > 0 {
-		sb.WriteString(fmt.Sprintf("🎤 Войс: <b>%d</b>\n", stats.VoiceCount))
-	}
-	if stats.OtherCount > 0 {
-		sb.WriteString(fmt.Sprintf("📎 Прочее: <b>%d</b>\n", stats.OtherCount))
-	}
-
-	sb.WriteString(fmt.Sprintf("\n<b>Всего: %d сообщений</b>", stats.TotalCount))
-
-	return sb.String()
-}
-
-// formatUserStatsWeekly форматирует недельную статистику пользователя.
-func (m *StatisticsModule) formatUserStatsWeekly(stats *repositories.UserDailyStats) string {
-	var sb strings.Builder
-
-	sb.WriteString("📊 <b>Твоя статистика за последние 7 дней</b>\n\n")
-
-	if stats.TextCount > 0 {
-		sb.WriteString(fmt.Sprintf("💬 Текст: <b>%d</b> сообщений\n", stats.TextCount))
-	}
-	if stats.PhotoCount > 0 {
-		sb.WriteString(fmt.Sprintf("📷 Фото: <b>%d</b>\n", stats.PhotoCount))
-	}
-	if stats.VideoCount > 0 {
-		sb.WriteString(fmt.Sprintf("🎥 Видео: <b>%d</b>\n", stats.VideoCount))
-	}
-	if stats.StickerCount > 0 {
-		sb.WriteString(fmt.Sprintf("😊 Стикеры: <b>%d</b>\n", stats.StickerCount))
-	}
-	if stats.VoiceCount > 0 {
-		sb.WriteString(fmt.Sprintf("🎤 Войс: <b>%d</b>\n", stats.VoiceCount))
-	}
-	if stats.OtherCount > 0 {
-		sb.WriteString(fmt.Sprintf("📎 Прочее: <b>%d</b>\n", stats.OtherCount))
-	}
-
-	sb.WriteString(fmt.Sprintf("\n<b>Всего: %d сообщений</b>", stats.TotalCount))
-
-	return sb.String()
-}
-
-// formatChatStats форматирует статистику чата.
-func (m *StatisticsModule) formatChatStats(stats *repositories.ChatDailyStats, date time.Time) string {
-	var sb strings.Builder
-
-	sb.WriteString(fmt.Sprintf("📊 <b>Статистика чата за %s</b>\n\n", date.Format("02.01.2006")))
-
-	if stats.TextCount > 0 {
-		sb.WriteString(fmt.Sprintf("💬 Текст: <b>%d</b> сообщений\n", stats.TextCount))
-	}
-	if stats.PhotoCount > 0 {
-		sb.WriteString(fmt.Sprintf("📷 Фото: <b>%d</b>\n", stats.PhotoCount))
-	}
-	if stats.VideoCount > 0 {
-		sb.WriteString(fmt.Sprintf("🎥 Видео: <b>%d</b>\n", stats.VideoCount))
-	}
-	if stats.StickerCount > 0 {
-		sb.WriteString(fmt.Sprintf("😊 Стикеры: <b>%d</b>\n", stats.StickerCount))
-	}
-	if stats.VoiceCount > 0 {
-		sb.WriteString(fmt.Sprintf("🎤 Войс: <b>%d</b>\n", stats.VoiceCount))
-	}
-	if stats.OtherCount > 0 {
-		sb.WriteString(fmt.Sprintf("📎 Прочее: <b>%d</b>\n", stats.OtherCount))
-	}
-
-	sb.WriteString(fmt.Sprintf("\n<b>Всего: %d сообщений</b>\n", stats.TotalCount))
-	sb.WriteString(fmt.Sprintf("👥 Активных пользователей: <b>%d</b>", stats.UserCount))
-
-	return sb.String()
-}
-
-// formatTopUsers форматирует топ пользователей.
-func (m *StatisticsModule) formatTopUsers(topUsers []repositories.TopUser, date time.Time) string {
-	var sb strings.Builder
-
-	sb.WriteString(fmt.Sprintf("🏆 <b>Топ-10 активных за %s</b>\n\n", date.Format("02.01.2006")))
-
-	medals := []string{"🥇", "🥈", "🥉"}
-
-	for i, user := range topUsers {
-		medal := ""
-		if i < 3 {
-			medal = medals[i] + " "
-		} else {
-			medal = fmt.Sprintf("%d. ", i+1)
-		}
-
-		displayName := user.FirstName
-		if user.Username != "" {
-			displayName = "@" + user.Username
-		}
-
-		sb.WriteString(fmt.Sprintf("%s<b>%s</b>: %d сообщений\n", medal, displayName, user.MessageCount))
-	}
-
-	return sb.String()
 }
