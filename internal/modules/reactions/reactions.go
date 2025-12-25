@@ -225,10 +225,13 @@ func (m *ReactionsModule) OnMessage(ctx *core.MessageContext) error {
 						if err != nil {
 							m.logger.Error("failed to delete message", zap.Error(err))
 						}
-						warning := fmt.Sprintf("Достигнут дневной лимит для реакции на '%s'", reaction.Pattern)
-						err = ctx.Send(warning)
-						if err != nil {
-							m.logger.Error("failed to send warning", zap.Error(err))
+						// Отправляем warning только при ПЕРВОМ превышении (БАГ #4)
+						if count == reaction.DailyLimit {
+							warning := fmt.Sprintf("⚠️ Достигнут дневной лимит для реакции на '%s'", reaction.Pattern)
+							err = ctx.Send(warning)
+							if err != nil {
+								m.logger.Error("failed to send warning", zap.Error(err))
+							}
 						}
 					}
 					continue
@@ -693,7 +696,9 @@ func (m *ReactionsModule) handleAddReaction(c telebot.Context) error {
 	}
 
 	var scopeMsg string
-	if threadID != 0 {
+	if userID > 0 {
+		scopeMsg = fmt.Sprintf("✅ Реакция добавлена <b>для пользователя</b> (user_id: %d)\n\n💡 Реакция сработает только для этого пользователя\n\n", userID)
+	} else if threadID != 0 {
 		scopeMsg = "✅ Реакция добавлена <b>для этого топика</b>\n\n💡 Для настройки всего чата используйте команду в основном чате\n\n"
 	} else {
 		scopeMsg = "✅ Реакция добавлена <b>для всего чата</b>\n\n💡 Для настройки топика используйте команду внутри топика\n\n"
@@ -708,6 +713,33 @@ func (m *ReactionsModule) handleAddReaction(c telebot.Context) error {
 	return c.Send(fmt.Sprintf("%sПаттерн: <code>%s</code>\nТип ответа: %s\nСодержимое: <code>%s</code>\nОписание: %s\nДневной лимит: %d%s%s%s", scopeMsg, pattern, responseType, displayContent, description, dailyLimit, deleteMsg, contentTypeMsg, cooldownMsg), &telebot.SendOptions{ParseMode: telebot.ModeHTML})
 }
 
+// splitIntoMessages разбивает список строк на несколько частей по maxLen символов
+func splitIntoMessages(lines []string, maxLen int) []string {
+	var messages []string
+	var currentMessage strings.Builder
+
+	for _, line := range lines {
+		// Если добавление строки превысит лимит → начинаем новое сообщение
+		if currentMessage.Len()+len(line)+1 > maxLen {
+			if currentMessage.Len() > 0 {
+				messages = append(messages, currentMessage.String())
+				currentMessage.Reset()
+			}
+		}
+
+		if currentMessage.Len() > 0 {
+			currentMessage.WriteString("\n")
+		}
+		currentMessage.WriteString(line)
+	}
+
+	// Добавляем последнее сообщение
+	if currentMessage.Len() > 0 {
+		messages = append(messages, currentMessage.String())
+	}
+
+	return messages
+}
 func (m *ReactionsModule) handleListReactions(c telebot.Context) error {
 	chatID := c.Chat().ID
 	threadID := core.GetThreadID(m.db, c)
@@ -795,7 +827,8 @@ func (m *ReactionsModule) handleListReactions(c telebot.Context) error {
 		scopeHeader = "📋 <b>Список реакций (для всего чата):</b>\n\n"
 	}
 
-	text := scopeHeader
+	// Формируем строки для каждой реакции
+	var lines []string
 	for i, r := range reactions {
 		status := "✅"
 		if !r.IsActive {
@@ -842,17 +875,38 @@ func (m *ReactionsModule) handleListReactions(c telebot.Context) error {
 			displayContent = displayContent[:50] + "..."
 		}
 
-		text += fmt.Sprintf("%d. %s ID: %d [%s]\n   Паттерн: <code>%s</code>\n   Тип ответа: %s\n   Содержимое: <code>%s</code>\n   Описание: %s\n   Дневной лимит: %d\n   Удалять при превышении: %s%s%s%s\n\n", i+1, status, r.ID, scope, r.Pattern, r.ResponseType, displayContent, r.Description, r.DailyLimit, deleteMsg, userInfo, contentTypeInfo, cooldownInfo)
+		line := fmt.Sprintf("%d. %s ID: %d [%s]\n   Паттерн: <code>%s</code>\n   Тип ответа: %s\n   Содержимое: <code>%s</code>\n   Описание: %s\n   Дневной лимит: %d\n   Удалять при превышении: %s%s%s%s", i+1, status, r.ID, scope, r.Pattern, r.ResponseType, displayContent, r.Description, r.DailyLimit, deleteMsg, userInfo, contentTypeInfo, cooldownInfo)
+		lines = append(lines, line)
 	}
 
-	m.logger.Debug("handleListReactions formatted response", zap.Int("text_length", len(text)))
+	// Разбиваем на части по 3500 символов (оставляем запас до 4096)
+	const maxMessageLength = 3500
+	messages := splitIntoMessages(lines, maxMessageLength)
 
-	if err := c.Send(text, &telebot.SendOptions{ParseMode: telebot.ModeHTML}); err != nil {
-		m.logger.Error("handleListReactions send failed", zap.Error(err), zap.Int("text_length", len(text)))
-		return c.Send("❌ Не удалось отправить список реакций (сообщение слишком длинное или ошибка API)")
+	m.logger.Debug("handleListReactions formatted response", zap.Int("total_reactions", len(reactions)), zap.Int("pages", len(messages)))
+
+	// Отправляем каждую часть
+	for i, msg := range messages {
+		var header string
+		if len(messages) > 1 {
+			header = fmt.Sprintf("📋 <b>Список реакций (страница %d/%d):</b>\n\n", i+1, len(messages))
+		} else {
+			header = scopeHeader
+		}
+		text := header + msg
+
+		if err := c.Send(text, &telebot.SendOptions{ParseMode: telebot.ModeHTML}); err != nil {
+			m.logger.Error("handleListReactions send failed", zap.Error(err), zap.Int("page", i+1), zap.Int("text_length", len(text)))
+			return c.Send("❌ Не удалось отправить список реакций (ошибка API)")
+		}
+
+		// Небольшая задержка между сообщениями (защита от rate limit)
+		if i < len(messages)-1 {
+			time.Sleep(100 * time.Millisecond)
+		}
 	}
 
-	m.logger.Info("handleListReactions completed successfully", zap.Int("reactions_count", len(reactions)))
+	m.logger.Info("handleListReactions completed successfully", zap.Int("reactions_count", len(reactions)), zap.Int("pages_sent", len(messages)))
 	return nil
 }
 

@@ -42,6 +42,7 @@ func initModules(db *sql.DB, bot *tele.Bot, logger *zap.Logger, cfg *config.Conf
 	vipRepo := repositories.NewVIPRepository(db)
 	contentLimitsRepo := repositories.NewContentLimitsRepository(db)
 	schedulerRepo := repositories.NewSchedulerRepository(db)
+	messageRepo := repositories.NewMessageRepository(db, logger)
 
 	// Создаём модули
 	modules := &Modules{
@@ -50,7 +51,7 @@ func initModules(db *sql.DB, bot *tele.Bot, logger *zap.Logger, cfg *config.Conf
 		Scheduler:       scheduler.New(db, schedulerRepo, eventRepo, logger, bot),
 		Reactions:       reactions.New(db, vipRepo, eventRepo, logger, bot),
 		TextFilter:      textfilter.New(db, vipRepo, contentLimitsRepo, eventRepo, logger, bot),
-		ProfanityFilter: profanityfilter.New(db, vipRepo, contentLimitsRepo, eventRepo, logger, bot),
+		ProfanityFilter: profanityfilter.New(db, vipRepo, contentLimitsRepo, messageRepo, eventRepo, logger, bot),
 		Maintenance:     maintenance.New(db, logger, cfg.DBRetentionMonths),
 	}
 

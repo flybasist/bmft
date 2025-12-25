@@ -246,10 +246,27 @@ func (m *TextFilterModule) handleAddBan(c telebot.Context) error {
 		return c.Send("❌ Паттерн слишком длинный (макс. 500 символов)")
 	}
 
+	// Автоопределение regex по наличию спецсимволов
+	isRegex := false
+	regexChars := []string{"|", "(", ")", "[", "]", ".", "*", "+", "?", "^", "$"}
+	for _, char := range regexChars {
+		if strings.Contains(pattern, char) {
+			isRegex = true
+			break
+		}
+	}
+
+	// Если это regex, проверяем что он валидный
+	if isRegex {
+		if _, err := regexp.Compile(pattern); err != nil {
+			return c.Send(fmt.Sprintf("❌ Некорректное regex-выражение: %v", err))
+		}
+	}
+
 	_, err = m.db.Exec(`
 		INSERT INTO banned_words (chat_id, thread_id, pattern, action, is_regex, is_active)
-		VALUES ($1, $2, $3, $4, false, true)
-	`, chatID, threadID, pattern, action)
+		VALUES ($1, $2, $3, $4, $5, true)
+	`, chatID, threadID, pattern, action, isRegex)
 
 	if err != nil {
 		m.logger.Error("failed to add banned word", zap.Error(err))

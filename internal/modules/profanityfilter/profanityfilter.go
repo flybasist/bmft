@@ -16,6 +16,7 @@ type ProfanityFilterModule struct {
 	db                *sql.DB
 	vipRepo           *repositories.VIPRepository
 	contentLimitsRepo *repositories.ContentLimitsRepository
+	messageRepo       *repositories.MessageRepository
 	eventRepo         *repositories.EventRepository
 	logger            *zap.Logger
 	bot               *telebot.Bot
@@ -38,6 +39,7 @@ func New(
 	db *sql.DB,
 	vipRepo *repositories.VIPRepository,
 	contentLimitsRepo *repositories.ContentLimitsRepository,
+	messageRepo *repositories.MessageRepository,
 	eventRepo *repositories.EventRepository,
 	logger *zap.Logger,
 	bot *telebot.Bot,
@@ -46,6 +48,7 @@ func New(
 		db:                db,
 		vipRepo:           vipRepo,
 		contentLimitsRepo: contentLimitsRepo,
+		messageRepo:       messageRepo,
 		eventRepo:         eventRepo,
 		logger:            logger,
 		bot:               bot,
@@ -136,6 +139,49 @@ func (m *ProfanityFilterModule) OnMessage(ctx *core.MessageContext) error {
 				zap.String("pattern", word.Pattern),
 			)
 
+			// Проверяем лимит banned_words (БАГ #5)
+			limits, err := m.contentLimitsRepo.GetLimits(chatID, threadID, nil)
+			if err == nil && limits != nil && limits.LimitBannedWords > 0 {
+				// Считаем маты сегодня через metadata
+				count, err := m.messageRepo.GetTodayCountByMetadata(
+					chatID, threadID, userID, "profanity", true,
+				)
+				if err != nil {
+					m.logger.Error("failed to get today profanity count", zap.Error(err))
+				} else {
+					// +1 потому что текущее сообщение еще не обновлено
+					if count+1 >= limits.LimitBannedWords {
+						m.logger.Warn("banned_words limit exceeded, banning user",
+							zap.Int64("chat_id", chatID),
+							zap.Int64("user_id", userID),
+							zap.Int("count", count+1),
+							zap.Int("limit", limits.LimitBannedWords),
+						)
+
+						// Удаляем сообщение
+						if err := ctx.DeleteMessage(); err != nil {
+							m.logger.Error("failed to delete message before ban", zap.Error(err))
+						}
+
+						// Баним пользователя
+						err = ctx.Bot.Ban(ctx.Message.Chat, &telebot.ChatMember{
+							User: ctx.Message.Sender,
+						})
+						if err != nil {
+							m.logger.Error("failed to ban user", zap.Error(err))
+						} else {
+							// Отправляем уведомление
+							banMsg := fmt.Sprintf("⛔ Пользователь %s забанен за превышение лимита ненормативной лексики (%d/%d)",
+								ctx.Message.Sender.FirstName, count+1, limits.LimitBannedWords)
+							ctx.Bot.Send(ctx.Message.Chat, banMsg)
+						}
+
+						// Прерываем выполнение
+						return nil
+					}
+				}
+			}
+
 			// Выполняем действие
 			return m.performAction(ctx, settings)
 		}
@@ -145,6 +191,21 @@ func (m *ProfanityFilterModule) OnMessage(ctx *core.MessageContext) error {
 }
 
 func (m *ProfanityFilterModule) performAction(ctx *core.MessageContext, settings *ProfanitySettings) error {
+	// Обновляем metadata существующего сообщения (БАГ #6)
+	profanityMeta := repositories.ProfanityMetadata{
+		Detected: true,
+		Action:   settings.Action,
+	}
+	err := m.messageRepo.UpdateMessageMetadata(
+		ctx.Chat.ID,
+		ctx.Message.ID,
+		"profanity",
+		profanityMeta,
+	)
+	if err != nil {
+		m.logger.Error("failed to update profanity metadata", zap.Error(err))
+	}
+
 	switch settings.Action {
 	case "delete":
 		return ctx.DeleteMessage()

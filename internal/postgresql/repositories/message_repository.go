@@ -28,6 +28,7 @@ func NewMessageRepository(db *sql.DB, logger *zap.Logger) *MessageRepository {
 // MessageMetadata содержит модуле-специфичные данные сообщения.
 type MessageMetadata struct {
 	Limiter    *LimiterMetadata    `json:"limiter,omitempty"`
+	Profanity  *ProfanityMetadata  `json:"profanity,omitempty"`
 	Reactions  *ReactionsMetadata  `json:"reactions,omitempty"`
 	TextFilter *TextFilterMetadata `json:"textfilter,omitempty"`
 	Statistics *StatisticsMetadata `json:"statistics,omitempty"`
@@ -58,6 +59,12 @@ type TextFilterMetadata struct {
 type StatisticsMetadata struct {
 	Processed        bool `json:"processed"`
 	ProcessingTimeMs int  `json:"processing_time_ms,omitempty"`
+}
+
+// ProfanityMetadata хранит информацию об обнаружении мата в сообщении.
+type ProfanityMetadata struct {
+	Detected bool   `json:"detected"`
+	Action   string `json:"action,omitempty"`
 }
 
 // InsertMessage сохраняет сообщение в БД с метаданными.
@@ -125,6 +132,71 @@ func (r *MessageRepository) GetTodayCountByType(chatID int64, threadID int, user
 	if err != nil {
 		return 0, fmt.Errorf("failed to get today count: %w", err)
 	}
+
+	return count, nil
+}
+
+// UpdateMessageMetadata обновляет metadata существующего сообщения через jsonb_set.
+// Используется для добавления информации после сохранения сообщения (например, profanity_detected).
+func (r *MessageRepository) UpdateMessageMetadata(chatID int64, messageID int, key string, value interface{}) error {
+	valueJSON, err := json.Marshal(value)
+	if err != nil {
+		return fmt.Errorf("failed to marshal metadata value: %w", err)
+	}
+
+	query := `
+		UPDATE messages
+		SET metadata = jsonb_set(
+			COALESCE(metadata, '{}'::jsonb),
+			$1,
+			$2::jsonb,
+			true
+		)
+		WHERE chat_id = $3 AND message_id = $4
+	`
+
+	_, err = r.db.Exec(query, fmt.Sprintf("{%s}", key), valueJSON, chatID, messageID)
+	if err != nil {
+		return fmt.Errorf("failed to update message metadata: %w", err)
+	}
+
+	r.logger.Debug("message metadata updated",
+		zap.Int64("chat_id", chatID),
+		zap.Int("message_id", messageID),
+		zap.String("key", key),
+	)
+
+	return nil
+}
+
+// GetTodayCountByMetadata подсчитывает сообщения с определенным metadata за сегодня.
+// Используется для подсчета матов (profanity.detected = true) при проверке лимита banned_words.
+func (r *MessageRepository) GetTodayCountByMetadata(chatID int64, threadID int, userID int64, metadataKey string, metadataValue bool) (int, error) {
+	query := `
+		SELECT COUNT(*)
+		FROM messages
+		WHERE chat_id = $1
+		  AND thread_id = $2
+		  AND user_id = $3
+		  AND DATE(created_at) = CURRENT_DATE
+		  AND was_deleted = FALSE
+		  AND metadata->$4->'detected' = to_jsonb($5::boolean)
+	`
+
+	var count int
+	err := r.db.QueryRow(query, chatID, threadID, userID, metadataKey, metadataValue).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("failed to get today count by metadata: %w", err)
+	}
+
+	r.logger.Debug("today count by metadata",
+		zap.Int64("chat_id", chatID),
+		zap.Int("thread_id", threadID),
+		zap.Int64("user_id", userID),
+		zap.String("metadata_key", metadataKey),
+		zap.Bool("metadata_value", metadataValue),
+		zap.Int("count", count),
+	)
 
 	return count, nil
 }
