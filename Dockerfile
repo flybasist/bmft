@@ -42,7 +42,7 @@ FROM alpine:latest
 # Метаданные
 LABEL maintainer="flybasist"
 LABEL description="BMFT Bot - Modular Telegram Bot Framework"
-LABEL version="0.6.0"
+LABEL version="1.1"
 
 # Установка CA сертификатов и timezone data (для TLS и правильного времени)
 RUN apk --no-cache add ca-certificates tzdata su-exec
@@ -61,8 +61,8 @@ COPY --from=builder --chown=bmft:bmft /build/bot /app/bot
 COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
-# Устанавливаем timezone (опционально, можно переопределить через env)
-ENV TZ=Europe/Moscow
+# Часовой пояс (переопределяется через TZ в .env или docker-compose)
+ENV TZ=${TZ:-Europe/Moscow}
 
 # НЕ переключаемся на bmft здесь - entrypoint.sh сделает это после настройки прав
 # USER bmft - закомментировано, entrypoint запустится от root и сам переключится

@@ -10,7 +10,7 @@ import (
 // ============================================================================
 
 // EventRepository управляет записью событий в таблицу event_log.
-// Русский комментарий: Репозиторий для audit trail — все действия модулей логируются здесь.
+// Репозиторий для audit trail — все действия модулей логируются здесь.
 type EventRepository struct {
 	db *sql.DB
 }
@@ -21,7 +21,7 @@ func NewEventRepository(db *sql.DB) *EventRepository {
 }
 
 // Log записывает событие в event_log.
-// Русский комментарий: Каждое действие модуля (лимит превышен, реакция сработала, etc.)
+// Каждое действие модуля (лимит превышен, реакция сработала, etc.)
 // логируется для последующего анализа и отладки.
 func (r *EventRepository) Log(chatID, userID int64, moduleName, eventType, details string) error {
 	query := `

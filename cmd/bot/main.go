@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
@@ -27,18 +28,17 @@ func main() {
 	// Загружаем .env для локальной разработки (в проде файл не требуется)
 	_ = godotenv.Load()
 
-	// Русский комментарий: Главная точка входа бота.
+	// Главная точка входа бота.
 	// 1. Загружаем конфиг
 	// 2. Инициализируем логгер
 	// 3. Подключаемся к PostgreSQL
-	// 4. Автоматически применяем миграции (001_initial_schema.sql)
+	// 4. Автоматически применяем миграции
 	// 5. Создаём telebot.v3 бота с Long Polling
-	// 6. Создаём Module Registry
-	// 7. Регистрируем модули (limiter, reactions, statistics, scheduler)
-	// 8. Инициализируем модули
-	// 9. Регистрируем хендлеры команд
-	// 10. Запускаем бота
-	// 11. Ждём SIGINT/SIGTERM для graceful shutdown
+	// 6. Создаём и инициализируем модули
+	// 7. Регистрируем команды модулей
+	// 8. Регистрируем pipeline обработки сообщений
+	// 9. Запускаем бота
+	// 10. Ждём SIGINT/SIGTERM для graceful shutdown
 
 	if err := run(); err != nil {
 		fmt.Fprintf(os.Stderr, "fatal error: %v\n", err)
@@ -100,12 +100,12 @@ func run() error {
 	}
 	logger.Info("connected to postgresql")
 
-	// Явно устанавливаем timezone для PostgreSQL-сессии
-	_, err = db.Exec("SET TIME ZONE 'Europe/Moscow';")
+	// Явно устанавливаем timezone для PostgreSQL-сессии (берём из TZ)
+	_, err = db.Exec(fmt.Sprintf("SET TIME ZONE '%s';", tz))
 	if err != nil {
 		logger.Warn("failed to set timezone in PostgreSQL session", zap.Error(err))
 	} else {
-		logger.Info("PostgreSQL session timezone set to Europe/Moscow")
+		logger.Info("PostgreSQL session timezone set", zap.String("timezone", tz))
 	}
 
 	// Автоматически применяем миграции (или валидируем существующую схему)
@@ -170,6 +170,20 @@ func run() error {
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
 
+	// Запускаем HTTP health-сервер для Docker healthcheck
+	healthMux := http.NewServeMux()
+	healthMux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("ok"))
+	})
+	healthServer := &http.Server{Addr: cfg.MetricsAddr, Handler: healthMux}
+	go func() {
+		logger.Info("health server started", zap.String("addr", cfg.MetricsAddr))
+		if err := healthServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			logger.Error("health server failed", zap.Error(err))
+		}
+	}()
+
 	// Запускаем бота в отдельной горутине
 	go func() {
 		logger.Info("bot started, polling for updates...")
@@ -180,28 +194,36 @@ func run() error {
 	sig := <-sigChan
 	logger.Info("received shutdown signal", zap.String("signal", sig.String()))
 
-	// Graceful shutdown
+	// Graceful shutdown с реальным таймаутом
 	shutdownCtx, shutdownCancel := context.WithTimeout(ctx, cfg.ShutdownTimeout)
 	defer shutdownCancel()
 
-	logger.Info("shutting down bot...")
-	bot.Stop()
+	// Канал для отслеживания завершения shutdown
+	done := make(chan struct{})
+	go func() {
+		logger.Info("shutting down health server...")
+		if err := healthServer.Shutdown(shutdownCtx); err != nil {
+			logger.Error("failed to shutdown health server", zap.Error(err))
+		}
 
-	logger.Info("shutting down modules...")
-	if err := modules.shutdownModules(logger); err != nil {
-		logger.Error("failed to shutdown modules", zap.Error(err))
-	}
+		logger.Info("shutting down bot...")
+		bot.Stop()
 
-	logger.Info("closing database connection...")
-	if err := db.Close(); err != nil {
-		logger.Error("failed to close database", zap.Error(err))
-	}
+		logger.Info("shutting down modules...")
+		if err := modules.shutdownModules(logger); err != nil {
+			logger.Error("failed to shutdown modules", zap.Error(err))
+		}
+
+		// db.Close() вызывается через defer в run() — дублировать не нужно
+
+		close(done)
+	}()
 
 	select {
 	case <-shutdownCtx.Done():
 		logger.Warn("shutdown timeout exceeded")
 		return fmt.Errorf("shutdown timeout exceeded")
-	default:
+	case <-done:
 		logger.Info("bot shutdown complete")
 		return nil
 	}

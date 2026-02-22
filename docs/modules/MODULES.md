@@ -1,400 +1,111 @@
 # Модули BMFT
 
-## Обзор
+BMFT состоит из 5 модулей, каждый отвечает за свою область функциональности.
 
-BMFT состоит из 7 независимых модулей, каждый отвечает за свою функцию.
+## Pipeline обработки сообщений
 
-**Принцип работы:**
-- ✅ **Statistics** работает всегда — единый источник правды
-- ⚙️ **Остальные модули** активируются наличием конфигурации в БД
-- 🔧 Нет команд `/enable`/`/disable` — модули настраиваются через админ-команды
+Каждое входящее сообщение проходит через 3 модуля в фиксированном порядке:
+
+```
+statistics → limiter → reactions
+```
+
+1. **Statistics** — записывает сообщение в БД (всегда первый)
+2. **Limiter** — проверяет лимиты, может удалить и остановить pipeline
+3. **Reactions** — фильтры (мат, бан-слова) + автоответы на ключевые слова
+
+Модули **Scheduler** и **Maintenance** работают в фоне и не участвуют в pipeline.
 
 ---
 
-## 1. Statistics — Статистика активности
+## 1. Statistics
 
-**Статус:** Всегда активен
+**Назначение:** Сбор статистики активности пользователей.
 
-### Назначение
-Записывает **все** сообщения в таблицу `messages` — единый источник правды для остальных модулей.
+- Записывает каждое сообщение в таблицу `messages` с JSONB metadata
+- Определяет тип контента (photo, video, sticker, text и т.д.)
+- Извлекает file_id для медиа-контента
+- Поддерживает топики (thread_id)
 
-### Команды
-
-| Команда | Доступ | Описание |
-|---------|--------|----------|
-| `/statistics` | Все | Справка по модулю |
-| `/myweek` | Все | Ваша статистика за неделю |
-| `/chatstats` | Админы | Статистика чата за период |
-| `/topchat` | Админы | Топ активных пользователей |
-
-### Как работает
-
-```
-Telegram → Bot → Statistics.OnMessage()
-                      ↓
-          messageRepo.InsertMessage(chatID, threadID, userID, content_type, ...)
-                      ↓
-            PostgreSQL (messages)
-```
-
-**Что записывается:**
-- Тип контента (text, photo, sticker, voice и т.д.)
-- thread_id для топиков
-- Метаданные в JSONB поле
-
-**Event logging:**
-- `/chatstats` → `event_log` (admin_viewed_stats)
-- `/topchat` → `event_log` (admin_viewed_top_users)
+**Команды:** `/statistics`, `/myweek`, `/chatstats`, `/topchat`
 
 ---
 
-## 2. Limiter — Контроль лимитов
+## 2. Limiter
 
-**Активация:** Наличие записи в `content_limits`
+**Назначение:** Контроль лимитов на типы контента с VIP-обходом.
 
-### Назначение
-Ограничивает количество сообщений определённого типа (стикеры, GIF, голосовые и т.д.).
+- Лимиты настраиваются per-chat и per-topic
+- VIP-пользователи игнорируют все лимиты
+- Предупреждение перед достижением лимита (порог из БД)
+- Особый тип `banned_words` — лимит на мат (работает вместе с Reactions)
+- При превышении лимита сообщение удаляется, pipeline останавливается
 
-### Команды
-
-| Команда | Доступ | Описание |
-|---------|--------|----------|
-| `/limiter` | Все | Справка по модулю |
-| `/mystats` | Все | Ваши текущие счётчики |
-| `/getlimit` | Все | Текущие лимиты чата |
-| `/setlimit <type> <count>` | Админы | Установить лимит |
-| `/setvip @user` | Админы | Дать VIP (обход лимитов) |
-| `/removevip @user` | Админы | Удалить VIP |
-| `/listvips` | Админы | Список VIP пользователей |
-
-### Типы контента
-
-```
-text, photo, video, animation (GIF), sticker, 
-voice, video_note, audio, document
-```
-
-### Логика работы
-
-```
-Limiter.OnMessage()
-  ↓
-Проверка: user в chat_vips?
-  ↓ НЕТ
-Проверка: есть content_limits для (chat_id, thread_id)?
-  ↓ ДА
-messageRepo.GetTodayCountByType(chatID, threadID, userID, content_type)
-  ↓
-count >= limit?
-  ↓ ДА
-bot.Delete(message)
-bot.Send("Превышен лимит на {type}: {count}/{limit}")
-```
-
-**VIP обход:**
-- VIP пользователи игнорируют все лимиты
-- VIP можно установить для всего чата или конкретного топика
-
-**Event logging:**
-- `/setlimit` → `event_log` (limit_updated)
-- `/setvip` → `event_log` (vip_added)
-- `/removevip` → `event_log` (vip_removed)
+**Команды:** `/limiter`, `/mystats`, `/getlimit`, `/setlimit`, `/setvip`, `/removevip`, `/listvips`
 
 ---
 
-## 3. Reactions — Автореакции
+## 3. Reactions
 
-**Активация:** Наличие записи в `keyword_reactions`
+**Назначение:** Автоответы, фильтрация запрещённых слов и ненормативной лексики.
 
-### Назначение
-Автоматически отправляет ответ при упоминании ключевого слова.
+Объединяет три подсистемы в одном модуле:
 
-### Команды
+### 3a. Фильтр мата (Profanity)
+- Встроенный словарь ~5000 слов (embedded в бинарник)
+- Действия: `delete`, `warn`, `mute`
+- Предупреждение перед баном (WarningThreshold из content_limits)
+- Лимит на количество матов в день (тип `banned_words` в Limiter)
 
-| Команда | Доступ | Описание |
-|---------|--------|----------|
-| `/reactions` | Все | Справка по модулю |
-| `/addreaction <keyword> <reply>` | Админы | Добавить реакцию |
-| `/listreactions` | Админы | Список всех реакций |
-| `/removereaction <id>` | Админы | Удалить реакцию |
+### 3b. Фильтр запрещённых слов (TextFilter)
+- Кастомные слова/фразы per-chat
+- Хранятся в `keyword_reactions` с `action = 'delete'`
+- При срабатывании сообщение удаляется
 
-### Типы реакций
+### 3c. Автоответы на ключевые слова
+- Паттерн → ответ (текст, стикер, GIF)
+- Поддержка regex, cooldown, per-user реакции
+- Хранятся в `keyword_reactions` с `action = 'reply'`
 
-**Текстовые:**
-```
-/addreaction "привет" "Здарова! 👋"
-```
+**Порядок проверки:** мат → бан-слова → автоответы
 
-**Медиа (через reply):**
-```
-# Ответьте на сообщение со стикером/фото/GIF командой:
-/addreaction "котики"
-```
-
-Поддерживаются типы: sticker, photo, animation, video, voice, document, audio
-
-### Логика работы
-
-```
-Reactions.OnMessage()
-  ↓
-Проверка: есть keyword_reactions для (chat_id, thread_id)?
-  ↓ ДА
-message.Text содержит keyword (case-insensitive)?
-  ↓ ДА
-Проверка: user в chat_vips?
-  ↓ НЕТ (VIP игнорируются)
-bot.Reply(reaction_type, reaction_data)
-```
-
-**VIP игнорируются:**
-- VIP пользователи не триггерят реакции
-- Чтобы админы не спамили случайно
-
-**Event logging:**
-- `/addreaction` → `event_log` (reaction_added)
-- `/removereaction` → `event_log` (reaction_removed)
+**Команды:**
+- Автоответы: `/reactions`, `/addreaction`, `/listreactions`, `/removereaction`
+- Фильтр слов: `/textfilter`, `/addban`, `/listbans`, `/removeban`
+- Фильтр мата: `/profanity`, `/setprofanity`, `/profanitystatus`, `/removeprofanity`
 
 ---
 
-## 4. Scheduler — Задачи по расписанию
+## 4. Scheduler
 
-**Активация:** Наличие записи в `scheduled_tasks`
+**Назначение:** Выполнение задач по расписанию (cron).
 
-### Назначение
-Отправляет сообщения по расписанию (cron выражения).
+- Задачи хранятся в БД (таблица `scheduled_tasks`)
+- Формат расписания: cron-выражения (5 полей)
+- Время: Europe/Moscow (UTC+3)
+- При shutdown все задачи корректно останавливаются
 
-### Команды
-
-| Команда | Доступ | Описание |
-|---------|--------|----------|
-| `/scheduler` | Все | Справка по модулю |
-| `/addtask <name> "<cron>" <type> <data>` | Админы | Создать задачу |
-| `/listtasks` | Админы | Список всех задач |
-| `/deltask <id>` | Админы | Удалить задачу |
-| `/runtask <id>` | Админы | Запустить задачу вручную |
-
-### Cron выражения
-
-```bash
-# Стандартный формат
-* * * * *
-│ │ │ │ │
-│ │ │ │ └─ День недели (0-6, Sunday=0)
-│ │ │ └─── Месяц (1-12)
-│ │ └───── День месяца (1-31)
-│ └─────── Час (0-23)
-└───────── Минута (0-59)
-```
-
-**Примеры:**
-```bash
-"0 9 * * *"      # Каждый день в 09:00
-"0 */2 * * *"    # Каждые 2 часа
-"0 9 * * 1"      # Каждый понедельник в 09:00
-"30 18 * * 1-5"  # Пн-Пт в 18:30
-```
-
-### Примеры использования
-
-**Текстовые задачи:**
-```
-/addtask morning "0 9 * * *" text "Доброе утро! ☀️"
-```
-
-**Медиа задачи (через reply):**
-```
-# Ответьте на сообщение со стикером/фото командой:
-/addtask reminder "0 18 * * 1-5" 
-```
-
-**Scope (чат/топик):**
-- Задача создаётся для того места, где вызвана команда
-- В основном чате → отправка в основной чат
-- В топике → отправка только в этот топик
-
-### Логика работы
-
-```
-Scheduler.Start()
-  ↓
-schedulerRepo.GetActiveTasks()
-  ↓
-Для каждой задачи:
-  cron.AddFunc(task.CronExpr, executeTask)
-  ↓
-При срабатывании cron:
-  executeTask()
-    ↓
-  bot.Send(chatID, threadID, task_type, task_data)
-    ↓
-  schedulerRepo.UpdateLastRun(taskID, NOW())
-```
-
-**Event logging:**
-- `/addtask` → `event_log` (task_created)
-- `/deltask` → `event_log` (task_deleted)
-- `/runtask` → `event_log` (task_executed_manually)
+**Команды:** `/scheduler`, `/addtask`, `/listtasks`, `/deltask`, `/runtask`
 
 ---
 
-## 5. TextFilter — Фильтр слов
+## 5. Maintenance
 
-**Активация:** Наличие записи в `banned_words`
+**Назначение:** Фоновое обслуживание БД.
 
-### Назначение
-Удаляет сообщения, содержащие запрещённые слова.
-
-### Команды
-
-| Команда | Доступ | Описание |
-|---------|--------|----------|
-| `/textfilter` | Все | Справка по модулю |
-| `/addban <word>` | Админы | Добавить запрещённое слово |
-| `/listbans` | Админы | Список запрещённых слов |
-| `/removeban <id>` | Админы | Удалить слово из списка |
-
-### Логика работы
-
-```
-TextFilter.OnMessage()
-  ↓
-Проверка: есть banned_words для (chat_id, thread_id)?
-  ↓ ДА
-Проверка: user в chat_vips?
-  ↓ НЕТ
-message.Text содержит banned_word (case-insensitive)?
-  ↓ ДА
-bot.Delete(message)
-messageRepo.MarkAsDeleted(messageID, "banned_word")
-```
-
-**VIP обход:**
-- VIP пользователи могут писать запрещённые слова
-
-**Event logging:**
-- `/addban` → `event_log` (banned_word_added)
-- `/removeban` → `event_log` (banned_word_removed)
+- Автоматическое создание партиций `messages` и `event_log` на будущие месяцы
+- Удаление старых партиций (старше `DB_RETENTION_MONTHS`)
+- Запуск по cron: ежедневно в 03:00 MSK
+- Не имеет команд — работает полностью автоматически
 
 ---
 
-## 6. ProfanityFilter — Фильтр мата
-
-**Активация:** Наличие записи в `profanity_settings`
-
-### Назначение
-Удаляет сообщения с матом из глобального словаря.
-
-### Команды
-
-| Команда | Доступ | Описание |
-|---------|--------|----------|
-| `/profanityfilter` | Все | Справка по модулю |
-| `/setprofanity <action>` | Админы | Настроить фильтр (delete/warn/delete_warn) |
-| `/profanitystatus` | Все | Текущие настройки фильтра |
-| `/removeprofanity` | Админы | Отключить фильтр |
-
-### Действия (actions)
-
-- `delete` — просто удалить сообщение
-- `warn` — отправить предупреждение
-- `delete_warn` — удалить и предупредить
-
-### Логика работы
+## Зависимости между модулями
 
 ```
-ProfanityFilter.OnMessage()
-  ↓
-Проверка: есть profanity_settings для (chat_id, thread_id)?
-  ↓ ДА
-Проверка: user в chat_vips?
-  ↓ НЕТ
-message.Text содержит слово из profanity_dictionary?
-  ↓ ДА
-Действие по profanity_settings.action:
-  - delete: bot.Delete(message)
-  - warn: bot.Send("Мат запрещён!")
-  - delete_warn: оба действия
+Statistics ← Limiter (использует счётчик из messages)
+Statistics ← Reactions (использует счётчик из messages)
+Limiter ← Reactions (banned_words лимит работает вместе с profanity)
 ```
 
-**Глобальный словарь:**
-- `profanity_dictionary` — единый для всех чатов
-- Админы управляют только действием, не словарём
-
-**VIP обход:**
-- VIP пользователи игнорируются фильтром
-
-**Event logging:**
-- `/setprofanity` → `event_log` (profanity_filter_enabled)
-- `/removeprofanity` → `event_log` (profanity_filter_disabled)
-
----
-
-## 7. Maintenance — Обслуживание
-
-**Статус:** Работает в фоне автоматически
-
-### Назначение
-Автоматическое создание партиций БД и удаление старых данных.
-
-### Задачи
-
-**1. Создание партиций (03:00 ежедневно):**
-- Создаёт партиции `messages_YYYY_MM` на 3 месяца вперёд
-- Создаёт партиции `event_log_YYYY_MM` на 3 месяца вперёд
-
-**2. Удаление старых данных (04:00 ежедневно):**
-- Удаляет партиции старше `DB_RETENTION_MONTHS` (default: 6)
-- Мгновенное удаление через `DROP TABLE`
-
-### Конфигурация (.env)
-
-```bash
-DB_RETENTION_MONTHS=6  # Срок хранения данных
-```
-
-**Подробнее:** [docs/guides/ROTATION.md](../guides/ROTATION.md)
-
----
-
-## Порядок обработки сообщений
-
-```
-1. Statistics.OnMessage()     ← Записывает в messages (всегда)
-    ↓
-2. Limiter.OnMessage()         ← Проверяет лимиты (если есть конфиг)
-    ↓ (если не удалено)
-3. TextFilter.OnMessage()      ← Фильтр слов (если есть конфиг)
-    ↓ (если не удалено)
-4. ProfanityFilter.OnMessage() ← Фильтр мата (если есть конфиг)
-    ↓ (если не удалено)
-5. Reactions.OnMessage()       ← Автореакции (если есть конфиг)
-```
-
-**Важно:**
-- Statistics работает **всегда первым**
-- Если сообщение удалено Limiter/Filter — остальные модули его не увидят
-- VIP пользователи игнорируются Limiter/Filters, но НЕ Reactions
-
----
-
-## Зависимости модулей
-
-```
-Statistics (единый источник правды)
-    ↓
-    ├─→ Limiter (читает из messages)
-    ├─→ Reactions (независим)
-    ├─→ Scheduler (независим)
-    ├─→ TextFilter (независим)
-    └─→ ProfanityFilter (независим)
-```
-
-**Maintenance** работает независимо в фоне.
-
----
-
-**См. также:**
-- [DATABASE.md](../architecture/DATABASE.md) — структура БД
-- [COMMANDS_ACCESS.md](../COMMANDS_ACCESS.md) — полный список команд
-- [QUICKSTART.md](QUICKSTART.md) — быстрый старт
+Все модули используют общие пакеты: `core` (helpers, middleware), `postgresql/repositories`.

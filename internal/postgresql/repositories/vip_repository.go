@@ -91,16 +91,15 @@ func (r *VIPRepository) RevokeVIP(chatID int64, threadID int, userID int64) erro
 // ListVIPs возвращает список всех VIP пользователей в чате/топике.
 // threadID = 0 - список для всего чата, >0 - список для конкретного топика.
 func (r *VIPRepository) ListVIPs(chatID int64, threadID int) ([]VIPInfo, error) {
+	// Таблица users удалена в миграции 002.
+	// Имя пользователя получаем через Telegram API (bot.ChatMemberOf) в хендлере.
 	rows, err := r.db.Query(`
 		SELECT 
 			cv.user_id,
 			cv.thread_id,
-			COALESCE(u.username, ''),
-			COALESCE(u.first_name, ''),
 			cv.granted_at,
 			COALESCE(cv.reason, '')
 		FROM chat_vips cv
-		LEFT JOIN users u ON cv.user_id = u.user_id
 		WHERE cv.chat_id = $1 AND cv.thread_id = $2
 		ORDER BY cv.granted_at DESC
 	`, chatID, threadID)
@@ -116,8 +115,6 @@ func (r *VIPRepository) ListVIPs(chatID int64, threadID int) ([]VIPInfo, error) 
 		err := rows.Scan(
 			&vip.UserID,
 			&vip.ThreadID,
-			&vip.Username,
-			&vip.FirstName,
 			&vip.GrantedAt,
 			&vip.Reason,
 		)
@@ -130,12 +127,12 @@ func (r *VIPRepository) ListVIPs(chatID int64, threadID int) ([]VIPInfo, error) 
 	return vips, nil
 }
 
-// VIPInfo содержит информацию о VIP пользователе
+// VIPInfo содержит информацию о VIP пользователе.
+// Username и FirstName здесь нет — таблица users удалена в миграции 002.
+// Имя пользователя получаем через Telegram API (bot.ChatMemberOf) в хендлере.
 type VIPInfo struct {
 	UserID    int64
 	ThreadID  int // 0 = VIP для всего чата, >0 = VIP только в топике
-	Username  string
-	FirstName string
 	GrantedAt string
 	Reason    string
 }

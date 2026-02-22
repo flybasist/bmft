@@ -32,7 +32,7 @@ func LoggerMiddleware(logger *zap.Logger) tele.MiddlewareFunc {
 }
 
 // PanicRecoveryMiddleware ловит panic и логирует его вместо падения бота.
-// Русский комментарий: Middleware для graceful recovery от паник в хендлерах.
+// Middleware для graceful recovery от паник в хендлерах.
 // Если модуль паникует — логируем стек-трейс, но бот продолжает работать.
 func PanicRecoveryMiddleware(logger *zap.Logger) tele.MiddlewareFunc {
 	return func(next tele.HandlerFunc) tele.HandlerFunc {

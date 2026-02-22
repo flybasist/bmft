@@ -147,42 +147,6 @@ func (r *ContentLimitsRepository) GetLimits(chatID int64, threadID int, userID *
 	}, nil
 }
 
-// GetLimitForContentType получает лимит для конкретного типа контента
-func (r *ContentLimitsRepository) GetLimitForContentType(chatID int64, threadID int, userID *int64, contentType string) (int, error) {
-	limits, err := r.GetLimits(chatID, threadID, userID)
-	if err != nil {
-		return 0, err
-	}
-
-	// Мапим тип контента на поле
-	switch contentType {
-	case "text":
-		return limits.LimitText, nil
-	case "photo":
-		return limits.LimitPhoto, nil
-	case "video":
-		return limits.LimitVideo, nil
-	case "sticker":
-		return limits.LimitSticker, nil
-	case "animation":
-		return limits.LimitAnimation, nil
-	case "voice":
-		return limits.LimitVoice, nil
-	case "video_note":
-		return limits.LimitVideoNote, nil
-	case "audio":
-		return limits.LimitAudio, nil
-	case "document":
-		return limits.LimitDocument, nil
-	case "location":
-		return limits.LimitLocation, nil
-	case "contact":
-		return limits.LimitContact, nil
-	default:
-		return 0, nil // нет лимита
-	}
-}
-
 // SetLimit устанавливает лимит для типа контента в чате/топике
 func (r *ContentLimitsRepository) SetLimit(chatID int64, threadID int, userID *int64, contentType string, limit int) error {
 	// Определяем какое поле обновлять

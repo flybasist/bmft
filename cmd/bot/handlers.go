@@ -6,11 +6,12 @@ import (
 	"go.uber.org/zap"
 	tele "gopkg.in/telebot.v3"
 
+	"github.com/flybasist/bmft/internal/core"
 	"github.com/flybasist/bmft/internal/postgresql/repositories"
 )
 
 // registerCommands регистрирует все команды бота.
-// Русский комментарий: Хендлеры для базовых команд: /start, /help, /version.
+// Хендлеры для базовых команд: /start, /help, /version.
 func registerCommands(
 	bot *tele.Bot,
 	chatRepo *repositories.ChatRepository,
@@ -22,7 +23,7 @@ func registerCommands(
 	bot.Handle("/version", handleVersion(botVersion))
 
 	// OnUserJoined — приветствие новых пользователей и бота
-	bot.Handle(tele.OnUserJoined, handleUserJoined())
+	bot.Handle(tele.OnUserJoined, handleUserJoined(chatRepo, logger))
 
 	// /start — приветствие
 	bot.Handle("/start", handleStart(chatRepo, eventRepo, logger))
@@ -30,8 +31,8 @@ func registerCommands(
 	// /help — помощь
 	bot.Handle("/help", handleHelp(logger))
 
-	// Универсальный обработчик для всех типов сообщений
-	// Русский комментарий: Хендлеры нужны для активации middleware (bot.Use).
+	// Универсальный обработчик для всех типов сообщений.
+	// Хендлеры нужны для активации middleware (bot.Use).
 	// Сами хендлеры ничего не делают — вся логика в middleware pipeline.
 	noOpHandler := func(c tele.Context) error { return nil }
 
@@ -47,17 +48,15 @@ func registerCommands(
 	bot.Handle(tele.OnLocation, noOpHandler)
 	bot.Handle(tele.OnContact, noOpHandler)
 	bot.Handle(tele.OnPoll, noOpHandler)
-	bot.Handle(tele.OnEdited, noOpHandler)
 }
 
 // handleVersion возвращает хендлер для команды /version
 func handleVersion(botVersion string) func(tele.Context) error {
 	return func(c tele.Context) error {
 		answer := fmt.Sprintf(
-			"Текущая версия - %s\n"+
-				"По всем вопросам писать автору бота - @FlyBasist\n"+
-				"Индивидуальная реакция стикером не чаще одного раза в десять минут\n"+
-				"Разработка бота требует ресурсов, поддержи разработку донатом!",
+			"🤖 BMFT v%s\n\n"+
+				"По всем вопросам писать автору бота — @FlyBasist\n"+
+				"Используйте /help для списка всех команд.",
 			botVersion,
 		)
 		return c.Send(answer)
@@ -65,17 +64,28 @@ func handleVersion(botVersion string) func(tele.Context) error {
 }
 
 // handleUserJoined возвращает хендлер для события OnUserJoined
-func handleUserJoined() func(tele.Context) error {
+func handleUserJoined(chatRepo *repositories.ChatRepository, logger *zap.Logger) func(tele.Context) error {
 	return func(c tele.Context) error {
 		newMember := c.Message().UserJoined
 
 		// Если бот добавлен в чат
 		if newMember.ID == c.Bot().Me.ID {
+			// Создаём запись чата в БД при добавлении бота.
+			// CheckIsForum делает API-запрос getChat, т.к. telebot.v3 v3.3.8
+			// не экспортирует IsForum в Chat struct.
+			// Критично для работы топиков (GetThreadID проверяет is_forum из БД).
+			chatType := string(c.Chat().Type)
+			title := c.Chat().Title
+			chatUsername := c.Chat().Username
+			isForum := core.CheckIsForum(c.Bot(), c.Chat().ID)
+			if err := chatRepo.GetOrCreate(c.Chat().ID, chatType, title, chatUsername, isForum); err != nil {
+				logger.Error("failed to create chat on bot join", zap.Error(err))
+			}
+
 			answer := "👋 Всем привет! Я BMFT (Bot Moderator For Telegram) — ваш новый помощник в управлении чатом!\n\n" +
 				"🔹 Автоматическая статистика активности\n" +
 				"🔹 Лимиты на контент (фото, видео, стикеры)\n" +
-				"🔹 Автоответы на ключевые слова\n" +
-				"🔹 Фильтрация запрещённых слов\n" +
+				"🔹 Автоответы, фильтры и модерация контента\n" +
 				"🔹 Запланированные задачи по расписанию\n\n" +
 				"Используйте /help для списка всех команд.\n" +
 				"Администраторы могут настраивать модули самостоятельно.\n\n" +
@@ -124,11 +134,12 @@ func handleStart(
 			zap.Int64("user_id", c.Sender().ID),
 		)
 
-		// Создаём запись чата в БД
+		// Создаём запись чата в БД (is_forum критичен для работы топиков)
 		chatType := string(c.Chat().Type)
 		title := c.Chat().Title
 		username := c.Chat().Username
-		if err := chatRepo.GetOrCreate(c.Chat().ID, chatType, title, username); err != nil {
+		isForum := core.CheckIsForum(c.Bot(), c.Chat().ID)
+		if err := chatRepo.GetOrCreate(c.Chat().ID, chatType, title, username, isForum); err != nil {
 			logger.Error("failed to create chat", zap.Error(err))
 			return c.Send("Произошла ошибка при инициализации чата.")
 		}
@@ -169,19 +180,17 @@ func handleHelp(logger *zap.Logger) func(tele.Context) error {
 
 🔹 limiter — контроль лимитов контента
    Ограничивает фото, видео, стикеры и т.д.
-   📌 /limiter, /setlimit, /setvip, /removevip, /listvips
+   📌 /limiter, /setlimit, /mystats, /getlimit
+   📌 /setvip, /removevip, /listvips
 
-🔹 reactions — автоматические реакции
-   Отвечает на ключевые слова
-   📌 /reactions, /addreaction, /listreactions, /removereaction
-
-🔹 textfilter — фильтр запрещённых слов
-   Удаляет сообщения с бан-словами
-   📌 /textfilter, /addban, /listbans, /removeban
-
-🔹 profanity — фильтр матов
-   Фильтрует ненормативную лексику
-   📌 /profanity, /setprofanity, /profanitystatus, /removeprofanity
+🔹 reactions — реакции, фильтры и модерация
+   Автоответы, фильтрация слов и мата
+   📌 /reactions — автоответы на ключевые слова
+      /addreaction, /listreactions, /removereaction
+   📌 /textfilter — фильтр запрещённых слов
+      /addban, /listbans, /removeban
+   📌 /profanity — фильтр ненормативной лексики
+      /setprofanity, /profanitystatus, /removeprofanity
 
 🔹 scheduler — запланированные задачи
    Выполняет задачи по расписанию (cron)

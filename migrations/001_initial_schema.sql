@@ -1,18 +1,28 @@
--- BMFT v0.8.0 Initial Schema with Topics Support
+-- ============================================================================
+-- BMFT v1.1 — Актуальная схема базы данных
+-- ============================================================================
+-- При свежей установке создаётся только этот файл.
+-- При обновлении с v1.0 — применяется миграция 002_migration.sql.
+-- Партиции для messages и event_log создаются автоматически модулем Maintenance.
+-- ============================================================================
 
--- Schema migrations tracking table
+-- Таблица версий миграций
 CREATE TABLE IF NOT EXISTS schema_migrations (
     version INTEGER PRIMARY KEY,
     description TEXT NOT NULL,
     applied_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- ============================================================================
+-- Core tables
+-- ============================================================================
+
 CREATE TABLE chats (
     chat_id BIGINT PRIMARY KEY,
     chat_type VARCHAR(20) NOT NULL,
     title TEXT,
     username TEXT,
-    is_forum BOOLEAN DEFAULT FALSE,  -- TRUE для супергрупп с включенными топиками
+    is_forum BOOLEAN DEFAULT FALSE,
     is_active BOOLEAN DEFAULT TRUE,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
@@ -20,20 +30,10 @@ CREATE TABLE chats (
 
 CREATE INDEX idx_chats_active ON chats(is_active);
 
-CREATE TABLE users (
-    user_id BIGINT PRIMARY KEY,
-    username TEXT,
-    first_name TEXT,
-    last_name TEXT,
-    is_bot BOOLEAN DEFAULT FALSE,
-    created_at TIMESTAMPTZ DEFAULT NOW(),
-    updated_at TIMESTAMPTZ DEFAULT NOW()
-);
-
 CREATE TABLE chat_vips (
     id BIGSERIAL PRIMARY KEY,
     chat_id BIGINT NOT NULL REFERENCES chats(chat_id) ON DELETE CASCADE,
-    thread_id BIGINT DEFAULT 0,  -- 0 = VIP на весь чат, >0 = VIP только в конкретном топике
+    thread_id BIGINT DEFAULT 0,
     user_id BIGINT NOT NULL,
     granted_by BIGINT,
     granted_at TIMESTAMPTZ DEFAULT NOW(),
@@ -43,17 +43,19 @@ CREATE TABLE chat_vips (
 
 CREATE INDEX idx_chat_vips_lookup ON chat_vips(chat_id, thread_id, user_id);
 
+-- Партиционированная таблица сообщений.
+-- Партиции создаются автоматически модулем Maintenance при запуске бота.
 CREATE TABLE messages (
     id BIGSERIAL,
     chat_id BIGINT NOT NULL,
-    thread_id BIGINT DEFAULT 0,  -- 0 = основной чат, >0 = сообщение в топике
+    thread_id BIGINT DEFAULT 0,
     user_id BIGINT NOT NULL,
     message_id BIGINT NOT NULL,
     content_type VARCHAR(20) NOT NULL,
     text TEXT,
     caption TEXT,
     file_id TEXT,
-    chat_name TEXT,  -- Username пользователя (для ЛС) или название чата (для групп)
+    chat_name TEXT,
     metadata JSONB DEFAULT '{}',
     was_deleted BOOLEAN DEFAULT FALSE,
     deletion_reason TEXT,
@@ -66,14 +68,14 @@ CREATE INDEX idx_messages_content_type ON messages(chat_id, thread_id, content_t
 CREATE INDEX idx_messages_metadata ON messages USING GIN (metadata);
 CREATE INDEX idx_messages_chat_name ON messages(chat_name);
 
-CREATE TABLE messages_2025_10 PARTITION OF messages FOR VALUES FROM ('2025-10-01') TO ('2025-11-01');
-CREATE TABLE messages_2025_11 PARTITION OF messages FOR VALUES FROM ('2025-11-01') TO ('2025-12-01');
-CREATE TABLE messages_2025_12 PARTITION OF messages FOR VALUES FROM ('2025-12-01') TO ('2026-01-01');
+-- ============================================================================
+-- Limiter Module
+-- ============================================================================
 
 CREATE TABLE content_limits (
     id BIGSERIAL PRIMARY KEY,
     chat_id BIGINT NOT NULL REFERENCES chats(chat_id) ON DELETE CASCADE,
-    thread_id BIGINT DEFAULT 0,  -- 0 = лимит для всего чата, >0 = лимит для топика
+    thread_id BIGINT DEFAULT 0,
     user_id BIGINT,
     limit_text INTEGER DEFAULT 0,
     limit_photo INTEGER DEFAULT 0,
@@ -95,44 +97,31 @@ CREATE TABLE content_limits (
 CREATE UNIQUE INDEX idx_content_limits_unique ON content_limits(chat_id, thread_id, COALESCE(user_id, -1));
 CREATE INDEX idx_content_limits_chat ON content_limits(chat_id, thread_id);
 
--- Materialized view для статистики контента (заменяет content_counters)
-CREATE MATERIALIZED VIEW daily_content_stats AS
-SELECT 
-    chat_id,
-    thread_id,
-    user_id,
-    DATE(created_at) as stat_date,
-    content_type,
-    COUNT(*) as message_count,
-    COUNT(*) FILTER (WHERE was_deleted = TRUE) as deleted_count
-FROM messages
-WHERE was_deleted = FALSE
-GROUP BY chat_id, thread_id, user_id, DATE(created_at), content_type;
-
-CREATE UNIQUE INDEX idx_daily_content_stats_pk 
-    ON daily_content_stats(chat_id, thread_id, user_id, stat_date, content_type);
-
-CREATE INDEX idx_daily_content_stats_lookup 
-    ON daily_content_stats(chat_id, thread_id, user_id, stat_date);
+-- ============================================================================
+-- Reactions Module (включает фильтры запрещённых слов и автоответы)
+-- ============================================================================
 
 CREATE TABLE keyword_reactions (
     id BIGSERIAL PRIMARY KEY,
     chat_id BIGINT NOT NULL REFERENCES chats(chat_id) ON DELETE CASCADE,
-    thread_id BIGINT DEFAULT 0,  -- 0 = реакция для всего чата, >0 = реакция только для топика
-    user_id BIGINT DEFAULT NULL,  -- NULL/0 = для всех пользователей, >0 = только для конкретного user_id (персональная пасхалка)
+    thread_id BIGINT DEFAULT 0,
+    user_id BIGINT DEFAULT NULL,
     pattern TEXT NOT NULL,
     is_regex BOOLEAN DEFAULT TRUE,
     response_type TEXT DEFAULT 'text',
     response_content TEXT NOT NULL,
     description TEXT,
-    trigger_content_type TEXT DEFAULT NULL,  -- NULL = любой контент, 'photo' = только фото, 'video' = только видео, 'sticker' = только стикеры, etc.
+    trigger_content_type TEXT DEFAULT NULL,
     cooldown INTEGER DEFAULT 3600,
     daily_limit INTEGER DEFAULT 0,
     delete_on_limit BOOLEAN DEFAULT FALSE,
+    action VARCHAR(20) DEFAULT NULL,
     is_active BOOLEAN DEFAULT TRUE,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+COMMENT ON COLUMN keyword_reactions.action IS 'NULL = реакция (ответ текстом/стикером), delete/warn/delete_warn = фильтр';
 
 CREATE INDEX idx_keyword_reactions_chat ON keyword_reactions(chat_id, thread_id, is_active);
 CREATE INDEX idx_keyword_reactions_user ON keyword_reactions(chat_id, thread_id, user_id) WHERE user_id IS NOT NULL;
@@ -150,7 +139,6 @@ CREATE TABLE reaction_triggers (
 CREATE INDEX idx_reaction_triggers_time ON reaction_triggers(last_triggered_at);
 
 -- Дневной счётчик срабатываний (для daily_limit)
--- Поддержка индивидуальных лимитов через user_id (0 = общий лимит чата, >0 = персональный)
 CREATE TABLE reaction_daily_counters (
     chat_id BIGINT NOT NULL,
     reaction_id BIGINT NOT NULL,
@@ -161,30 +149,46 @@ CREATE TABLE reaction_daily_counters (
 );
 
 CREATE INDEX idx_reaction_daily_counters_date ON reaction_daily_counters(counter_date);
-COMMENT ON TABLE reaction_daily_counters IS 'Счётчики срабатываний реакций по дням с поддержкой индивидуальных лимитов (user_id=0 для общих лимитов)';
 
-CREATE TABLE banned_words (
+-- ============================================================================
+-- Profanity Filter (глобальный словарь + per-chat настройки)
+-- ============================================================================
+
+CREATE TABLE profanity_dictionary (
     id BIGSERIAL PRIMARY KEY,
-    chat_id BIGINT NOT NULL REFERENCES chats(chat_id) ON DELETE CASCADE,
-    thread_id BIGINT DEFAULT 0,  -- 0 = бан-слово для всего чата, >0 = только для топика
-    pattern TEXT NOT NULL,
-    is_regex BOOLEAN DEFAULT TRUE,
-    action VARCHAR(20) NOT NULL CHECK (action IN ('delete', 'warn', 'delete_warn')),
-    is_active BOOLEAN DEFAULT TRUE,
-    created_at TIMESTAMPTZ DEFAULT NOW(),
-    updated_at TIMESTAMPTZ DEFAULT NOW()
+    pattern TEXT NOT NULL UNIQUE,
+    is_regex BOOLEAN DEFAULT FALSE,
+    severity VARCHAR(20) DEFAULT 'moderate',
+    created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
-CREATE INDEX idx_banned_words_chat ON banned_words(chat_id, thread_id, is_active);
+CREATE INDEX idx_profanity_pattern ON profanity_dictionary(pattern);
+CREATE INDEX idx_profanity_severity ON profanity_dictionary(severity);
+
+CREATE TABLE profanity_settings (
+    chat_id BIGINT NOT NULL REFERENCES chats(chat_id) ON DELETE CASCADE,
+    thread_id BIGINT DEFAULT 0,
+    action VARCHAR(20) DEFAULT 'delete',
+    warn_text TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
+    PRIMARY KEY (chat_id, thread_id)
+);
+
+CREATE INDEX idx_profanity_settings_chat ON profanity_settings(chat_id, thread_id);
+
+-- ============================================================================
+-- Scheduler Module
+-- ============================================================================
 
 CREATE TABLE scheduled_tasks (
     id BIGSERIAL PRIMARY KEY,
     chat_id BIGINT NOT NULL REFERENCES chats(chat_id) ON DELETE CASCADE,
-    thread_id BIGINT DEFAULT 0,  -- 0 = отправка в основной чат, >0 = отправка в конкретный топик
+    thread_id BIGINT DEFAULT 0,
     task_name VARCHAR(100) NOT NULL,
     cron_expression VARCHAR(100) NOT NULL,
     action_type VARCHAR(50) NOT NULL,
-    action_data JSONB NOT NULL DEFAULT '{}',
+    action_data TEXT NOT NULL DEFAULT '',
     is_active BOOLEAN DEFAULT TRUE,
     last_run TIMESTAMPTZ,
     created_at TIMESTAMPTZ DEFAULT NOW(),
@@ -193,6 +197,12 @@ CREATE TABLE scheduled_tasks (
 
 CREATE INDEX idx_scheduled_tasks_active ON scheduled_tasks(chat_id, thread_id, is_active);
 
+-- ============================================================================
+-- System tables
+-- ============================================================================
+
+-- Партиционированный лог событий.
+-- Партиции создаются автоматически модулем Maintenance при запуске бота.
 CREATE TABLE event_log (
     id BIGSERIAL,
     chat_id BIGINT NOT NULL,
@@ -209,55 +219,16 @@ CREATE INDEX idx_event_log_chat ON event_log(chat_id, created_at DESC);
 CREATE INDEX idx_event_log_module ON event_log(module_name, created_at DESC);
 CREATE INDEX idx_event_log_metadata ON event_log USING GIN (metadata);
 
--- Партиции для event_log (создаём для текущего и следующих месяцев)
-CREATE TABLE event_log_2025_10 PARTITION OF event_log FOR VALUES FROM ('2025-10-01') TO ('2025-11-01');
-CREATE TABLE event_log_2025_11 PARTITION OF event_log FOR VALUES FROM ('2025-11-01') TO ('2025-12-01');
-CREATE TABLE event_log_2025_12 PARTITION OF event_log FOR VALUES FROM ('2025-12-01') TO ('2026-01-01');
-
--- Profanity Filter: глобальный словарь матерных слов
-CREATE TABLE profanity_dictionary (
-    id BIGSERIAL PRIMARY KEY,
-    pattern TEXT NOT NULL UNIQUE,
-    is_regex BOOLEAN DEFAULT FALSE,
-    severity VARCHAR(20) DEFAULT 'moderate', -- 'mild', 'moderate', 'severe' (задел на будущее)
-    created_at TIMESTAMPTZ DEFAULT NOW()
-);
-
-CREATE INDEX idx_profanity_pattern ON profanity_dictionary(pattern);
-CREATE INDEX idx_profanity_severity ON profanity_dictionary(severity);
-
--- Profanity Filter: настройки фильтра для чата/треда
-CREATE TABLE profanity_settings (
-    chat_id BIGINT NOT NULL REFERENCES chats(chat_id) ON DELETE CASCADE,
-    thread_id BIGINT DEFAULT 0,
-    action VARCHAR(20) DEFAULT 'delete', -- 'delete', 'warn', 'delete_warn'
-    warn_text TEXT, -- Кастомное предупреждение (опционально)
-    created_at TIMESTAMPTZ DEFAULT NOW(),
-    updated_at TIMESTAMPTZ DEFAULT NOW(),
-    PRIMARY KEY (chat_id, thread_id)
-);
-
-CREATE INDEX idx_profanity_settings_chat ON profanity_settings(chat_id, thread_id);
-
 CREATE TABLE bot_settings (
     id SERIAL PRIMARY KEY,
-    bot_version TEXT DEFAULT '1.0',
+    bot_version TEXT DEFAULT '1.1',
     timezone TEXT DEFAULT 'UTC',
-    available_modules TEXT[] DEFAULT ARRAY['core', 'limiter', 'statistics', 'reactions', 'scheduler', 'textfilter', 'profanityfilter']
+    available_modules TEXT[] DEFAULT ARRAY['core', 'limiter', 'statistics', 'reactions', 'scheduler']
 );
 
 INSERT INTO bot_settings (id) VALUES (1) ON CONFLICT (id) DO NOTHING;
 
--- Функция для обновления материализованных представлений (вызывается cron-задачей)
-CREATE OR REPLACE FUNCTION refresh_stats_views() 
-RETURNS void AS $$
-BEGIN
-    REFRESH MATERIALIZED VIEW CONCURRENTLY daily_content_stats;
-    REFRESH MATERIALIZED VIEW CONCURRENTLY daily_reaction_stats;
-END;
-$$ LANGUAGE plpgsql;
-
--- Record migration version 1
-INSERT INTO schema_migrations (version, description) 
-VALUES (1, 'Initial schema with topics support and chat_name field')
+-- Record initial schema version
+INSERT INTO schema_migrations (version, description)
+VALUES (1, 'v1.1 initial schema')
 ON CONFLICT (version) DO NOTHING;

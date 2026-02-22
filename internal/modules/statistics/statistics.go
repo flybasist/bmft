@@ -25,30 +25,33 @@ type StatisticsModule struct {
 }
 
 // New создаёт новый экземпляр модуля статистики.
+// messageRepo — общий экземпляр из initModules (не создаём дубликат).
 func New(
 	db *sql.DB,
 	eventRepo *repositories.EventRepository,
+	messageRepo *repositories.MessageRepository,
 	logger *zap.Logger,
 	bot *tele.Bot,
 ) *StatisticsModule {
 	return &StatisticsModule{
 		db:          db,
 		logger:      logger,
-		messageRepo: repositories.NewMessageRepository(db, logger),
+		messageRepo: messageRepo,
 		eventRepo:   eventRepo,
 		bot:         bot,
 	}
 }
 
 // OnMessage обрабатывает входящее сообщение.
-// Русский комментарий: При каждом сообщении инкрементим счётчик в БД.
+// При каждом сообщении инкрементим счётчик в БД.
 func (m *StatisticsModule) OnMessage(ctx *core.MessageContext) error {
 	if ctx.Message == nil || ctx.Sender == nil {
 		m.logger.Warn("statistics: empty message or sender", zap.Any("ctx", ctx))
 		return nil
 	}
 
-	threadID := core.GetThreadIDFromMessage(m.db, ctx.Message)
+	// ThreadID уже вычислен в middleware и закеширован — без лишнего SQL-запроса.
+	threadID := ctx.ThreadID
 
 	m.logger.Debug("statistics: received message",
 		zap.Int64("chat_id", ctx.Chat.ID),
@@ -61,7 +64,7 @@ func (m *StatisticsModule) OnMessage(ctx *core.MessageContext) error {
 	contentType := core.DetectContentType(ctx.Message)
 	m.logger.Debug("statistics: detected content type", zap.String("content_type", contentType))
 
-	// Русский комментарий: Формируем chat_name для удобства статистики
+	// Формируем chat_name для удобства статистики
 	// Для ЛС: username пользователя
 	// Для групп: название чата
 	// Если нет - используем пустую строку (не падаем)
@@ -236,7 +239,7 @@ func (m *StatisticsModule) RegisterAdminCommands(bot *tele.Bot) {
 // handleMyWeekStats обрабатывает команду /myweek.
 func (m *StatisticsModule) handleMyWeekStats(c tele.Context) error {
 	chatID := c.Chat().ID
-	threadID := int(core.GetThreadID(m.db, c))
+	threadID := core.GetThreadID(m.db, c)
 
 	m.logger.Info("handleMyWeekStats called", zap.Int64("chat_id", chatID), zap.Int("thread_id", threadID), zap.Int64("user_id", c.Sender().ID))
 
@@ -302,7 +305,7 @@ func (m *StatisticsModule) handleMyWeekStats(c tele.Context) error {
 // handleChatStats обрабатывает команду /chatstats.
 func (m *StatisticsModule) handleChatStats(c tele.Context, date time.Time) error {
 	chatID := c.Chat().ID
-	threadID := int(core.GetThreadID(m.db, c))
+	threadID := core.GetThreadID(m.db, c)
 
 	m.logger.Info("handleChatStats called", zap.Int64("chat_id", chatID), zap.Int("thread_id", threadID), zap.Int64("user_id", c.Sender().ID))
 
@@ -365,7 +368,7 @@ func (m *StatisticsModule) handleChatStats(c tele.Context, date time.Time) error
 // handleTopChat обрабатывает команду /topchat.
 func (m *StatisticsModule) handleTopChat(c tele.Context, date time.Time) error {
 	chatID := c.Chat().ID
-	threadID := int(core.GetThreadID(m.db, c))
+	threadID := core.GetThreadID(m.db, c)
 
 	m.logger.Info("handleTopChat called", zap.Int64("chat_id", chatID), zap.Int("thread_id", threadID), zap.Int64("user_id", c.Sender().ID))
 

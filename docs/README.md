@@ -20,10 +20,11 @@ Bot Moderator For Telegram — система модерации и автома
 ### Для администраторов
 
 - **[ROTATION.md](ROTATION.md)** — настройка ротации логов и данных в БД
-- **[modules/MODULES.md](modules/MODULES.md)** — описание всех 7 модулей и их работы
+- **[modules/MODULES.md](modules/MODULES.md)** — описание всех 5 модулей и их работы
 
 ### Для разработчиков
 
+- **[ARCHITECTURE.md](ARCHITECTURE.md)** — архитектура проекта
 - **[architecture/DATABASE.md](architecture/DATABASE.md)** — схема БД, партиционирование, индексы
 - **[architecture/LOGGING.md](architecture/LOGGING.md)** — система логирования (уровни, structured logging)
 
@@ -37,26 +38,32 @@ docs/
 ├── QUICKSTART.md                ← Начните отсюда
 ├── COMMANDS_ACCESS.md           ← Справочник команд
 ├── ROTATION.md                  ← Настройка ротации
+├── ARCHITECTURE.md              ← Архитектура проекта
+├── BMFT_PRESENTATION.md         ← Презентация проекта
 │
 ├── architecture/                ← Техническая документация
 │   ├── DATABASE.md              ← Схема БД
 │   └── LOGGING.md               ← Система логирования
 │
 └── modules/                     ← Описание модулей
-    └── MODULES.md               ← Все 7 модулей
+    └── MODULES.md               ← Все 5 модулей
 ```
 
 ---
 
 ## 🔧 Модули бота
 
-1. **Statistics** — сбор статистики активности (всегда активен)
-2. **Limiter** — лимиты на типы контента с VIP-обходом
-3. **Reactions** — автоматические реакции на ключевые слова
-4. **Scheduler** — задачи по расписанию (cron)
-5. **TextFilter** — фильтр запрещённых слов (custom)
-6. **ProfanityFilter** — фильтр матов (встроенный словарь)
-7. **Maintenance** — фоновое обслуживание БД (партиции, ротация)
+Pipeline обработки сообщений: `statistics → limiter → reactions`
+
+| # | Модуль | Описание |
+|---|--------|----------|
+| 1 | **Statistics** | Сбор статистики активности (всегда активен) |
+| 2 | **Limiter** | Лимиты на типы контента с VIP-обходом |
+| 3 | **Reactions** | Автоответы, фильтр запрещённых слов, фильтр мата |
+| 4 | **Scheduler** | Задачи по расписанию (cron) |
+| 5 | **Maintenance** | Фоновое обслуживание БД (партиции, ротация) |
+
+Модуль **Reactions** объединяет: автоответы на ключевые слова, фильтр запрещённых слов (`/addban`), фильтр ненормативной лексики (`/setprofanity`).
 
 ---
 
@@ -79,7 +86,7 @@ docs/
 
 ---
 
-## �� Полезные ссылки
+## 🔗 Полезные ссылки
 
 - **GitHub:** [github.com/flybasist/bmft](https://github.com/flybasist/bmft)
 - **Готовый бот:** [@bmft_bot](https://t.me/bmft_bot)

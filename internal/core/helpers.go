@@ -2,15 +2,52 @@ package core
 
 import (
 	"database/sql"
+	"encoding/json"
+	"strconv"
 
 	"gopkg.in/telebot.v3"
 )
 
+// DisplayName возвращает отображаемое имя пользователя для сообщений бота.
+// @username если есть, иначе FirstName, иначе "Пользователь".
+// Без этого хелпера при пустом Username получалось: «⚠️ @, лимит на...»
+func DisplayName(user *telebot.User) string {
+	if user.Username != "" {
+		return "@" + user.Username
+	}
+	if user.FirstName != "" {
+		return user.FirstName
+	}
+	return "Пользователь"
+}
+
+// CheckIsForum проверяет, является ли чат форумом (с топиками) через Telegram API.
+// telebot.v3 v3.3.8 НЕ экспортирует IsForum в Chat struct,
+// поэтому делаем прямой запрос getChat и парсим is_forum из ответа.
+// Вызывается только в handleUserJoined и /start (редкие события), overhead минимален.
+func CheckIsForum(bot *telebot.Bot, chatID int64) bool {
+	data, err := bot.Raw("getChat", map[string]string{
+		"chat_id": strconv.FormatInt(chatID, 10),
+	})
+	if err != nil {
+		return false
+	}
+	var resp struct {
+		Result struct {
+			IsForum bool `json:"is_forum"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal(data, &resp); err != nil {
+		return false
+	}
+	return resp.Result.IsForum
+}
+
 // GetThreadID возвращает правильный thread_id с учетом того, является ли чат форумом.
-// Русский комментарий: В обычных чатах (не форумах) message.ThreadID может содержать
+// В обычных чатах (не форумах) message.ThreadID может содержать
 // мусорные значения (например, ID реплаевого сообщения). Эта функция проверяет is_forum
 // в БД и возвращает 0 для обычных чатов, thread_id для форумов.
-func GetThreadID(db *sql.DB, c telebot.Context) int64 {
+func GetThreadID(db *sql.DB, c telebot.Context) int {
 	// Если ThreadID == 0, сразу возвращаем 0 (это точно не топик)
 	if c.Message().ThreadID == 0 {
 		return 0
@@ -22,7 +59,6 @@ func GetThreadID(db *sql.DB, c telebot.Context) int64 {
 
 	// Если ошибка или не форум - возвращаем 0
 	if err != nil {
-		// Логируем только если это не "нет строк" (это нормально для новых чатов)
 		if err != sql.ErrNoRows {
 			// Можно добавить логгер в параметры функции, но пока просто возвращаем 0
 		}
@@ -33,7 +69,7 @@ func GetThreadID(db *sql.DB, c telebot.Context) int64 {
 	}
 
 	// Это реально форум с топиками
-	return int64(c.Message().ThreadID)
+	return c.Message().ThreadID
 }
 
 // GetThreadIDFromMessage возвращает правильный thread_id для сообщений в pipeline.
@@ -64,7 +100,7 @@ func GetThreadIDFromMessage(db *sql.DB, msg *telebot.Message) int {
 }
 
 // DetectContentType определяет тип контента сообщения.
-// Русский комментарий: Общая функция для определения типа контента.
+// Общая функция для определения типа контента.
 // Используется в модулях limiter и statistics.
 func DetectContentType(msg *telebot.Message) string {
 	if msg.Photo != nil {

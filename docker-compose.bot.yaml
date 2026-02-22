@@ -11,10 +11,10 @@ services:
       - .env
     environment:
       - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
-      - POSTGRES_DSN=${POSTGRES_DSN:-postgres://bmft:secret@postgres:5432/bmft?sslmode=disable}
+      - POSTGRES_DSN=${POSTGRES_DSN:-postgres://bmft:bmft@postgres:5432/bmft?sslmode=disable}
       - LOG_LEVEL=${LOG_LEVEL:-info}
       - LOGGER_PRETTY=${LOGGER_PRETTY:-false}
-      - TZ=Europe/Moscow
+      - TZ=${TZ:-Europe/Moscow}
     volumes:
       - ./data/logs:/app/logs
       - ./migrations:/app/migrations:ro

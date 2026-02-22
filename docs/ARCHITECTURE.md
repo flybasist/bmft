@@ -1,525 +1,94 @@
-# BMFT Bot - Архитектура
+# Архитектура BMFT
 
-## Оглавление
-1. [Обзор](#обзор)
-2. [Слои приложения](#слои-приложения)
-3. [Модульная система](#модульная-система)
-4. [Pipeline обработки сообщений](#pipeline-обработки-сообщений)
-5. [Диаграммы зависимостей](#диаграммы-зависимостей)
-6. [Правила добавления новых модулей](#правила-добавления-новых-модулей)
+## Стек технологий
 
----
+| Компонент | Технология |
+|-----------|-----------|
+| Язык | Go 1.25.5 |
+| Telegram API | telebot.v3 (Long Polling) |
+| БД | PostgreSQL 16+ (партиционирование, JSONB) |
+| Логирование | zap + lumberjack (ротация файлов) |
+| Cron | robfig/cron/v3 |
+| Конфигурация | .env (godotenv) |
+| Деплой | Docker (multi-stage build) |
 
-## Обзор
+## Структура проекта
 
-**BMFT** (Базовый Модульный Фреймворк для Телеграм-ботов) — это Go-приложение, построенное на **чистой архитектуре** с явным разделением слоёв.
-
-### Ключевые принципы:
-- ✅ **Модульность** — каждый модуль независим и реализует общий интерфейс `Module`
-- ✅ **Dependency Injection** — все зависимости передаются через конструкторы
-- ✅ **Repository Pattern** — вся работа с БД изолирована в репозиториях
-- ✅ **Middleware Chain** — обработка сообщений через pipeline
-- ✅ **Явная обработка ошибок** — никаких panic, все ошибки логируются
-
-### Основные компоненты:
 ```
-cmd/bot/              — точка входа, инициализация
-internal/core/        — ядро: контекст, middleware, хелперы
-internal/modules/     — бизнес-логика (limiter, reactions, statistics, etc.)
-internal/postgresql/  — слой БД (репозитории, миграции)
+bmft/
+├── cmd/bot/                     # Точка входа
+│   ├── main.go                  # Инициализация, graceful shutdown
+│   ├── modules.go               # Создание модулей и pipeline
+│   └── handlers.go              # /start, /help, /version
+│
+├── internal/
+│   ├── config/                  # Загрузка конфигурации из .env
+│   ├── core/                    # Общие типы и утилиты
+│   │   ├── interface.go         # MessageContext (контекст pipeline)
+│   │   ├── helpers.go           # GetThreadID, DetectContentType
+│   │   ├── middleware.go        # LoggerMiddleware, PanicRecovery
+│   │   └── admin_check.go      # IsUserAdmin
+│   ├── logx/                    # Настройка zap + lumberjack
+│   ├── migrations/              # Автоматические миграции БД
+│   ├── profanity/               # Загрузчик словаря мата (embedded)
+│   ├── modules/
+│   │   ├── statistics/          # Модуль статистики
+│   │   ├── limiter/             # Модуль лимитов
+│   │   ├── reactions/           # Модуль реакций + фильтры
+│   │   ├── scheduler/           # Модуль планировщика
+│   │   └── maintenance/         # Модуль обслуживания БД
+│   └── postgresql/
+│       ├── postgresql.go        # PingWithRetry
+│       └── repositories/        # Репозитории (chat, message, vip, etc.)
+│
+├── migrations/                  # SQL-файлы миграций
+├── config/postgres/             # pg_hba.conf для Docker
+├── scripts/                     # Вспомогательные скрипты
+├── docs/                        # Документация
+└── logs/                        # Логи (создаётся автоматически)
 ```
-
----
-
-## Слои приложения
-
-### 1. **Слой cmd (Application Layer)**
-**Расположение:** `cmd/bot/`
-
-**Ответственность:**
-- Инициализация приложения
-- Настройка логирования
-- Подключение к БД
-- Создание репозиториев
-- Создание модулей с DI
-- Регистрация middleware и команд
-- Запуск бота
-
-**Файлы:**
-- `main.go` — точка входа, setup
-- `handlers.go` — регистрация команд (`/start`, `/help`, `/version`, etc.)
-
-**Пример инициализации модуля:**
-```go
-limiterModule := limiter.New(
-    db,
-    vipRepo,
-    contentLimitsRepo,
-    eventRepo,
-    logger,
-    bot,
-)
-bot.Use(limiterModule.OnMessage)
-limiterModule.RegisterCommands(bot)
-```
-
----
-
-### 2. **Слой core (Domain Layer)**
-**Расположение:** `internal/core/`
-
-**Ответственность:**
-- Определение интерфейсов модулей
-- Контекст для сообщений (`MessageContext`)
-- Middleware chain
-- Хелперы (GetThreadID, DetectContentType)
-
-**Файлы:**
-- `module.go` — интерфейс `Module`
-- `middleware.go` — middleware цепочка для обработки сообщений
-- `helpers.go` — утилиты (`GetThreadID`, `DetectContentType`)
-- `context.go` — контекст для передачи данных между модулями
-
-**Интерфейс модуля:**
-```go
-type Module interface {
-    OnMessage(ctx *MessageContext) error
-    RegisterCommands(bot *tele.Bot)
-}
-```
-
-**MessageContext:**
-```go
-type MessageContext struct {
-    Message  *tele.Message
-    Chat     *tele.Chat
-    Sender   *tele.User
-    Bot      *tele.Bot
-    StopPropagation bool // если true, следующие модули не вызываются
-}
-```
-
----
-
-### 3. **Слой modules (Business Logic Layer)**
-**Расположение:** `internal/modules/`
-
-**Ответственность:**
-- Реализация бизнес-логики
-- Обработка команд
-- Обработка сообщений в pipeline
-- Взаимодействие с репозиториями
-
-**Модули:**
-- `limiter/` — лимиты на типы контента (фото, видео, etc.)
-- `reactions/` — автореакции на сообщения
-- `statistics/` — сбор статистики пользователей
-- `scheduler/` — планировщик задач (cron)
-- `textfilter/` — фильтрация текста (регулярки)
-- `profanityfilter/` — фильтр мата
-- `maintenance/` — режим технического обслуживания
-
-**Структура модуля:**
-```
-limiter/
-  ├── limiter.go          — основная логика
-  ├── commands.go         — команды (/setlimit, /showlimits, etc.)
-```
-
-**Пример обработки сообщения:**
-```go
-func (m *LimiterModule) OnMessage(ctx *core.MessageContext) error {
-    // 1. Проверяем VIP статус
-    isVIP, _ := m.vipRepo.IsVIP(ctx.Chat.ID, threadID, ctx.Sender.ID)
-    if isVIP {
-        return nil // VIP не имеет лимитов
-    }
-
-    // 2. Определяем тип контента
-    contentType := core.DetectContentType(ctx.Message)
-
-    // 3. Получаем лимиты
-    limit, _ := m.contentLimitsRepo.GetLimitForContentType(...)
-
-    // 4. Проверяем превышение
-    if count >= limit {
-        ctx.Bot.Delete(ctx.Message) // удаляем сообщение
-        ctx.StopPropagation = true  // останавливаем pipeline
-    }
-
-    return nil
-}
-```
-
----
-
-### 4. **Слой postgresql (Infrastructure Layer)**
-**Расположение:** `internal/postgresql/`
-
-**Ответственность:**
-- Работа с PostgreSQL
-- CRUD операции
-- Миграции схемы
-- Изоляция SQL
-
-**Структура:**
-```
-postgresql/
-  ├── migrations/        — схема БД
-  │   └── migrations.go
-  └── repositories/      — репозитории (7 файлов)
-      ├── chat_repository.go
-      ├── event_repository.go
-      ├── settings_repository.go
-      ├── vip_repository.go
-      ├── content_limits_repository.go
-      ├── scheduler_repository.go
-      ├── message_repository.go
-```
-
-**Repository Pattern:**
-```go
-type ChatRepository struct {
-    db *sql.DB
-}
-
-func (r *ChatRepository) GetOrCreate(chatID int64, chatType, title, username string) error {
-    query := `INSERT INTO chats ... ON CONFLICT DO UPDATE ...`
-    _, err := r.db.Exec(query, chatID, chatType, title, username)
-    return err
-}
-```
-
----
-
-## Модульная система
-
-### Интерфейс Module
-Каждый модуль реализует 2 метода:
-```go
-type Module interface {
-    OnMessage(ctx *MessageContext) error      // обработка сообщений
-    RegisterCommands(bot *tele.Bot)           // регистрация команд
-}
-```
-
-### Независимость модулей
-- ❌ **Модули НЕ ДОЛЖНЫ вызывать друг друга напрямую**
-- ✅ **Модули общаются через `MessageContext`**
-- ✅ **Модули получают только нужные репозитории через DI**
-
-### Пример неправильного взаимодействия:
-```go
-// ❌ НЕПРАВИЛЬНО — модуль вызывает другой модуль
-func (m *LimiterModule) OnMessage(ctx *core.MessageContext) error {
-    m.statisticsModule.IncrementCounter(...) // НЕ ДЕЛАЙ ТАК!
-}
-```
-
-### Пример правильного взаимодействия:
-```go
-// ✅ ПРАВИЛЬНО — модуль использует общий репозиторий
-func (m *LimiterModule) OnMessage(ctx *core.MessageContext) error {
-    m.messageRepo.SaveMessage(...) // используем репозиторий
-}
-```
-
----
 
 ## Pipeline обработки сообщений
 
-### Текущая реализация (через middleware)
-
-**cmd/bot/main.go:**
-```go
-// Регистрируем модули в порядке приоритета:
-bot.Use(maintenanceModule.OnMessage)   // 1. Проверка технического обслуживания
-bot.Use(limiterModule.OnMessage)       // 2. Проверка лимитов
-bot.Use(textFilterModule.OnMessage)    // 3. Фильтрация текста
-bot.Use(profanityModule.OnMessage)     // 4. Фильтр мата
-bot.Use(reactionsModule.OnMessage)     // 5. Автореакции
-bot.Use(statisticsModule.OnMessage)    // 6. Сбор статистики
+```
+Telegram → Long Polling → telebot.v3
+                              │
+                     LoggerMiddleware
+                     PanicRecovery
+                              │
+                     ┌────────┴────────┐
+                     │   statistics    │  ← записывает в messages
+                     ├─────────────────┤
+                     │    limiter      │  ← проверяет лимиты, может удалить
+                     ├─────────────────┤
+                     │   reactions     │  ← мат → бан-слова → автоответы
+                     └─────────────────┘
 ```
 
-### Как работает pipeline:
-1. Сообщение приходит в бот
-2. Проходит через каждый middleware по порядку
-3. Модуль может остановить цепочку: `ctx.StopPropagation = true`
-4. Если модуль вернул `error`, логируется, но цепочка продолжается
+Каждый модуль получает `*core.MessageContext` и может:
+- Читать/анализировать сообщение
+- Отвечать или удалять сообщение
+- Установить `MessageDeleted = true` — сообщение удалено, следующие модули скорректируют поведение
 
-### Когда останавливать pipeline:
-```go
-// Пример из limiter.go:
-if count >= limit {
-    ctx.Bot.Delete(ctx.Message)
-    ctx.StopPropagation = true // ОСТАНАВЛИВАЕМ — сообщение удалено
-    return nil
-}
-```
+## Жизненный цикл бота
 
----
+1. Загрузка конфигурации из `.env`
+2. Инициализация логгера (zap + lumberjack)
+3. Подключение к PostgreSQL с ретраями
+4. Применение миграций (если требуется)
+5. Загрузка словаря мата в БД (если пуст)
+6. Создание модулей и регистрация команд
+7. Запуск pipeline (bot.Use)
+8. Запуск Scheduler и Maintenance (cron)
+9. Запуск HTTP health-сервера (/healthz)
+10. Long Polling → обработка сообщений
+11. Graceful shutdown по SIGINT/SIGTERM
 
-## Диаграммы зависимостей
+## Graceful Shutdown
 
-### 1. Архитектура слоёв
-```
-┌─────────────────────────────────────────┐
-│     cmd/bot (Application Layer)         │
-│  main.go, handlers.go                   │
-│  Инициализация, регистрация             │
-└──────────────┬──────────────────────────┘
-               │ depends on
-               v
-┌─────────────────────────────────────────┐
-│   internal/modules (Business Logic)     │
-│  limiter, reactions, statistics, etc.   │
-│  Бизнес-логика, команды                 │
-└──────────────┬──────────────────────────┘
-               │ depends on
-               v
-┌─────────────────────────────────────────┐
-│    internal/core (Domain Layer)         │
-│  Module interface, MessageContext       │
-│  Middleware, хелперы                    │
-└──────────────┬──────────────────────────┘
-               │ depends on
-               v
-┌─────────────────────────────────────────┐
-│  internal/postgresql (Infrastructure)   │
-│  Repositories, Migrations               │
-│  SQL, CRUD                              │
-└─────────────────────────────────────────┘
-```
-
-### 2. Dependency Injection
-```
-main.go
-  ├── DB Connection
-  │
-  ├── Repositories
-  │   ├── ChatRepository(db)
-  │   ├── VIPRepository(db)
-  │   ├── ContentLimitsRepository(db)
-  │   ├── MessageRepository(db, logger)
-  │   └── EventRepository(db)
-  │
-  └── Modules
-      ├── LimiterModule(db, vipRepo, limitsRepo, eventRepo, logger, bot)
-      ├── ReactionsModule(db, eventRepo, logger, bot)
-      ├── StatisticsModule(db, eventRepo, logger, bot)
-      └── SchedulerModule(db, schedulerRepo, logger, bot)
-```
-
-### 3. Pipeline Flow
-```
-[User Message]
-     │
-     v
-[Maintenance Check] ──❌ reject──> [403 Bot in maintenance]
-     │✅ pass
-     v
-[Limiter Check] ──❌ over limit──> [Delete + Warning]
-     │✅ pass
-     v
-[Text Filter] ──❌ banned regex──> [Delete]
-     │✅ pass
-     v
-[Profanity Filter] ──❌ bad words──> [Delete + Warning]
-     │✅ pass
-     v
-[Reactions] ──✅ add emoji──> [Reaction added]
-     │
-     v
-[Statistics] ──✅ log──> [Save to messages table]
-     │
-     v
-[User sees message]
-```
-
----
-
-## Правила добавления новых модулей
-
-### 1. Создайте структуру модуля
-```go
-package mymodule
-
-type MyModule struct {
-    db     *sql.DB
-    myRepo *repositories.MyRepository
-    logger *zap.Logger
-    bot    *tele.Bot
-}
-
-func New(db *sql.DB, myRepo *repositories.MyRepository, logger *zap.Logger, bot *tele.Bot) *MyModule {
-    return &MyModule{
-        db:     db,
-        myRepo: myRepo,
-        logger: logger,
-        bot:    bot,
-    }
-}
-```
-
-### 2. Реализуйте интерфейс Module
-```go
-func (m *MyModule) OnMessage(ctx *core.MessageContext) error {
-    // Ваша логика обработки сообщений
-    return nil
-}
-
-func (m *MyModule) RegisterCommands(bot *tele.Bot) {
-    bot.Handle("/mycommand", m.handleMyCommand)
-}
-```
-
-### 3. Добавьте репозиторий (если нужен)
-```
-internal/postgresql/repositories/
-  └── my_repository.go
-```
-
-```go
-type MyRepository struct {
-    db *sql.DB
-}
-
-func NewMyRepository(db *sql.DB) *MyRepository {
-    return &MyRepository{db: db}
-}
-
-func (r *MyRepository) DoSomething() error {
-    // SQL операции
-    return nil
-}
-```
-
-### 4. Зарегистрируйте модуль в main.go
-```go
-// Создаём репозиторий
-myRepo := repositories.NewMyRepository(db)
-
-// Создаём модуль с DI
-myModule := mymodule.New(db, myRepo, logger, bot)
-
-// Регистрируем middleware (место в pipeline важно!)
-bot.Use(myModule.OnMessage)
-
-// Регистрируем команды
-myModule.RegisterCommands(bot)
-```
-
-### 5. Обновите миграции (если нужна БД)
-```go
-// internal/postgresql/migrations/migrations.go
-func Run(db *sql.DB) error {
-    tables := []string{
-        `CREATE TABLE IF NOT EXISTS my_table (...)`,
-        // остальные таблицы
-    }
-}
-```
-
-### ✅ Checklist для нового модуля:
-- [ ] Модуль реализует `core.Module` интерфейс
-- [ ] Модуль получает зависимости через конструктор (DI)
-- [ ] Модуль НЕ вызывает другие модули напрямую
-- [ ] Репозиторий создан в `repositories/` (если нужен)
-- [ ] Миграции обновлены (если нужна БД)
-- [ ] Модуль зарегистрирован в `main.go`
-- [ ] Команды зарегистрированы через `RegisterCommands()`
-- [ ] Логирование настроено через `zap.Logger`
-- [ ] Тесты написаны (желательно)
-
----
-
-## Масштабируемость
-
-### Вопрос: Можно ли добавить 10+ модулей без рефакторинга?
-**Ответ: ДА**, если соблюдать правила:
-
-### ✅ Хорошие практики:
-- Модули независимы — можно добавлять сколько угодно
-- Каждый модуль получает только нужные репозитории
-- Pipeline настраивается в `main.go`
-- Репозитории разделены по файлам (нет 1000-строчных файлов)
-
-### ❌ Плохие практики (приведут к монолиту):
-- Модули вызывают друг друга напрямую
-- Один репозиторий на всё (как был `all.go` на 929 строк)
-- Модули зависят от конкретных реализаций, а не интерфейсов
-- Бизнес-логика в `main.go` или `handlers.go`
-
-### Пример добавления модуля 8:
-```go
-// 1. Создаём модуль
-module8 := module8.New(db, repo8, logger, bot)
-
-// 2. Регистрируем в pipeline (место важно!)
-bot.Use(limiterModule.OnMessage)       // ДО модуля 8 (если нужен лимит)
-bot.Use(module8.OnMessage)             // <-- НОВЫЙ МОДУЛЬ
-bot.Use(statisticsModule.OnMessage)    // ПОСЛЕ модуля 8 (статистика всегда последняя)
-
-// 3. Регистрируем команды
-module8.RegisterCommands(bot)
-```
-
-**Вывод:** Архитектура готова для 10-15 модулей без переделок!
-
----
-
-## FAQ
-
-### Q: Почему Go-проект в 8 раз больше Python версии?
-**A:** Это нормально и правильно:
-- Go требует явных типов и обработки ошибок
-- Enterprise patterns (DI, Repository, Middleware) добавляют строк
-- Лучшее разделение слоёв (в Python всё в 1-2 файлах)
-- Больше функциональности (7 модулей vs 3 в Python)
-
-### Q: Нужна ли глубокая рефакторинга?
-**A:** НЕТ. Архитектура оценена на **8/10**. Нужны только точечные улучшения:
-- ✅ Разбить `all.go` на 7 файлов (сделано)
-- ✅ Вынести `detectContentType()` в `core/helpers.go` (сделано)
-- 🔄 Добавить эту документацию (в процессе)
-- 🔜 Сделать Pipeline явным (опционально)
-
-### Q: Как избежать monolith при росте?
-**A:** Главное правило: **модули НЕ вызывают друг друга**
-- ✅ Общение через `MessageContext`
-- ✅ Общие репозитории
-- ❌ Прямые вызовы между модулями
-
-### Q: Где хранить общие утилиты?
-**A:** `internal/core/helpers.go`
-- `GetThreadID()` — правильный thread_id для форумов
-- `DetectContentType()` — определение типа контента
-- Добавляй новые по мере необходимости
-
----
-
-## История версий
-
-**v0.9.0 (2025-01-21):**
-- ✅ Разбит `all.go` (929 строк) на 7 файлов
-- ✅ Удалён deprecated `StatisticsRepository`
-- ✅ Унифицирован `DetectContentType()` → `core.DetectContentType()`
-- ✅ Создана документация архитектуры
-
-**v0.8.0:**
-- Переход с `content_counters` на `messages` с JSONB metadata
-- Улучшена обработка топиков в форумах
-
-**v0.7.0:**
-- Добавлены модули: scheduler, textfilter, profanityfilter
-- Middleware chain для обработки сообщений
-
----
-
-## Лицензия
-MIT License — используй как хочешь!
-
----
-
-**Автор:** FlyBasist  
-**Дата:** 21 декабря 2025 г.
+При получении SIGINT/SIGTERM:
+1. Остановка health-сервера
+2. Остановка telebot (bot.Stop)
+3. Остановка Scheduler и Maintenance (cron.Stop)
+4. Закрытие соединения с БД
+5. Таймаут: `SHUTDOWN_TIMEOUT` (по умолчанию 15s)

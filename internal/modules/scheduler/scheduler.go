@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/robfig/cron/v3"
@@ -23,6 +24,8 @@ type SchedulerModule struct {
 	schedulerRepo *repositories.SchedulerRepository
 	eventRepo     *repositories.EventRepository
 	cron          *cron.Cron
+	taskEntries   map[int64]cron.EntryID // task DB ID → cron entry ID
+	mu            sync.Mutex             // защита taskEntries
 }
 
 // New создаёт новый инстанс модуля планировщика.
@@ -34,6 +37,7 @@ func New(db *sql.DB, schedulerRepo *repositories.SchedulerRepository, eventRepo 
 		logger:        logger,
 		bot:           bot,
 		cron:          cron.New(),
+		taskEntries:   make(map[int64]cron.EntryID),
 	}
 
 	logger.Info("scheduler module created")
@@ -41,7 +45,7 @@ func New(db *sql.DB, schedulerRepo *repositories.SchedulerRepository, eventRepo 
 }
 
 // Start запускает планировщик задач.
-// Русский комментарий: Явный метод для управления жизненным циклом.
+// Явный метод для управления жизненным циклом.
 // Загружает активные задачи из БД и запускает cron scheduler.
 func (m *SchedulerModule) Start() error {
 	m.logger.Info("starting scheduler module")
@@ -56,11 +60,6 @@ func (m *SchedulerModule) Start() error {
 	m.cron.Start()
 	m.logger.Info("cron scheduler started successfully")
 
-	return nil
-}
-
-// OnMessage обрабатывает входящие сообщения.
-func (m *SchedulerModule) OnMessage(ctx *core.MessageContext) error {
 	return nil
 }
 
@@ -107,11 +106,11 @@ func (m *SchedulerModule) RegisterCommands(bot *tele.Bot) {
 		msg += "• <code>0 9 * * 1</code> — каждый понедельник в 9:00\n"
 		msg += "• <code>0 0 1 * *</code> — 1-го числа каждого месяца в 00:00\n\n"
 
-		msg += "<b>⏰ ВРЕМЯ СЕРВЕРА (UTC+0):</b>\n"
-		msg += "⚠️ Время указывается по UTC, пересчитайте для вашего города:\n"
-		msg += "• Москва (UTC+3): 9:00 MSK = <code>6 * * *</code> (6:00 UTC)\n"
-		msg += "• Алматы (UTC+5): 9:00 ALMT = <code>4 * * *</code> (4:00 UTC)\n"
-		msg += "• Владивосток (UTC+10): 9:00 VLAT = <code>23 * * *</code> (вчера 23:00 UTC)\n\n"
+		msg += "<b>⏰ ВРЕМЯ СЕРВЕРА (Europe/Moscow, UTC+3):</b>\n"
+		msg += "⚠️ Время указывается по московскому времени (MSK):\n"
+		msg += "• Москва: 9:00 MSK = <code>0 9 * * *</code>\n"
+		msg += "• Алматы (UTC+5): 9:00 ALMT = <code>0 7 * * *</code> (7:00 MSK)\n"
+		msg += "• Владивосток (UTC+10): 9:00 VLAT = <code>0 2 * * *</code> (2:00 MSK)\n\n"
 
 		msg += "⚙️ <b>Работа с топиками:</b>\n"
 		msg += "• Команда в топике → задача отправляется только в этот топик\n"
@@ -153,15 +152,21 @@ func (m *SchedulerModule) loadActiveTasks() error {
 }
 
 func (m *SchedulerModule) registerTask(task *repositories.ScheduledTask) error {
-	_, err := m.cron.AddFunc(task.CronExpr, func() {
+	entryID, err := m.cron.AddFunc(task.CronExpr, func() {
 		m.executeTask(task)
 	})
 	if err != nil {
 		return fmt.Errorf("failed to add cron job: %w", err)
 	}
 
+	// Сохраняем связь task DB ID → cron entry ID для возможности удаления
+	m.mu.Lock()
+	m.taskEntries[task.ID] = entryID
+	m.mu.Unlock()
+
 	m.logger.Info("registered cron task",
 		zap.Int64("task_id", task.ID),
+		zap.Int("cron_entry_id", int(entryID)),
 		zap.String("cron_expr", task.CronExpr),
 		zap.String("task_name", task.TaskName),
 	)
@@ -267,7 +272,7 @@ func (m *SchedulerModule) handleListTasks(c tele.Context) error {
 	}
 
 	chatID := c.Chat().ID
-	threadID := int(core.GetThreadID(m.db, c))
+	threadID := core.GetThreadID(m.db, c)
 
 	// Логируем событие
 	_ = m.eventRepo.Log(chatID, c.Sender().ID, "scheduler", "list_tasks",
@@ -323,7 +328,7 @@ func (m *SchedulerModule) handleListTasks(c tele.Context) error {
 
 func (m *SchedulerModule) handleAddTask(c tele.Context) error {
 	chatID := c.Chat().ID
-	threadID := int(core.GetThreadID(m.db, c))
+	threadID := core.GetThreadID(m.db, c)
 
 	m.logger.Info("handleAddTask called", zap.Int64("chat_id", chatID), zap.Int("thread_id", threadID), zap.Int64("user_id", c.Sender().ID))
 
@@ -335,6 +340,14 @@ func (m *SchedulerModule) handleAddTask(c tele.Context) error {
 	if !isAdmin {
 		return c.Send("❌ Команда доступна только администраторам")
 	}
+
+	// Убеждаемся что chat_id существует в таблице chats (для foreign key).
+	// scheduled_tasks имеет REFERENCES chats(chat_id) — без записи в chats INSERT упадёт.
+	_, _ = m.db.Exec(`
+		INSERT INTO chats (chat_id, chat_type, title)
+		VALUES ($1, 'unknown', 'unknown')
+		ON CONFLICT (chat_id) DO NOTHING
+	`, chatID)
 
 	var taskType, taskData string
 
@@ -462,6 +475,15 @@ func (m *SchedulerModule) handleAddTask(c tele.Context) error {
 		}
 
 		name := parts[0]
+
+		// Валидация имени задачи (аналогично reply-mode)
+		if len(name) == 0 {
+			return c.Send("❌ Имя задачи не может быть пустым")
+		}
+		if len(name) > 200 {
+			return c.Send("❌ Имя задачи слишком длинное (макс. 200 символов)")
+		}
+
 		remaining := parts[1]
 
 		// Parse cron expression in quotes
@@ -493,7 +515,7 @@ func (m *SchedulerModule) handleAddTask(c tele.Context) error {
 		}
 
 		chatID := c.Chat().ID
-		threadID := int(core.GetThreadID(m.db, c))
+		threadID := core.GetThreadID(m.db, c)
 
 		taskID, err := m.schedulerRepo.CreateTask(chatID, threadID, name, cronExpr, taskType, taskData)
 		if err != nil {
@@ -569,6 +591,18 @@ func (m *SchedulerModule) handleDeleteTask(c tele.Context) error {
 		m.logger.Error("failed to delete task", zap.Error(err))
 		return c.Send("❌ Ошибка при удалении задачи")
 	}
+
+	// Удаляем задачу из cron в памяти
+	m.mu.Lock()
+	if entryID, ok := m.taskEntries[taskID]; ok {
+		m.cron.Remove(entryID)
+		delete(m.taskEntries, taskID)
+		m.logger.Info("removed cron entry",
+			zap.Int64("task_id", taskID),
+			zap.Int("cron_entry_id", int(entryID)),
+		)
+	}
+	m.mu.Unlock()
 
 	_ = m.eventRepo.Log(c.Chat().ID, c.Sender().ID, "scheduler", "task_deleted",
 		fmt.Sprintf("Task %d deleted", taskID))

@@ -10,7 +10,7 @@ import (
 )
 
 // MaintenanceModule обслуживает автоматическую ротацию данных в PostgreSQL.
-// Русский комментарий: Создаёт партиции на будущие месяцы и удаляет старые данные.
+// Создаёт партиции на будущие месяцы и удаляет старые данные.
 // Работает в фоновом режиме по расписанию cron.
 type MaintenanceModule struct {
 	db              *sql.DB
@@ -33,7 +33,7 @@ func New(db *sql.DB, logger *zap.Logger, retentionMonths int) *MaintenanceModule
 }
 
 // Start запускает фоновые задачи обслуживания.
-// Русский комментарий: Регистрирует cron-задачи для создания партиций и очистки старых данных.
+// Регистрирует cron-задачи для создания партиций и очистки старых данных.
 func (m *MaintenanceModule) Start() error {
 	m.logger.Info("starting maintenance module")
 
@@ -81,7 +81,7 @@ func (m *MaintenanceModule) Shutdown() error {
 }
 
 // ensurePartitions создаёт партиции на 3 месяца вперёд для messages и event_log.
-// Русский комментарий: Гарантирует, что всегда есть партиции на будущие месяцы.
+// Гарантирует, что всегда есть партиции на будущие месяцы.
 func (m *MaintenanceModule) ensurePartitions() error {
 	now := time.Now()
 
@@ -155,7 +155,7 @@ func (m *MaintenanceModule) createPartition(tableName string, month time.Time) e
 }
 
 // cleanupOldData удаляет партиции старше заданного периода retention.
-// Русский комментарий: Удаляет данные старше N месяцев путём удаления целых партиций.
+// Удаляет данные старше N месяцев путём удаления целых партиций.
 func (m *MaintenanceModule) cleanupOldData() error {
 	cutoffDate := time.Now().AddDate(0, -m.retentionMonths, 0)
 	cutoffYear, cutoffMonth, _ := cutoffDate.Date()

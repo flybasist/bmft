@@ -4,8 +4,9 @@
 
 ## Структура
 
-- `001_initial_schema.sql` - Начальная схема БД (версия 1)
-- `schema_migrations` - Таблица отслеживания версий
+- `001_initial_schema.sql` — Полная актуальная схема v1.1 (для новых установок)
+- `002_migration.sql` — Обновление v1.0 → v1.1 (bugfixes + консолидация модулей)
+- `schema_migrations` — Таблица отслеживания версий (текущая: 2)
 
 ## Как работает
 
@@ -62,7 +63,7 @@ var ExpectedSchema = []ExpectedTable{
 
 ```bash
 # Сборка
-go build -o bmft ./cmd/bmft/
+go build -o bmft-test ./cmd/bot/
 
 # Запуск (миграция применится автоматически)
 ./bmft

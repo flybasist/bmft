@@ -9,8 +9,8 @@ import (
 )
 
 // MessageRepository работает с таблицей messages (единый источник правды).
-// Русский комментарий: v0.8.0 - вся информация о сообщениях хранится в messages
-// с JSONB metadata вместо отдельных таблиц-счётчиков.
+// Вся информация о сообщениях хранится в messages с JSONB metadata
+// вместо отдельных таблиц-счётчиков.
 // Модули пишут свои данные в metadata (limiter, statistics, reactions, textfilter).
 type MessageRepository struct {
 	db     *sql.DB
@@ -30,7 +30,6 @@ type MessageMetadata struct {
 	Limiter    *LimiterMetadata    `json:"limiter,omitempty"`
 	Profanity  *ProfanityMetadata  `json:"profanity,omitempty"`
 	Reactions  *ReactionsMetadata  `json:"reactions,omitempty"`
-	TextFilter *TextFilterMetadata `json:"textfilter,omitempty"`
 	Statistics *StatisticsMetadata `json:"statistics,omitempty"`
 }
 
@@ -49,12 +48,6 @@ type ReactionsMetadata struct {
 	DailyCount    int     `json:"daily_count,omitempty"`    // Сколько раз сработало за день
 }
 
-// TextFilterMetadata — метаданные модуля TextFilter.
-type TextFilterMetadata struct {
-	BannedWordsFound []string `json:"banned_words_found,omitempty"`
-	Action           string   `json:"action,omitempty"` // delete, warn, delete_warn
-}
-
 // StatisticsMetadata — метаданные модуля Statistics.
 type StatisticsMetadata struct {
 	Processed        bool `json:"processed"`
@@ -68,7 +61,7 @@ type ProfanityMetadata struct {
 }
 
 // InsertMessage сохраняет сообщение в БД с метаданными.
-// Русский комментарий: Главная функция для записи сообщений.
+// Главная функция для записи сообщений.
 // Модули передают свои метаданные через MessageMetadata структуру.
 // threadID = 0 означает основной чат, >0 - сообщение в топике.
 func (r *MessageRepository) InsertMessage(

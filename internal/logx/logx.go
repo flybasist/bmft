@@ -9,7 +9,7 @@ import (
 	"gopkg.in/natefinch/lumberjack.v2"
 )
 
-// Русский комментарий: Этот пакет инкапсулирует настройку структурированного логирования.
+// Этот пакет инкапсулирует настройку структурированного логирования.
 // Вся операционная информация выводится только на английском, но комментарии в коде максимально подробны.
 // Мы используем zap для высокой производительности и единообразия формата.
 // lumberjack обеспечивает автоматическую ротацию файлов логов.
@@ -22,7 +22,7 @@ type LogRotationConfig struct {
 }
 
 // NewLogger создаёт новый логгер с заданным уровнем и режимом.
-// Русский комментарий: Удобная функция для создания нового логгера без глобального состояния.
+// Удобная функция для создания нового логгера без глобального состояния.
 // Используется в cmd/bot/main.go для инициализации логгера приложения.
 // Использует lumberjack для автоматической ротации файлов логов.
 func NewLogger(level string, pretty bool, rotationCfg LogRotationConfig) (*zap.Logger, error) {
@@ -56,7 +56,7 @@ func NewLogger(level string, pretty bool, rotationCfg LogRotationConfig) (*zap.L
 		encoder = zapcore.NewJSONEncoder(encoderCfg)
 	}
 
-	// Русский комментарий: Убеждаемся что папка logs существует перед созданием lumberjack
+	// Убеждаемся что папка logs существует перед созданием lumberjack
 	// lumberjack не создаёт родительские директории автоматически
 	if err := os.MkdirAll("logs", 0755); err != nil {
 		return nil, err
@@ -80,5 +80,5 @@ func NewLogger(level string, pretty bool, rotationCfg LogRotationConfig) (*zap.L
 		zapcore.NewCore(encoder, fileWriter, zapLevel),
 	)
 
-	return zap.New(core, zap.AddCaller(), zap.AddCallerSkip(1)), nil
+	return zap.New(core, zap.AddCaller()), nil
 }

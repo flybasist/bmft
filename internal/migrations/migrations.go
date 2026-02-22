@@ -20,23 +20,26 @@ type ExpectedTable struct {
 }
 
 // ExpectedSchema содержит описание всех таблиц которые должны существовать
-// Русский комментарий: v0.8.0 - упрощённая схема с JSONB metadata + поддержка топиков через thread_id.
-// Счётчики заменены на MATERIALIZED VIEW для производительности.
+// v1.1 — после консолидации модулей.
+// Таблицы banned_words, users, daily_content_stats удалены.
+// banned_words мигрированы в keyword_reactions (через колонку action).
 var ExpectedSchema = []ExpectedTable{
 	// Core tables
 	{Name: "chats", Columns: []string{"chat_id", "chat_type", "title", "is_forum", "is_active"}},
-	{Name: "users", Columns: []string{"user_id", "username", "first_name"}},
 	{Name: "chat_vips", Columns: []string{"id", "chat_id", "thread_id", "user_id", "granted_at"}},
 	{Name: "messages", Columns: []string{"id", "chat_id", "thread_id", "user_id", "message_id", "content_type", "chat_name", "metadata"}},
 
 	// Limiter Module
 	{Name: "content_limits", Columns: []string{"id", "chat_id", "thread_id", "limit_text", "limit_photo", "limit_banned_words"}},
 
-	// Reactions Module
-	{Name: "keyword_reactions", Columns: []string{"id", "chat_id", "thread_id", "pattern", "response_type", "response_content", "is_active"}},
+	// Reactions Module (включая бывшие textfilter и profanityfilter)
+	{Name: "keyword_reactions", Columns: []string{"id", "chat_id", "thread_id", "pattern", "response_type", "response_content", "action", "is_active"}},
 	{Name: "reaction_triggers", Columns: []string{"chat_id", "reaction_id", "user_id", "last_triggered_at", "trigger_count"}},
 	{Name: "reaction_daily_counters", Columns: []string{"chat_id", "reaction_id", "user_id", "counter_date", "count"}},
-	{Name: "banned_words", Columns: []string{"id", "chat_id", "thread_id", "pattern", "action", "is_active"}},
+
+	// Profanity (глобальный словарь + per-chat настройки)
+	{Name: "profanity_dictionary", Columns: []string{"id", "pattern", "is_regex", "severity"}},
+	{Name: "profanity_settings", Columns: []string{"chat_id", "thread_id", "action"}},
 
 	// Scheduler Module
 	{Name: "scheduled_tasks", Columns: []string{"id", "chat_id", "cron_expression", "action_type", "is_active"}},
@@ -48,12 +51,13 @@ var ExpectedSchema = []ExpectedTable{
 }
 
 // LatestSchemaVersion - текущая версия схемы базы данных
-// Русский комментарий: Увеличивайте эту константу при добавлении новых миграций
-const LatestSchemaVersion = 1
+// Увеличивайте эту константу при добавлении новых миграций.
+// Каждая новая версия = один файл NNN_migration.sql в папке migrations/.
+const LatestSchemaVersion = 2
 
 // RunMigrationsIfNeeded проверяет схему БД и выполняет миграции если требуется
 // Возвращает ошибку если схема несовместима или миграция не удалась
-// Русский комментарий: Вызывается при старте бота сразу после подключения к PostgreSQL.
+// Вызывается при старте бота сразу после подключения к PostgreSQL.
 // Поддерживает версионирование миграций через таблицу schema_migrations.
 func RunMigrationsIfNeeded(db *sql.DB, logger *zap.Logger) error {
 	logger.Info("starting database schema validation and migrations")
@@ -79,23 +83,18 @@ func RunMigrationsIfNeeded(db *sql.DB, logger *zap.Logger) error {
 		logger.Info("applying pending migrations",
 			zap.Int("current", currentVersion),
 			zap.Int("target", LatestSchemaVersion))
-		return applyPendingMigrations(ctx, db, logger, currentVersion)
+		if err := applyPendingMigrations(ctx, db, logger, currentVersion); err != nil {
+			return err
+		}
+		// Валидируем схему после применения миграций
+		logger.Info("validating schema after migration")
+		return validateExistingSchema(ctx, db, logger)
 	}
 
 	// 3. Валидируем корректность существующей схемы
 	logger.Info("schema is up to date, validating structure")
 	return validateExistingSchema(ctx, db, logger)
 }
-
-// SchemaState представляет состояние схемы БД
-type SchemaState int
-
-const (
-	SchemaEmpty    SchemaState = iota // Таблиц нет
-	SchemaComplete                    // Все таблицы есть
-	SchemaPartial                     // Некоторые таблицы есть
-	SchemaUnknown                     // Есть неожиданные таблицы
-)
 
 // runMigrationFile выполняет миграцию из файла
 func runMigrationFile(ctx context.Context, db *sql.DB, migrationFile string, logger *zap.Logger) error {
@@ -148,12 +147,25 @@ func runMigrationFile(ctx context.Context, db *sql.DB, migrationFile string, log
 	return nil
 }
 
-// runInitialMigration выполняет начальную миграцию
+// runInitialMigration выполняет начальную миграцию.
+// 001 создаёт актуальную схему (v1.1).
+// После выполнения записываем ВСЕ версии миграций как "пропущенные",
+// чтобы инкрементальные миграции (002, 003, ...) не применялись к уже актуальной базе.
+// Это гарантирует что свежая установка v1.1 не попытается применить миграцию v1.0→v1.1.
 func runInitialMigration(ctx context.Context, db *sql.DB, logger *zap.Logger) error {
 	logger.Info("executing initial database migration")
 
 	if err := runMigrationFile(ctx, db, "migrations/001_initial_schema.sql", logger); err != nil {
 		return err
+	}
+
+	// Записываем все промежуточные версии как пропущенные
+	for version := 2; version <= LatestSchemaVersion; version++ {
+		desc := fmt.Sprintf("Skipped: fresh install already includes v%d changes", version)
+		if err := recordMigration(ctx, db, version, desc); err != nil {
+			return fmt.Errorf("failed to record skipped migration %d: %w", version, err)
+		}
+		logger.Info("migration skipped (fresh install)", zap.Int("version", version))
 	}
 
 	logger.Info("initial migration completed successfully")
@@ -163,7 +175,7 @@ func runInitialMigration(ctx context.Context, db *sql.DB, logger *zap.Logger) er
 }
 
 // splitSQLCommands разбивает SQL файл на отдельные команды
-// Русский комментарий: Разделитель — точка с запятой. Учитываем PL/pgSQL блоки с $$ ... $$
+// Разделитель — точка с запятой. Учитываем PL/pgSQL блоки с $$ ... $$
 func splitSQLCommands(sqlContent string) []string {
 	// Удаляем многострочные комментарии /* ... */
 	sqlContent = removeMultilineComments(sqlContent)

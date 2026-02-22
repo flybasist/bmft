@@ -61,5 +61,5 @@ settings.yaml
 ##############################
 
 /data
-/data/postgres
+/data/pgdata
 /data/logs
