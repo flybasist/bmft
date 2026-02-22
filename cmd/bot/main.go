@@ -156,7 +156,7 @@ func run() error {
 		logger.Warn("failed to get bot version from DB, using default",
 			zap.Error(err),
 		)
-		botVersion = "1.0"
+		botVersion = "1.1"
 	}
 
 	// Регистрируем базовые команды

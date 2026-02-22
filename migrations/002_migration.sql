@@ -36,6 +36,14 @@ DROP MATERIALIZED VIEW IF EXISTS daily_content_stats;
 -- 7. Удаляем функцию refresh_stats_views (зависела от удалённых объектов)
 DROP FUNCTION IF EXISTS refresh_stats_views();
 
+-- 8. Обновляем bot_settings: версия и список модулей
+-- В v1.0 bot_version='1.0', available_modules содержали textfilter/profanity.
+-- После консолидации: textfilter+profanity → reactions.
+UPDATE bot_settings SET
+    bot_version = '1.1',
+    available_modules = ARRAY['core', 'limiter', 'statistics', 'reactions', 'scheduler']
+WHERE id = 1;
+
 -- Запись версии миграции
 INSERT INTO schema_migrations (version, description)
 VALUES (2, 'v1.0 to v1.1: consolidate textfilter+profanity into reactions, drop dead objects')
