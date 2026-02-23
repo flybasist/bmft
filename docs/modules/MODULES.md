@@ -53,7 +53,7 @@ statistics → limiter → reactions
 
 ### 3a. Фильтр мата (Profanity)
 - Встроенный словарь ~5000 слов (embedded в бинарник)
-- Действия: `delete`, `warn`, `mute`
+- Действия: `delete`, `warn`, `delete_warn`
 - Предупреждение перед баном (WarningThreshold из content_limits)
 - Лимит на количество матов в день (тип `banned_words` в Limiter)
 

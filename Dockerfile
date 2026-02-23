@@ -42,7 +42,7 @@ FROM alpine:latest
 # Метаданные
 LABEL maintainer="flybasist"
 LABEL description="BMFT Bot - Modular Telegram Bot Framework"
-LABEL version="1.1"
+LABEL version="1.1.1"
 
 # Установка CA сертификатов и timezone data (для TLS и правильного времени)
 RUN apk --no-cache add ca-certificates tzdata su-exec

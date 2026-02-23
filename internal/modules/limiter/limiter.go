@@ -306,15 +306,16 @@ func (m *LimiterModule) handleMyStats(c tele.Context) error {
 	}
 
 	text := fmt.Sprintf("📊 Ваша статистика за сегодня%s:\n\n", scope)
+
+	// Один SQL-запрос для всех типов контента (вместо 12 отдельных)
+	counters, err := m.messageRepo.GetTodayCountsAllTypes(chatID, threadID, userID)
+	if err != nil {
+		m.logger.Error("failed to get today counts", zap.Error(err))
+		return c.Send("❌ Не удалось получить статистику")
+	}
+
 	for _, t := range types {
-		var counter int
-		if t.field == "banned_words" {
-			// Маты считаются через metadata сообщений (profanity.detected = true),
-			// а не через content_type — потому что content_type остаётся "text"/"photo"/etc.
-			counter, _ = m.messageRepo.GetTodayCountByMetadata(chatID, threadID, userID, "profanity", true)
-		} else {
-			counter, _ = m.messageRepo.GetTodayCountByType(chatID, threadID, userID, t.field)
-		}
+		counter := counters[t.field]
 		switch {
 		case t.value == -1:
 			text += fmt.Sprintf("%s %s: %d из 0 (запрещено)\n", t.emoji, t.name, counter)
@@ -401,14 +402,6 @@ func (m *LimiterModule) handleSetLimit(c tele.Context) error {
 
 	m.logger.Info("handleSetLimit called", zap.Int64("chat_id", chatID), zap.Int("thread_id", threadID), zap.Int64("user_id", c.Sender().ID))
 
-	isAdmin, err := core.IsUserAdmin(m.bot, c.Chat(), c.Sender().ID)
-	if err != nil {
-		return c.Send("Ошибка проверки прав администратора")
-	}
-	if !isAdmin {
-		return c.Send("❌ Команда доступна только администраторам")
-	}
-
 	// Убеждаемся что chat_id существует в таблице chats (для foreign key)
 	_, _ = m.db.Exec(`
 		INSERT INTO chats (chat_id, chat_type, title)
@@ -494,14 +487,6 @@ func (m *LimiterModule) handleSetVIP(c tele.Context) error {
 
 	m.logger.Info("handleSetVIP called", zap.Int64("chat_id", chatID), zap.Int("thread_id", threadID), zap.Int64("user_id", c.Sender().ID))
 
-	isAdmin, err := core.IsUserAdmin(m.bot, c.Chat(), c.Sender().ID)
-	if err != nil {
-		return c.Send("Ошибка проверки прав администратора")
-	}
-	if !isAdmin {
-		return c.Send("❌ Команда доступна только администраторам")
-	}
-
 	// Убеждаемся что chat_id существует в таблице chats (для foreign key)
 	_, _ = m.db.Exec(`
 		INSERT INTO chats (chat_id, chat_type, title)
@@ -551,14 +536,6 @@ func (m *LimiterModule) handleRemoveVIP(c tele.Context) error {
 
 	m.logger.Info("handleRemoveVIP called", zap.Int64("chat_id", chatID), zap.Int("thread_id", threadID), zap.Int64("user_id", c.Sender().ID))
 
-	isAdmin, err := core.IsUserAdmin(m.bot, c.Chat(), c.Sender().ID)
-	if err != nil {
-		return c.Send("Ошибка проверки прав администратора")
-	}
-	if !isAdmin {
-		return c.Send("❌ Команда доступна только администраторам")
-	}
-
 	if c.Message().ReplyTo == nil {
 		return c.Send("❌ Ответьте этой командой на сообщение пользователя")
 	}
@@ -591,14 +568,6 @@ func (m *LimiterModule) handleListVIPs(c tele.Context) error {
 	threadID := core.GetThreadID(m.db, c)
 
 	m.logger.Info("handleListVIPs called", zap.Int64("chat_id", chatID), zap.Int("thread_id", threadID), zap.Int64("user_id", c.Sender().ID))
-
-	isAdmin, err := core.IsUserAdmin(m.bot, c.Chat(), c.Sender().ID)
-	if err != nil {
-		return c.Send("Ошибка проверки прав администратора")
-	}
-	if !isAdmin {
-		return c.Send("❌ Команда доступна только администраторам")
-	}
 
 	vips, err := m.vipRepo.ListVIPs(chatID, threadID)
 	if err != nil {

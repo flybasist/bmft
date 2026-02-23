@@ -1,5 +1,41 @@
 # CHANGELOG
 
+## v1.1.1 — Anti-Spam & Admin Security (2025-07-07)
+
+### 🔴 Критические исправления
+
+- **CommandCooldownMiddleware**: 5 сек per-user per-chat **per-command** — повторные команды удаляются, бот молчит
+- **AdminOnlyMiddleware**: все 19 админских команд защищены на уровне middleware с кешем `getChatAdministrators` (TTL 60 сек). Не-админ → команда удаляется, бот молчит
+- **Молчащие обработчики**: все admin-хендлеры больше не отправляют `❌ Команда доступна только администраторам` — middleware единственная линия защиты
+- **`/profanitystatus` без проверки прав**: команда была доступна всем — добавлена в список AdminOnlyMiddleware
+
+### 🟡 Оптимизация
+
+- **`/mystats` 12 SQL → 1**: заменены 12 отдельных `GetTodayCountByType` на один `GetTodayCountsAllTypes` с `GROUP BY content_type` + `COUNT(*) FILTER`
+- **Per-command cooldown**: ключ кулдауна включает имя команды — `/version` и `/help` больше не блокируют друг друга
+- **Удалён `IsUserAdmin`**: убрана DEPRECATED функция и 18 избыточных некешированных API-вызовов из admin-хендлеров — AdminOnlyMiddleware единственная проверка прав
+- **Рефакторинг `GetThreadID`**: обёртка над `GetThreadIDFromMessage`, убрано дублирование логики
+
+### 🟢 UX
+
+- **`/help` с 🔒 маркерами**: админские команды помечены 🔒, добавлена легенда
+- **Справки модулей**: `/listreactions`, `/listbans`, `/listtasks`, `/removereaction` помечены как admin-only
+
+### 🟢 Документация
+
+- **COMMANDS_ACCESS.md**: 5 команд исправлены с «Все» на «Админ» (`/listreactions`, `/listbans`, `/listtasks`, `/chatstats`, `/topchat`, `/profanitystatus`)
+- **`mute` → `delete_warn`**: исправлена ошибочная документация действий profanity (MODULES.md)
+- **ARCHITECTURE.md**: добавлены CommandCooldown и AdminOnly в pipeline diagram и дерево проекта
+- **Версия 1.1.1**: обновлена в README, DATABASE, migrations/README
+- **CHANGELOG v1.1**: исправлена секция миграций (002=v1.0→v1.1, 003=v1.1→v1.1.1)
+
+### 🟢 Инфраструктура
+
+- **Версия 1.1.1**: обновлена во всех местах — `main.go` fallback, `Dockerfile LABEL`, `001_initial_schema.sql` DEFAULT
+- **Миграция 003**: `UPDATE bot_version = '1.1.1'` для существующих установок, `LatestSchemaVersion = 3`
+- **`.gitignore`**: убраны избыточные правила `!cmd/bot/` и `!internal/`
+- **`bmft-test`**: удалён забытый бинарник из корня проекта
+
 ## v1.1 — Bugfix + Consolidation Release (2025-07-06)
 
 Исправление 18 багов + консолидация модулей для упрощения архитектуры.
@@ -107,8 +143,7 @@
 - **🟡 reaction_triggers.user_id не обновлялся**: `ON CONFLICT DO UPDATE` не включал `user_id = EXCLUDED.user_id` — при повторном триггере другим пользователем ID автора оставался старым
 ### �📦 Миграции
 
-- `migrations/002_migration.sql` — bugfixes (action_data, refresh_stats_views)
-- `migrations/003_migration.sql` — консолидация (banned_words → keyword_reactions, DROP мёртвых таблиц)
+- `002_migration.sql` — v1.0 → v1.1 (консолидация banned_words → keyword_reactions, DROP мёртвых таблиц, bugfixes)
 
 ## v1.0 — Initial Release
 

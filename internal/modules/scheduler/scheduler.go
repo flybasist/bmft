@@ -92,7 +92,7 @@ func (m *SchedulerModule) RegisterCommands(bot *tele.Bot) {
 		msg += "📌 Пример:\n"
 		msg += "<code>/addtask стикер \"0 9 * * 1\"</code> (reply на стикер)\n\n"
 
-		msg += "🔹 <code>/listtasks</code> — Список всех активных задач\n\n"
+		msg += "🔹 <code>/listtasks</code> — Список всех активных задач (только админы)\n\n"
 
 		msg += "🔹 <code>/deltask &lt;ID&gt;</code> — Удалить задачу (только админы)\n"
 		msg += "   📌 Пример: <code>/deltask 3</code>\n\n"
@@ -261,16 +261,6 @@ func (m *SchedulerModule) executeTask(task *repositories.ScheduledTask) {
 func (m *SchedulerModule) handleListTasks(c tele.Context) error {
 	m.logger.Info("handleListTasks called", zap.Int64("chat_id", c.Chat().ID), zap.Int64("user_id", c.Sender().ID))
 
-	// Проверка прав администратора
-	isAdmin, err := core.IsUserAdmin(m.bot, c.Chat(), c.Sender().ID)
-	if err != nil {
-		m.logger.Error("failed to check user admin status", zap.Error(err))
-		return c.Send("❌ Ошибка проверки прав администратора")
-	}
-	if !isAdmin {
-		return c.Send("❌ Команда доступна только администраторам")
-	}
-
 	chatID := c.Chat().ID
 	threadID := core.GetThreadID(m.db, c)
 
@@ -331,15 +321,6 @@ func (m *SchedulerModule) handleAddTask(c tele.Context) error {
 	threadID := core.GetThreadID(m.db, c)
 
 	m.logger.Info("handleAddTask called", zap.Int64("chat_id", chatID), zap.Int("thread_id", threadID), zap.Int64("user_id", c.Sender().ID))
-
-	isAdmin, err := core.IsUserAdmin(m.bot, c.Chat(), c.Sender().ID)
-	if err != nil {
-		m.logger.Error("failed to check user admin status", zap.Error(err))
-		return c.Send("❌ Ошибка проверки прав администратора")
-	}
-	if !isAdmin {
-		return c.Send("❌ Команда доступна только администраторам")
-	}
 
 	// Убеждаемся что chat_id существует в таблице chats (для foreign key).
 	// scheduled_tasks имеет REFERENCES chats(chat_id) — без записи в chats INSERT упадёт.
@@ -559,15 +540,6 @@ func (m *SchedulerModule) handleAddTask(c tele.Context) error {
 func (m *SchedulerModule) handleDeleteTask(c tele.Context) error {
 	m.logger.Info("handleDeleteTask called", zap.Int64("chat_id", c.Chat().ID), zap.Int64("user_id", c.Sender().ID))
 
-	isAdmin, err := core.IsUserAdmin(m.bot, c.Chat(), c.Sender().ID)
-	if err != nil {
-		m.logger.Error("failed to check user admin status", zap.Error(err))
-		return c.Send("❌ Ошибка проверки прав администратора")
-	}
-	if !isAdmin {
-		return c.Send("❌ Команда доступна только администраторам")
-	}
-
 	args := strings.Fields(c.Text())
 	if len(args) != 2 {
 		return c.Send("❌ Использование: /deltask <task_id>")
@@ -612,15 +584,6 @@ func (m *SchedulerModule) handleDeleteTask(c tele.Context) error {
 
 func (m *SchedulerModule) handleRunTask(c tele.Context) error {
 	m.logger.Info("handleRunTask called", zap.Int64("chat_id", c.Chat().ID), zap.Int64("user_id", c.Sender().ID))
-
-	isAdmin, err := core.IsUserAdmin(m.bot, c.Chat(), c.Sender().ID)
-	if err != nil {
-		m.logger.Error("failed to check user admin status", zap.Error(err))
-		return c.Send("❌ Ошибка проверки прав администратора")
-	}
-	if !isAdmin {
-		return c.Send("❌ Команда доступна только администраторам")
-	}
 
 	args := strings.Fields(c.Text())
 	if len(args) != 2 {

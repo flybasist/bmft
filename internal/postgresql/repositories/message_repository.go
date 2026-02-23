@@ -129,6 +129,49 @@ func (r *MessageRepository) GetTodayCountByType(chatID int64, threadID int, user
 	return count, nil
 }
 
+// GetTodayCountsAllTypes возвращает счётчики по ВСЕМ типам контента + мат за сегодня.
+// Один SQL-запрос вместо 12 отдельных вызовов GetTodayCountByType.
+// Возвращает map[content_type]count + ключ "banned_words" для мата (из metadata).
+func (r *MessageRepository) GetTodayCountsAllTypes(chatID int64, threadID int, userID int64) (map[string]int, error) {
+	query := `
+		SELECT 
+			content_type,
+			COUNT(*) AS cnt,
+			COUNT(*) FILTER (WHERE metadata->'profanity'->>'detected' = 'true') AS profanity_cnt
+		FROM messages
+		WHERE chat_id = $1
+		  AND thread_id = $2
+		  AND user_id = $3
+		  AND DATE(created_at) = CURRENT_DATE
+		  AND was_deleted = FALSE
+		GROUP BY content_type
+	`
+
+	rows, err := r.db.Query(query, chatID, threadID, userID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get today counts: %w", err)
+	}
+	defer rows.Close()
+
+	result := make(map[string]int)
+	var totalProfanity int
+	for rows.Next() {
+		var contentType string
+		var cnt, profanityCnt int
+		if err := rows.Scan(&contentType, &cnt, &profanityCnt); err != nil {
+			return nil, fmt.Errorf("failed to scan today counts: %w", err)
+		}
+		result[contentType] = cnt
+		totalProfanity += profanityCnt
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("rows iteration error: %w", err)
+	}
+
+	result["banned_words"] = totalProfanity
+	return result, nil
+}
+
 // UpdateMessageMetadata обновляет metadata существующего сообщения через jsonb_set.
 // Используется для добавления информации после сохранения сообщения (например, profanity_detected).
 func (r *MessageRepository) UpdateMessageMetadata(chatID int64, messageID int, key string, value interface{}) error {

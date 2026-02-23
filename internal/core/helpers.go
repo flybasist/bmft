@@ -44,32 +44,9 @@ func CheckIsForum(bot *telebot.Bot, chatID int64) bool {
 }
 
 // GetThreadID возвращает правильный thread_id с учетом того, является ли чат форумом.
-// В обычных чатах (не форумах) message.ThreadID может содержать
-// мусорные значения (например, ID реплаевого сообщения). Эта функция проверяет is_forum
-// в БД и возвращает 0 для обычных чатов, thread_id для форумов.
+// Обёртка над GetThreadIDFromMessage для использования в admin-хендлерах, где доступен telebot.Context.
 func GetThreadID(db *sql.DB, c telebot.Context) int {
-	// Если ThreadID == 0, сразу возвращаем 0 (это точно не топик)
-	if c.Message().ThreadID == 0 {
-		return 0
-	}
-
-	// Проверяем является ли чат форумом
-	var isForum bool
-	err := db.QueryRow(`SELECT is_forum FROM chats WHERE chat_id = $1`, c.Chat().ID).Scan(&isForum)
-
-	// Если ошибка или не форум - возвращаем 0
-	if err != nil {
-		if err != sql.ErrNoRows {
-			// Можно добавить логгер в параметры функции, но пока просто возвращаем 0
-		}
-		return 0
-	}
-	if !isForum {
-		return 0
-	}
-
-	// Это реально форум с топиками
-	return c.Message().ThreadID
+	return GetThreadIDFromMessage(db, c.Message())
 }
 
 // GetThreadIDFromMessage возвращает правильный thread_id для сообщений в pipeline.

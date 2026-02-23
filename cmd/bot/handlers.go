@@ -176,26 +176,29 @@ func handleHelp(logger *zap.Logger) func(tele.Context) error {
 
 🔹 statistics — статистика активности
    Собирает данные о сообщениях пользователей
-   📌 /statistics, /myweek, /chatstats, /topchat
+   📌 /statistics, /myweek
+   📌 🔒 /chatstats, 🔒 /topchat
 
 🔹 limiter — контроль лимитов контента
    Ограничивает фото, видео, стикеры и т.д.
-   📌 /limiter, /setlimit, /mystats, /getlimit
-   📌 /setvip, /removevip, /listvips
+   📌 /limiter, /mystats, /getlimit
+   📌 🔒 /setlimit, 🔒 /setvip, 🔒 /removevip, 🔒 /listvips
 
 🔹 reactions — реакции, фильтры и модерация
    Автоответы, фильтрация слов и мата
    📌 /reactions — автоответы на ключевые слова
-      /addreaction, /listreactions, /removereaction
+      🔒 /addreaction, 🔒 /listreactions, 🔒 /removereaction
    📌 /textfilter — фильтр запрещённых слов
-      /addban, /listbans, /removeban
+      🔒 /addban, 🔒 /listbans, 🔒 /removeban
    📌 /profanity — фильтр ненормативной лексики
-      /setprofanity, /profanitystatus, /removeprofanity
+      🔒 /setprofanity, 🔒 /profanitystatus, 🔒 /removeprofanity
 
 🔹 scheduler — запланированные задачи
    Выполняет задачи по расписанию (cron)
-   📌 /scheduler, /addtask, /listtasks, /deltask, /runtask
+   📌 /scheduler
+   📌 🔒 /addtask, 🔒 /listtasks, 🔒 /deltask, 🔒 /runtask
 
+🔒 = команда доступна только администраторам чата
 💡 Используйте команду модуля (например /reactions) для подробной справки.`
 
 		return c.Send(helpMsg)

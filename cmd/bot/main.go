@@ -136,6 +136,10 @@ func run() error {
 	)
 
 	// Регистрируем middleware ПЕРВЫМИ (до регистрации любых команд)
+	// Порядок: CommandCooldown → AdminOnly → Logger → PanicRecovery
+	adminChecker := core.NewAdminChecker(bot, 60*time.Second)
+	bot.Use(core.CommandCooldownMiddleware(5*time.Second, logger))
+	bot.Use(core.AdminOnlyMiddleware(adminChecker, logger))
 	bot.Use(core.LoggerMiddleware(logger))
 	bot.Use(core.PanicRecoveryMiddleware(logger))
 
@@ -156,7 +160,7 @@ func run() error {
 		logger.Warn("failed to get bot version from DB, using default",
 			zap.Error(err),
 		)
-		botVersion = "1.1"
+		botVersion = "1.1.1"
 	}
 
 	// Регистрируем базовые команды

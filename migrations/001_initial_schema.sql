@@ -221,7 +221,7 @@ CREATE INDEX idx_event_log_metadata ON event_log USING GIN (metadata);
 
 CREATE TABLE bot_settings (
     id SERIAL PRIMARY KEY,
-    bot_version TEXT DEFAULT '1.1',
+    bot_version TEXT DEFAULT '1.1.1',
     timezone TEXT DEFAULT 'UTC',
     available_modules TEXT[] DEFAULT ARRAY['core', 'limiter', 'statistics', 'reactions', 'scheduler']
 );

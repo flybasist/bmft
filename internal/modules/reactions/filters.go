@@ -299,14 +299,6 @@ func (m *ReactionsModule) handleAddBan(c telebot.Context) error {
 
 	m.logger.Info("handleAddBan called", zap.Int64("chat_id", chatID), zap.Int("thread_id", threadID), zap.Int64("user_id", c.Sender().ID))
 
-	isAdmin, err := core.IsUserAdmin(m.bot, c.Chat(), c.Sender().ID)
-	if err != nil {
-		return c.Send("Ошибка проверки прав администратора")
-	}
-	if !isAdmin {
-		return c.Send("❌ Команда доступна только администраторам")
-	}
-
 	args := c.Args()
 	if len(args) < 2 {
 		return c.Send("Использование: /addban <pattern> <action>\nAction: delete, warn, delete_warn\nПример: /addban мат delete_warn")
@@ -387,14 +379,6 @@ func (m *ReactionsModule) handleListBans(c telebot.Context) error {
 
 	m.logger.Info("handleListBans called", zap.Int64("chat_id", chatID), zap.Int("thread_id", threadID), zap.Int64("user_id", c.Sender().ID))
 
-	isAdmin, err := core.IsUserAdmin(m.bot, c.Chat(), c.Sender().ID)
-	if err != nil {
-		return c.Send("Ошибка проверки прав администратора")
-	}
-	if !isAdmin {
-		return c.Send("❌ Команда доступна только администраторам")
-	}
-
 	// Читаем только фильтры (action IS NOT NULL) из keyword_reactions
 	rows, err := m.db.Query(`
 		SELECT id, chat_id, thread_id, pattern, action, is_regex, is_active
@@ -470,14 +454,6 @@ func (m *ReactionsModule) handleRemoveBan(c telebot.Context) error {
 
 	m.logger.Info("handleRemoveBan called", zap.Int64("chat_id", chatID), zap.Int("thread_id", threadID), zap.Int64("user_id", c.Sender().ID))
 
-	isAdmin, err := core.IsUserAdmin(m.bot, c.Chat(), c.Sender().ID)
-	if err != nil {
-		return c.Send("Ошибка проверки прав администратора")
-	}
-	if !isAdmin {
-		return c.Send("❌ Команда доступна только администраторам")
-	}
-
 	args := strings.Fields(c.Text())
 	if len(args) != 2 {
 		return c.Send("Использование: /removeban <id>\nПример: /removeban 3")
@@ -514,14 +490,6 @@ func (m *ReactionsModule) handleRemoveBan(c telebot.Context) error {
 // handleSetProfanity обрабатывает команду /setprofanity — включение фильтра мата.
 func (m *ReactionsModule) handleSetProfanity(c telebot.Context) error {
 	m.logger.Info("handleSetProfanity called", zap.Int64("chat_id", c.Chat().ID), zap.Int64("user_id", c.Sender().ID))
-
-	isAdmin, err := core.IsUserAdmin(m.bot, c.Chat(), c.Sender().ID)
-	if err != nil {
-		return c.Send("Ошибка проверки прав администратора")
-	}
-	if !isAdmin {
-		return c.Send("❌ Команда доступна только администраторам")
-	}
 
 	action := c.Message().Payload
 	if action == "" {
@@ -571,14 +539,6 @@ func (m *ReactionsModule) handleSetProfanity(c telebot.Context) error {
 // handleRemoveProfanity обрабатывает команду /removeprofanity — выключение фильтра мата.
 func (m *ReactionsModule) handleRemoveProfanity(c telebot.Context) error {
 	m.logger.Info("handleRemoveProfanity called", zap.Int64("chat_id", c.Chat().ID), zap.Int64("user_id", c.Sender().ID))
-
-	isAdmin, err := core.IsUserAdmin(m.bot, c.Chat(), c.Sender().ID)
-	if err != nil {
-		return c.Send("Ошибка проверки прав администратора")
-	}
-	if !isAdmin {
-		return c.Send("❌ Команда доступна только администраторам")
-	}
 
 	chatID := c.Chat().ID
 	threadID := core.GetThreadID(m.db, c)

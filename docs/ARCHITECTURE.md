@@ -27,7 +27,8 @@ bmft/
 │   │   ├── interface.go         # MessageContext (контекст pipeline)
 │   │   ├── helpers.go           # GetThreadID, DetectContentType
 │   │   ├── middleware.go        # LoggerMiddleware, PanicRecovery
-│   │   └── admin_check.go      # IsUserAdmin
+│   │   ├── admin_check.go      # AdminChecker (кэш), AdminOnlyMiddleware
+│   │   └── command_cooldown.go  # CommandCooldownMiddleware
 │   ├── logx/                    # Настройка zap + lumberjack
 │   ├── migrations/              # Автоматические миграции БД
 │   ├── profanity/               # Загрузчик словаря мата (embedded)
@@ -53,6 +54,8 @@ bmft/
 ```
 Telegram → Long Polling → telebot.v3
                               │
+                     CommandCooldownMiddleware  ← 5с per-user per-command
+                     AdminOnlyMiddleware        ← кэш 60с, не-админ → delete
                      LoggerMiddleware
                      PanicRecovery
                               │

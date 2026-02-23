@@ -87,8 +87,8 @@ func (m *ReactionsModule) RegisterCommands(bot *telebot.Bot) {
 
 		msg += "<b>🔹 Команды автоответов:</b>\n\n"
 		msg += "🔸 <code>/addreaction</code> — Добавить реакцию (только админы)\n"
-		msg += "🔸 <code>/listreactions</code> — Показать все реакции\n"
-		msg += "🔸 <code>/removereaction &lt;ID&gt;</code> — Удалить реакцию\n\n"
+		msg += "🔸 <code>/listreactions</code> — Показать все реакции (только админы)\n"
+		msg += "🔸 <code>/removereaction &lt;ID&gt;</code> — Удалить реакцию (только админы)\n\n"
 
 		msg += "<b>КАК ДОБАВИТЬ РЕАКЦИЮ:</b>\n\n"
 
@@ -130,7 +130,7 @@ func (m *ReactionsModule) RegisterCommands(bot *telebot.Bot) {
 		msg += "<b>🔄 НЕСКОЛЬКО СЛОВ СРАЗУ (regex):</b>\n"
 		msg += "• <code>/addban спам|реклама|продам delete</code>\n\n"
 
-		msg += "🔹 <code>/listbans</code> — Список всех запрещённых слов\n\n"
+		msg += "🔹 <code>/listbans</code> — Список всех запрещённых слов (только админы)\n\n"
 
 		msg += "🔹 <code>/removeban &lt;ID&gt;</code> — Удалить бан-слово (только админы)\n\n"
 
@@ -542,16 +542,6 @@ func (m *ReactionsModule) handleAddReaction(c telebot.Context) error {
 		zap.String("message_text", c.Text()),
 		zap.Bool("has_reply", c.Message().ReplyTo != nil))
 
-	isAdmin, err := core.IsUserAdmin(m.bot, c.Chat(), c.Sender().ID)
-	if err != nil {
-		m.logger.Error("failed to check admin status", zap.Error(err))
-		return c.Send("Ошибка проверки прав администратора")
-	}
-	if !isAdmin {
-		m.logger.Warn("non-admin tried to add reaction", zap.Int64("user_id", c.Sender().ID))
-		return c.Send("❌ Команда доступна только администраторам")
-	}
-
 	// Парсим аргументы с учётом кавычек
 	// Проблема: telebot.v3 Args() разбивает текст по пробелам, игнорируя кавычки
 	// Решение: парсим вручную, учитывая кавычки как границы одного аргумента
@@ -865,14 +855,6 @@ func (m *ReactionsModule) handleListReactions(c telebot.Context) error {
 
 	m.logger.Info("handleListReactions called", zap.Int64("chat_id", chatID), zap.Int("thread_id", threadID))
 
-	isAdmin, err := core.IsUserAdmin(m.bot, c.Chat(), c.Sender().ID)
-	if err != nil {
-		return c.Send("Ошибка проверки прав администратора")
-	}
-	if !isAdmin {
-		return c.Send("❌ Команда доступна только администраторам")
-	}
-
 	// Получаем реакции с учетом fallback: сначала для топика, потом для чата
 	// Показываем ТОЛЬКО обычные реакции (action IS NULL), фильтры через /listbans
 	rows, err := m.db.Query(`
@@ -1036,14 +1018,6 @@ func (m *ReactionsModule) handleRemoveReaction(c telebot.Context) error {
 	threadID := core.GetThreadID(m.db, c)
 
 	m.logger.Info("handleRemoveReaction called", zap.Int64("chat_id", chatID), zap.Int("thread_id", threadID), zap.Int64("user_id", c.Sender().ID))
-
-	isAdmin, err := core.IsUserAdmin(m.bot, c.Chat(), c.Sender().ID)
-	if err != nil {
-		return c.Send("Ошибка проверки прав администратора")
-	}
-	if !isAdmin {
-		return c.Send("❌ Команда доступна только администраторам")
-	}
 
 	args := strings.Fields(c.Text())
 	if len(args) != 2 {
