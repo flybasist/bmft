@@ -337,7 +337,7 @@ func (m *ReactionsModule) handleAddBan(c telebot.Context) error {
 	}
 
 	// Убеждаемся что chat_id существует в таблице chats (для foreign key)
-	_, err = m.db.Exec(`
+	_, err := m.db.Exec(`
 		INSERT INTO chats (chat_id, chat_type, title)
 		VALUES ($1, 'unknown', 'unknown')
 		ON CONFLICT (chat_id) DO NOTHING
@@ -512,7 +512,7 @@ func (m *ReactionsModule) handleSetProfanity(c telebot.Context) error {
 		ON CONFLICT (chat_id) DO NOTHING
 	`, chatID)
 
-	_, err = m.db.Exec(`
+	_, err := m.db.Exec(`
 		INSERT INTO profanity_settings (chat_id, thread_id, action, updated_at)
 		VALUES ($1, $2, $3, NOW())
 		ON CONFLICT (chat_id, thread_id)
