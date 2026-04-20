@@ -138,9 +138,34 @@ var adminCommands = map[string]bool{
 	"/runtask":   true,
 }
 
+// adminDenyTTL — через сколько секунд удалять уведомление об отказе и
+// исходную команду. Достаточно, чтобы пользователь успел прочитать,
+// но не настолько долго, чтобы засорить чат.
+const adminDenyTTL = 7 * time.Second
+
+// notifyAdminDenied отправляет тихое (без уведомления) reply с текстом отказа,
+// затем по таймеру удаляет и reply, и исходное сообщение пользователя.
+// Если reply не удалось отправить — исходное сообщение всё равно удаляется.
+func notifyAdminDenied(c tele.Context, logger *zap.Logger, text string) {
+	bot := c.Bot()
+	src := c.Message()
+	reply, err := bot.Reply(src, text, &tele.SendOptions{DisableNotification: true})
+	if err != nil {
+		logger.Debug("admin deny notify failed", zap.Error(err))
+		_ = bot.Delete(src)
+		return
+	}
+	time.AfterFunc(adminDenyTTL, func() {
+		_ = bot.Delete(reply)
+		_ = bot.Delete(src)
+	})
+}
+
 // AdminOnlyMiddleware блокирует вызов админских команд не-админами.
-// Если пользователь не админ и вызывает команду из adminCommands — сообщение удаляется,
-// бот молчит. Использует AdminChecker с кэшем для минимизации API-запросов.
+// Если пользователь не админ и вызывает команду из adminCommands — бот отвечает
+// тихим reply «🔒 Только для администраторов» и через adminDenyTTL удаляет
+// и reply, и исходную команду. Использует AdminChecker с кэшем для минимизации
+// API-запросов.
 func AdminOnlyMiddleware(ac *AdminChecker, logger *zap.Logger) tele.MiddlewareFunc {
 	return func(next tele.HandlerFunc) tele.HandlerFunc {
 		return func(c tele.Context) error {
@@ -180,12 +205,12 @@ func AdminOnlyMiddleware(ac *AdminChecker, logger *zap.Logger) tele.MiddlewareFu
 					zap.Int64("user_id", msg.Sender.ID),
 					zap.String("command", cmd),
 				)
-				_ = c.Delete()
+				notifyAdminDenied(c, logger, "⚠ Не удалось проверить права. Попробуйте позже.")
 				return nil
 			}
 
 			if !isAdmin {
-				_ = c.Delete()
+				notifyAdminDenied(c, logger, "🔒 Команда доступна только администраторам чата.")
 				return nil
 			}
 
