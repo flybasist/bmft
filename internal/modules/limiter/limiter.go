@@ -1,3 +1,4 @@
+// Package limiter — лимиты на типы контента и VIP-обход.
 package limiter
 
 import (

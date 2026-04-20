@@ -1,3 +1,4 @@
+// Package statistics — сбор статистики активности и отчёты по чату/пользователям.
 package statistics
 
 import (

@@ -1,3 +1,4 @@
+// Package profanity — загрузка и распаковка словаря мата в БД.
 package profanity
 
 import (

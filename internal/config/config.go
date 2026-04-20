@@ -1,3 +1,4 @@
+// Package config — загрузка и валидация конфигурации бота из переменных окружения и .env.
 package config
 
 import (

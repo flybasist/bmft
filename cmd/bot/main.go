@@ -154,13 +154,15 @@ func run() error {
 	eventRepo := repositories.NewEventRepository(db)
 	settingsRepo := repositories.NewSettingsRepository(db)
 
-	// Получаем версию бота из БД
+	// Получаем версию бота из БД. Источник истины — bot_settings.bot_version,
+	// который выставляется миграциями. Fallback "unknown" должен срабатывать
+	// только при повреждённой БД — в этом случае выводится warning выше.
 	botVersion, err := settingsRepo.GetVersion()
 	if err != nil {
-		logger.Warn("failed to get bot version from DB, using default",
+		logger.Warn("failed to get bot version from DB, using fallback",
 			zap.Error(err),
 		)
-		botVersion = "1.1.1"
+		botVersion = "unknown"
 	}
 
 	// Регистрируем базовые команды

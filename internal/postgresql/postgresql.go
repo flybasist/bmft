@@ -1,4 +1,4 @@
-// Пакет postgresql содержит утилиты для работы с PostgreSQL (подключение, ретраи).
+// Package postgresql — утилиты для работы с PostgreSQL (подключение, ретраи).
 package postgresql
 
 import (

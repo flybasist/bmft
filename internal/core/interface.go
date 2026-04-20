@@ -1,3 +1,4 @@
+// Package core — общие абстракции и middleware: MessageContext, AdminChecker, command cooldown, panic recovery.
 package core
 
 import (

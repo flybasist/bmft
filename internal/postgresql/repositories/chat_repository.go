@@ -1,3 +1,4 @@
+// Package repositories — доступ к таблицам PostgreSQL: chats, messages, content_limits, scheduled_tasks, vip_users, event_log, bot_settings.
 package repositories
 
 import (

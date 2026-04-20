@@ -1,3 +1,4 @@
+// Package maintenance — фоновое обслуживание БД: ротация партиций, удаление устаревших данных.
 package maintenance
 
 import (

@@ -1,3 +1,4 @@
+// Package scheduler — планировщик задач по cron-расписанию.
 package scheduler
 
 import (

@@ -1,5 +1,24 @@
 # CHANGELOG
 
+## Refactoring 2026-04-20
+
+### Phase 2 — cleanup (commit `6166554`)
+
+- Удалены мёртвые ветки и дубли, единый стиль импортов и комментариев на русском
+- Объединены TextFilter/ProfanityFilter в Reactions, упрощена middleware-цепочка
+
+### Phase 3 — docs (commit `30b1d66`)
+
+- README сокращён 145 → 32 строк (точка входа-хаб со ссылками)
+- BMFT_PRESENTATION 327 → 142 строки (без копий из README/ARCHITECTURE)
+
+### Phase 4 — version SSOT + ST1000
+
+- `bot_settings.bot_version` — единственный источник истины. В `cmd/bot/main.go` fallback `"1.1.1"` заменён на `"unknown"` (срабатывает только при повреждённой БД)
+- README и `docs/architecture/DATABASE.md` больше не дублируют номер версии — ссылка на CHANGELOG
+- `Dockerfile LABEL` и `migrations/*.sql` оставлены без изменений (исторический след + правило 11 — docker правит пользователь)
+- Добавлены `// Package xxx — ...` комментарии в 11 пакетов (`config`, `core`, `logx`, `limiter`, `maintenance`, `reactions`, `scheduler`, `statistics`, `postgresql`, `repositories`, `profanity`) — staticcheck `-checks=all` теперь полностью чист
+
 ## v1.1.1 — Anti-Spam & Admin Security (2025-07-07)
 
 ### 🔴 Критические исправления

@@ -1,3 +1,4 @@
+// Package logx — обёртка над zap с файловой ротацией (lumberjack).
 package logx
 
 import (

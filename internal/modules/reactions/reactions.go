@@ -1,3 +1,4 @@
+// Package reactions — автоответы на ключевые слова, фильтр запрещённых слов и фильтр мата.
 package reactions
 
 import (
