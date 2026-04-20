@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"time"
 
 	"go.uber.org/zap"
 	tele "gopkg.in/telebot.v3"
@@ -9,6 +10,32 @@ import (
 	"github.com/flybasist/bmft/internal/core"
 	"github.com/flybasist/bmft/internal/postgresql/repositories"
 )
+
+// welcomeMessageTTL — время жизни приветственного сообщения для нового
+// пользователя. После TTL бот удаляет своё приветствие, чтобы после массового
+// захода спам-ботов чат не оказался забит десятками сообщений-приветствий
+// (сами спамеры будут удалены сторонними анти-спам ботами раньше).
+// История захода всё равно видна в админке Telegram.
+const welcomeMessageTTL = 5 * time.Minute
+
+// scheduleMessageDelete планирует удаление сообщения через ttl.
+// Использует time.AfterFunc — таймер не блокирует и переживает обычные
+// операции бота. При shutdown бота незавершённые таймеры просто молча
+// провалятся (Delete вернёт ошибку, она логируется на уровне Debug).
+func scheduleMessageDelete(bot *tele.Bot, msg *tele.Message, ttl time.Duration, logger *zap.Logger) {
+	if msg == nil {
+		return
+	}
+	time.AfterFunc(ttl, func() {
+		if err := bot.Delete(msg); err != nil {
+			logger.Debug("failed to delete scheduled message",
+				zap.Error(err),
+				zap.Int("message_id", msg.ID),
+				zap.Int64("chat_id", msg.Chat.ID),
+			)
+		}
+	})
+}
 
 // registerCommands регистрирует все команды бота.
 // Хендлеры для базовых команд: /start, /help, /version.
@@ -93,32 +120,30 @@ func handleUserJoined(chatRepo *repositories.ChatRepository, logger *zap.Logger)
 			return c.Send(answer)
 		}
 
-		// Приветствие обычного пользователя
+		// Приветствие обычного пользователя.
+		// Сообщение авто-удаляется через welcomeMessageTTL — иначе после ночного
+		// нашествия спам-ботов чат окажется забит десятками наших приветствий.
 		username := newMember.Username
 		var answer string
 
 		if username != "" {
-			// Есть никнейм - стандартное приветствие
-			answer = fmt.Sprintf(
-				"👋 Привет, @%s! Добро пожаловать в наш чат!\n\n"+
-					"Капча для новых пользователей в разработке, "+
-					"поэтому если ты спамер то удались сам пожалуйста 😊",
-				username,
-			)
+			answer = fmt.Sprintf("👋 Привет, @%s! Добро пожаловать в наш чат.", username)
 		} else {
-			// Нет никнейма - альтернативное приветствие
 			firstName := newMember.FirstName
 			if firstName == "" {
 				firstName = "Пользователь"
 			}
-			answer = fmt.Sprintf(
-				"👋 В чат зашёл %s, который предпочёл не использовать никнейм.\n\n"+
-					"Но его данные надёжно записаны в базу для истории! 📝",
-				firstName,
-			)
+			answer = fmt.Sprintf("👋 Привет, %s! Добро пожаловать в наш чат.", firstName)
 		}
 
-		return c.Send(answer)
+		// Используем bot.Send (а не c.Send), чтобы получить *Message и
+		// запланировать его удаление по таймеру.
+		sentMsg, err := c.Bot().Send(c.Chat(), answer)
+		if err != nil {
+			return err
+		}
+		scheduleMessageDelete(c.Bot(), sentMsg, welcomeMessageTTL, logger)
+		return nil
 	}
 }
 
