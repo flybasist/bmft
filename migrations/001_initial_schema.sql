@@ -24,6 +24,8 @@ CREATE TABLE chats (
     username TEXT,
     is_forum BOOLEAN DEFAULT FALSE,
     is_active BOOLEAN DEFAULT TRUE,
+    welcome_enabled BOOLEAN NOT NULL DEFAULT TRUE,
+    welcome_ttl_seconds INTEGER NOT NULL DEFAULT 300,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
@@ -221,7 +223,7 @@ CREATE INDEX idx_event_log_metadata ON event_log USING GIN (metadata);
 
 CREATE TABLE bot_settings (
     id SERIAL PRIMARY KEY,
-    bot_version TEXT DEFAULT '1.1.1',
+    bot_version TEXT DEFAULT '1.2',
     timezone TEXT DEFAULT 'UTC',
     available_modules TEXT[] DEFAULT ARRAY['core', 'limiter', 'statistics', 'reactions', 'scheduler']
 );

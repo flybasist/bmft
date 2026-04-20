@@ -2,6 +2,8 @@ package main
 
 import (
 	"fmt"
+	"strconv"
+	"strings"
 	"time"
 
 	"go.uber.org/zap"
@@ -11,9 +13,10 @@ import (
 	"github.com/flybasist/bmft/internal/postgresql/repositories"
 )
 
-// welcomeMessageTTL — время жизни приветственного сообщения для нового
-// пользователя. После TTL бот удаляет своё приветствие, чтобы после массового
-// захода спам-ботов чат не оказался забит десятками сообщений-приветствий
+// welcomeMessageTTL — дефолтный fallback, если в БД нет записи про чат. Реальный TTL
+// берётся из chats.welcome_ttl_seconds (per-chat, настраивается /welcome ttl <сек>).
+// Сообщение авто-удаляется, чтобы после массового захода спам-ботов
+// чат не оказался забит десятками сообщений-приветствий
 // (сами спамеры будут удалены сторонними анти-спам ботами раньше).
 // История захода всё равно видна в админке Telegram.
 const welcomeMessageTTL = 5 * time.Minute
@@ -57,6 +60,9 @@ func registerCommands(
 
 	// /help — помощь
 	bot.Handle("/help", handleHelp(logger))
+
+	// /welcome — управление приветствием (admin-only через AdminOnlyMiddleware).
+	bot.Handle("/welcome", handleWelcome(chatRepo, logger))
 
 	// Универсальный обработчик для всех типов сообщений.
 	// Хендлеры нужны для активации middleware (bot.Use).
@@ -121,8 +127,17 @@ func handleUserJoined(chatRepo *repositories.ChatRepository, logger *zap.Logger)
 		}
 
 		// Приветствие обычного пользователя.
-		// Сообщение авто-удаляется через welcomeMessageTTL — иначе после ночного
-		// нашествия спам-ботов чат окажется забит десятками наших приветствий.
+		// Настройки (enabled + ttl) берутся из chats; админы управляют ими через /welcome.
+		settings, err := chatRepo.GetWelcomeSettings(c.Chat().ID)
+		if err != nil {
+			logger.Warn("failed to load welcome settings, using defaults",
+				zap.Error(err), zap.Int64("chat_id", c.Chat().ID))
+			settings = repositories.WelcomeSettings{Enabled: true, TTLSeconds: int(welcomeMessageTTL.Seconds())}
+		}
+		if !settings.Enabled {
+			return nil
+		}
+
 		username := newMember.Username
 		var answer string
 
@@ -138,11 +153,13 @@ func handleUserJoined(chatRepo *repositories.ChatRepository, logger *zap.Logger)
 
 		// Используем bot.Send (а не c.Send), чтобы получить *Message и
 		// запланировать его удаление по таймеру.
-		sentMsg, err := c.Bot().Send(c.Chat(), answer)
-		if err != nil {
-			return err
+		sentMsg, sendErr := c.Bot().Send(c.Chat(), answer)
+		if sendErr != nil {
+			return sendErr
 		}
-		scheduleMessageDelete(c.Bot(), sentMsg, welcomeMessageTTL, logger)
+		if settings.TTLSeconds > 0 {
+			scheduleMessageDelete(c.Bot(), sentMsg, time.Duration(settings.TTLSeconds)*time.Second, logger)
+		}
 		return nil
 	}
 }
@@ -196,6 +213,7 @@ func handleHelp(logger *zap.Logger) func(tele.Context) error {
 /start — приветствие и инициализация
 /help — эта справка
 /version — информация о версии бота
+🔒 /welcome — приветствие новых участников (on/off/ttl)
 
 🤖 Модули бота (работают автоматически):
 
@@ -227,5 +245,76 @@ func handleHelp(logger *zap.Logger) func(tele.Context) error {
 💡 Используйте команду модуля (например /reactions) для подробной справки.`
 
 		return c.Send(helpMsg)
+	}
+}
+
+// handleWelcome — управление приветствием новых пользователей (admin-only).
+//
+// Использование:
+//
+//	/welcome           — показать текущие настройки
+//	/welcome on|off    — включить/выключить приветствие
+//	/welcome ttl <сек> — задать TTL авто-удаления (0 = не удалять)
+func handleWelcome(chatRepo *repositories.ChatRepository, logger *zap.Logger) func(tele.Context) error {
+	return func(c tele.Context) error {
+		args := c.Args()
+		chatID := c.Chat().ID
+
+		if len(args) == 0 {
+			s, err := chatRepo.GetWelcomeSettings(chatID)
+			if err != nil {
+				logger.Error("welcome: get settings", zap.Error(err), zap.Int64("chat_id", chatID))
+				return c.Send("Не удалось прочитать настройки.")
+			}
+			state := "выключено"
+			if s.Enabled {
+				state = "включено"
+			}
+			ttlNote := fmt.Sprintf("%d сек", s.TTLSeconds)
+			if s.TTLSeconds == 0 {
+				ttlNote = "без авто-удаления"
+			}
+			return c.Send(fmt.Sprintf(
+				"Приветствие: %s\nTTL: %s\n\n"+
+					"Команды:\n"+
+					"/welcome on — включить\n"+
+					"/welcome off — выключить\n"+
+					"/welcome ttl <секунды> — задать TTL (0 = не удалять)",
+				state, ttlNote,
+			))
+		}
+
+		switch strings.ToLower(args[0]) {
+		case "on":
+			if err := chatRepo.SetWelcomeEnabled(chatID, true); err != nil {
+				logger.Error("welcome: set enabled", zap.Error(err), zap.Int64("chat_id", chatID))
+				return c.Send("Не удалось сохранить настройку.")
+			}
+			return c.Send("✅ Приветствие включено.")
+		case "off":
+			if err := chatRepo.SetWelcomeEnabled(chatID, false); err != nil {
+				logger.Error("welcome: set disabled", zap.Error(err), zap.Int64("chat_id", chatID))
+				return c.Send("Не удалось сохранить настройку.")
+			}
+			return c.Send("⛔ Приветствие выключено.")
+		case "ttl":
+			if len(args) < 2 {
+				return c.Send("Укажите TTL в секундах: /welcome ttl 300 (0 — не удалять).")
+			}
+			ttl, err := strconv.Atoi(args[1])
+			if err != nil || ttl < 0 {
+				return c.Send("TTL должен быть целым числом ≥ 0.")
+			}
+			if err := chatRepo.SetWelcomeTTL(chatID, ttl); err != nil {
+				logger.Error("welcome: set ttl", zap.Error(err), zap.Int64("chat_id", chatID))
+				return c.Send("Не удалось сохранить настройку.")
+			}
+			if ttl == 0 {
+				return c.Send("✅ Приветствие больше не удаляется автоматически.")
+			}
+			return c.Send(fmt.Sprintf("✅ TTL приветствия: %d сек.", ttl))
+		default:
+			return c.Send("Неизвестная подкоманда. Доступно: on, off, ttl <сек>.")
+		}
 	}
 }

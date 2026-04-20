@@ -95,6 +95,8 @@ func (ac *AdminChecker) IsAdmin(chat *tele.Chat, userID int64) (bool, error) {
 // adminCommands — список команд, требующих прав администратора.
 // Если команда в этом списке и вызвана не-админом — middleware молча удаляет сообщение.
 var adminCommands = map[string]bool{
+	// core
+	"/welcome": true,
 	// limiter
 	"/setlimit":  true,
 	"/setvip":    true,

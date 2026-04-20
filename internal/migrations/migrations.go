@@ -25,7 +25,7 @@ type ExpectedTable struct {
 // banned_words мигрированы в keyword_reactions (через колонку action).
 var ExpectedSchema = []ExpectedTable{
 	// Core tables
-	{Name: "chats", Columns: []string{"chat_id", "chat_type", "title", "is_forum", "is_active"}},
+	{Name: "chats", Columns: []string{"chat_id", "chat_type", "title", "is_forum", "is_active", "welcome_enabled", "welcome_ttl_seconds"}},
 	{Name: "chat_vips", Columns: []string{"id", "chat_id", "thread_id", "user_id", "granted_at"}},
 	{Name: "messages", Columns: []string{"id", "chat_id", "thread_id", "user_id", "message_id", "content_type", "chat_name", "metadata"}},
 
@@ -53,7 +53,7 @@ var ExpectedSchema = []ExpectedTable{
 // LatestSchemaVersion - текущая версия схемы базы данных
 // Увеличивайте эту константу при добавлении новых миграций.
 // Каждая новая версия = один файл NNN_migration.sql в папке migrations/.
-const LatestSchemaVersion = 3
+const LatestSchemaVersion = 4
 
 // RunMigrationsIfNeeded проверяет схему БД и выполняет миграции если требуется
 // Возвращает ошибку если схема несовместима или миграция не удалась

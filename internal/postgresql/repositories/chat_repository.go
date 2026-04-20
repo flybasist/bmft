@@ -63,3 +63,61 @@ func (r *ChatRepository) EnsureExists(chatID int64) error {
 	}
 	return nil
 }
+
+// WelcomeSettings — настройки приветствия для конкретного чата.
+// TTLSeconds = 0 означает "не удалять автоматически".
+type WelcomeSettings struct {
+	Enabled    bool
+	TTLSeconds int
+}
+
+// GetWelcomeSettings возвращает настройки приветствия чата.
+// Если записи о чате ещё нет — возвращает дефолты (включено, 300 сек),
+// чтобы хендлер OnUserJoined работал даже до первого /start.
+func (r *ChatRepository) GetWelcomeSettings(chatID int64) (WelcomeSettings, error) {
+	var s WelcomeSettings
+	err := r.db.QueryRow(`
+		SELECT welcome_enabled, welcome_ttl_seconds
+		FROM chats WHERE chat_id = $1
+	`, chatID).Scan(&s.Enabled, &s.TTLSeconds)
+	if err == sql.ErrNoRows {
+		return WelcomeSettings{Enabled: true, TTLSeconds: 300}, nil
+	}
+	if err != nil {
+		return WelcomeSettings{}, fmt.Errorf("get welcome settings: %w", err)
+	}
+	return s, nil
+}
+
+// SetWelcomeEnabled включает/выключает приветствие для чата.
+func (r *ChatRepository) SetWelcomeEnabled(chatID int64, enabled bool) error {
+	if err := r.EnsureExists(chatID); err != nil {
+		return err
+	}
+	_, err := r.db.Exec(`
+		UPDATE chats SET welcome_enabled = $1, updated_at = NOW()
+		WHERE chat_id = $2
+	`, enabled, chatID)
+	if err != nil {
+		return fmt.Errorf("set welcome enabled: %w", err)
+	}
+	return nil
+}
+
+// SetWelcomeTTL устанавливает TTL приветствия в секундах. ttl=0 — не удалять.
+func (r *ChatRepository) SetWelcomeTTL(chatID int64, ttlSeconds int) error {
+	if ttlSeconds < 0 {
+		return fmt.Errorf("ttl must be >= 0, got %d", ttlSeconds)
+	}
+	if err := r.EnsureExists(chatID); err != nil {
+		return err
+	}
+	_, err := r.db.Exec(`
+		UPDATE chats SET welcome_ttl_seconds = $1, updated_at = NOW()
+		WHERE chat_id = $2
+	`, ttlSeconds, chatID)
+	if err != nil {
+		return fmt.Errorf("set welcome ttl: %w", err)
+	}
+	return nil
+}
