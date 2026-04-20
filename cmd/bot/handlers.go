@@ -23,12 +23,18 @@ const welcomeMessageTTL = 5 * time.Minute
 
 // registerCommands регистрирует все команды бота.
 // Хендлеры для базовых команд: /start, /help, /version.
+//
+// startWelcomeWizard — функция, возвращённая wizard.RegisterWelcome(...).
+// /welcome без аргументов в группе будет запускать wizard — все проверки
+// (anonymous-админ, личка) сделает сам Manager.Start.
+// Старый синтаксис (/welcome on|off|ttl) продолжает работать как раньше.
 func registerCommands(
 	bot *tele.Bot,
 	chatRepo *repositories.ChatRepository,
 	eventRepo *repositories.EventRepository,
 	logger *zap.Logger,
 	botVersion string,
+	startWelcomeWizard func(c tele.Context) error,
 ) {
 	// /version — информация о версии бота
 	bot.Handle("/version", handleVersion(botVersion))
@@ -43,7 +49,7 @@ func registerCommands(
 	bot.Handle("/help", handleHelp(logger))
 
 	// /welcome — управление приветствием (admin-only через AdminOnlyMiddleware).
-	bot.Handle("/welcome", handleWelcome(chatRepo, logger))
+	bot.Handle("/welcome", handleWelcome(chatRepo, logger, startWelcomeWizard))
 
 	// Универсальный обработчик для всех типов сообщений.
 	// Хендлеры нужны для активации middleware (bot.Use).
@@ -233,15 +239,27 @@ func handleHelp(logger *zap.Logger) func(tele.Context) error {
 //
 // Использование:
 //
-//	/welcome           — показать текущие настройки
-//	/welcome on|off    — включить/выключить приветствие
-//	/welcome ttl <сек> — задать TTL авто-удаления (0 = не удалять)
-func handleWelcome(chatRepo *repositories.ChatRepository, logger *zap.Logger) func(tele.Context) error {
+//	/welcome           — в группе: запуск wizard'а с inline-кнопками
+//	                     (anonymous админ / личка → fallback на показ настроек)
+//	/welcome on|off    — включить/выключить приветствие (старый синтаксис)
+//	/welcome ttl <сек> — задать TTL авто-удаления (старый синтаксис)
+//
+// Старый синтаксис сохраняется для скриптов, анонимных админов и быстрых изменений.
+func handleWelcome(chatRepo *repositories.ChatRepository, logger *zap.Logger, startWizard func(c tele.Context) error) func(tele.Context) error {
 	return func(c tele.Context) error {
 		args := c.Args()
 		chatID := c.Chat().ID
 
 		if len(args) == 0 {
+			// /welcome без аргументов в группе и не от anonymous админа → wizard.
+			// В личке или для anonymous админа startWizard сам отправит explanation
+			// и не создаст state — это обрабатывает wizard.Manager.Start.
+			chat := c.Chat()
+			if startWizard != nil && chat != nil && (chat.Type == tele.ChatGroup || chat.Type == tele.ChatSuperGroup) && !core.IsAnonymousAdmin(c.Message()) {
+				return startWizard(c)
+			}
+
+			// Fallback: показ настроек в текстовом виде (личка / anonymous админ).
 			s, err := chatRepo.GetWelcomeSettings(chatID)
 			if err != nil {
 				logger.Error("welcome: get settings", zap.Error(err), zap.Int64("chat_id", chatID))

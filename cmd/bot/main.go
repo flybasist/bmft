@@ -22,6 +22,7 @@ import (
 	"github.com/flybasist/bmft/internal/postgresql"
 	"github.com/flybasist/bmft/internal/postgresql/repositories"
 	"github.com/flybasist/bmft/internal/profanity"
+	"github.com/flybasist/bmft/internal/wizard"
 )
 
 func main() {
@@ -143,8 +144,14 @@ func run() error {
 	bot.Use(core.LoggerMiddleware(logger))
 	bot.Use(core.PanicRecoveryMiddleware(logger))
 
+	// Создаём менеджер wizard'ов (FSM для интерактивных команд).
+	// Manager передаётся в initModules — там TextInterceptMiddleware встанет
+	// ПЕРЕД statistics/limiter/reactions, чтобы поглощать wizard-ввод.
+	wizardMgr := wizard.NewManager(bot, db, adminChecker, logger)
+	wizardMgr.RegisterCancelHandler(bot)
+
 	// Создаём все модули
-	modules, err := initModules(db, bot, logger, cfg)
+	modules, err := initModules(db, bot, logger, cfg, wizardMgr)
 	if err != nil {
 		return fmt.Errorf("failed to init modules: %w", err)
 	}
@@ -165,8 +172,12 @@ func run() error {
 		botVersion = "unknown"
 	}
 
+	// Регистрируем wizard'ы (инлайн-кнопки и text-router).
+	// startWelcomeWizard — точка входа для /welcome без аргументов.
+	startWelcomeWizard := wizard.RegisterWelcome(bot, wizardMgr, chatRepo, logger)
+
 	// Регистрируем базовые команды
-	registerCommands(bot, chatRepo, eventRepo, logger, botVersion)
+	registerCommands(bot, chatRepo, eventRepo, logger, botVersion, startWelcomeWizard)
 
 	// Создаём контекст для graceful shutdown
 	ctx, cancel := context.WithCancel(context.Background())

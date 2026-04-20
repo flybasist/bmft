@@ -12,6 +12,7 @@ import (
 	"github.com/flybasist/bmft/internal/modules/scheduler"
 	"github.com/flybasist/bmft/internal/modules/statistics"
 	"github.com/flybasist/bmft/internal/postgresql/repositories"
+	"github.com/flybasist/bmft/internal/wizard"
 	"go.uber.org/zap"
 	tele "gopkg.in/telebot.v3"
 )
@@ -31,7 +32,7 @@ type Modules struct {
 // initModules создаёт и инициализирует все модули бота.
 // Централизованная инициализация всех модулей.
 // Возвращает структуру Modules со всеми готовыми к работе модулями.
-func initModules(db *sql.DB, bot *tele.Bot, logger *zap.Logger, cfg *config.Config) (*Modules, error) {
+func initModules(db *sql.DB, bot *tele.Bot, logger *zap.Logger, cfg *config.Config, wizardMgr *wizard.Manager) (*Modules, error) {
 	logger.Info("initializing modules")
 
 	// Создаём репозитории
@@ -89,7 +90,7 @@ func initModules(db *sql.DB, bot *tele.Bot, logger *zap.Logger, cfg *config.Conf
 
 	// Регистрируем pipeline обработки сообщений
 	logger.Info("registering message pipeline")
-	registerPipeline(bot, modules, vipRepo, db, logger)
+	registerPipeline(bot, modules, vipRepo, db, logger, wizardMgr)
 
 	return modules, nil
 }
@@ -132,7 +133,13 @@ func (m *Modules) shutdownModules(logger *zap.Logger) error {
 // IsVIP проверяется один раз и кешируется (−1 SQL-запрос: Limiter+Reactions раньше дублировали).
 // MessageDeleted пропагируется через c.Set: если Limiter удалил сообщение,
 // Reactions видит MessageDeleted=true и считает мат без повторного удаления.
-func registerPipeline(bot *tele.Bot, modules *Modules, vipRepo *repositories.VIPRepository, db *sql.DB, logger *zap.Logger) {
+func registerPipeline(bot *tele.Bot, modules *Modules, vipRepo *repositories.VIPRepository, db *sql.DB, logger *zap.Logger, wizardMgr *wizard.Manager) {
+	// Wizard text-intercept middleware ВСЕГДА первый в pipeline:
+	// если пользователь в режиме wizard'а вводит текст (секунды TTL,
+	// имя задачи и т.п.) — это сообщение НЕ должно попасть в статистику/
+	// limiter/reactions (это служебный ввод, не обычный чат).
+	bot.Use(wizardMgr.TextInterceptMiddleware())
+
 	bot.Use(wrapModuleMiddleware(modules.Statistics.OnMessage, "statistics", vipRepo, db, logger))
 	bot.Use(wrapModuleMiddleware(modules.Limiter.OnMessage, "limiter", vipRepo, db, logger))
 	bot.Use(wrapModuleMiddleware(modules.Reactions.OnMessage, "reactions", vipRepo, db, logger))
