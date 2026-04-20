@@ -50,6 +50,7 @@ docker logs -f bmft_bot
 ```
 
 **Подробная документация:** [docs/README.md](docs/README.md)
+**Атрибуция используемых ресурсов:** [docs/CREDITS.md](docs/CREDITS.md)
 
 ## 💡 Основные возможности
 

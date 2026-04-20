@@ -45,3 +45,20 @@ func (r *ChatRepository) GetOrCreate(chatID int64, chatType, title, username str
 	}
 	return nil
 }
+
+// EnsureExists гарантирует наличие записи о чате в таблице chats.
+// Используется перед операциями, требующими FK на chats (content_limits,
+// profanity_settings, scheduled_tasks, keyword_reactions). Если чат уже
+// существует, ничего не делает; полные метаданные заполняются позже через
+// GetOrCreate при добавлении бота в чат или при /start.
+func (r *ChatRepository) EnsureExists(chatID int64) error {
+	_, err := r.db.Exec(`
+		INSERT INTO chats (chat_id, chat_type, title)
+		VALUES ($1, 'unknown', 'unknown')
+		ON CONFLICT (chat_id) DO NOTHING
+	`, chatID)
+	if err != nil {
+		return fmt.Errorf("ensure chat exists: %w", err)
+	}
+	return nil
+}

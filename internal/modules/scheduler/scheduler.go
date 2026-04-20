@@ -23,17 +23,19 @@ type SchedulerModule struct {
 	logger        *zap.Logger
 	schedulerRepo *repositories.SchedulerRepository
 	eventRepo     *repositories.EventRepository
+	chatRepo      *repositories.ChatRepository
 	cron          *cron.Cron
 	taskEntries   map[int64]cron.EntryID // task DB ID → cron entry ID
 	mu            sync.Mutex             // защита taskEntries
 }
 
 // New создаёт новый инстанс модуля планировщика.
-func New(db *sql.DB, schedulerRepo *repositories.SchedulerRepository, eventRepo *repositories.EventRepository, logger *zap.Logger, bot *tele.Bot) *SchedulerModule {
+func New(db *sql.DB, schedulerRepo *repositories.SchedulerRepository, eventRepo *repositories.EventRepository, chatRepo *repositories.ChatRepository, logger *zap.Logger, bot *tele.Bot) *SchedulerModule {
 	m := &SchedulerModule{
 		db:            db,
 		schedulerRepo: schedulerRepo,
 		eventRepo:     eventRepo,
+		chatRepo:      chatRepo,
 		logger:        logger,
 		bot:           bot,
 		cron:          cron.New(),
@@ -316,133 +318,132 @@ func (m *SchedulerModule) handleListTasks(c tele.Context) error {
 	return c.Send(msg.String(), &tele.SendOptions{ParseMode: tele.ModeMarkdown})
 }
 
+// validTaskTypes — разрешённые типы данных для задачи планировщика.
+var validTaskTypes = map[string]bool{
+	"sticker": true, "text": true, "photo": true, "animation": true,
+	"video": true, "voice": true, "document": true, "audio": true,
+}
+
+// extractTaskTypeFromReply определяет тип и file_id из медиа в reply-сообщении.
+// Если медиа нет — возвращает ("text", msg.Text).
+func extractTaskTypeFromReply(replyMsg *tele.Message) (string, string) {
+	switch {
+	case replyMsg.Sticker != nil:
+		return "sticker", replyMsg.Sticker.FileID
+	case replyMsg.Photo != nil:
+		return "photo", replyMsg.Photo.FileID
+	case replyMsg.Animation != nil:
+		return "animation", replyMsg.Animation.FileID
+	case replyMsg.Video != nil:
+		return "video", replyMsg.Video.FileID
+	case replyMsg.Voice != nil:
+		return "voice", replyMsg.Voice.FileID
+	case replyMsg.Document != nil:
+		return "document", replyMsg.Document.FileID
+	case replyMsg.Audio != nil:
+		return "audio", replyMsg.Audio.FileID
+	default:
+		return "text", replyMsg.Text
+	}
+}
+
+// parseAddTaskArgs разбирает аргументы /addtask: имя + "cron" в кавычках.
+// Возвращает name, cronExpr, остаток после закрывающей кавычки и сообщение об ошибке (пустое если OK).
+func parseAddTaskArgs(rawText string) (name, cronExpr, rest, errMsg string) {
+	text := strings.TrimSpace(rawText)
+	if !strings.HasPrefix(text, "/addtask ") {
+		return "", "", "", "❌ Неверный формат команды"
+	}
+	text = strings.TrimSpace(text[len("/addtask "):])
+
+	parts := strings.SplitN(text, " ", 2)
+	if len(parts) < 2 {
+		return "", "", "", "❌ Не указано имя или cron-выражение"
+	}
+	name = parts[0]
+	remaining := strings.TrimSpace(parts[1])
+
+	if len(name) == 0 {
+		return "", "", "", "❌ Имя задачи не может быть пустым"
+	}
+	if len(name) > 200 {
+		return "", "", "", "❌ Имя задачи слишком длинное (макс. 200 символов)"
+	}
+
+	if !strings.HasPrefix(remaining, "\"") {
+		return "", "", "", "❌ Cron выражение должно быть в кавычках"
+	}
+	endQuote := strings.Index(remaining[1:], "\"")
+	if endQuote == -1 {
+		return "", "", "", "❌ Неверный формат cron выражения"
+	}
+	cronExpr = remaining[1 : endQuote+1]
+
+	if _, err := cron.ParseStandard(cronExpr); err != nil {
+		return "", "", "", fmt.Sprintf("❌ Неверное cron выражение: %v", err)
+	}
+
+	rest = strings.TrimSpace(remaining[endQuote+2:])
+	return name, cronExpr, rest, ""
+}
+
+// createAndRegisterTask создаёт задачу в БД, регистрирует в cron, логирует событие и отправляет
+// пользователю подтверждение. Общий хвост для reply-режима и text-режима /addtask.
+func (m *SchedulerModule) createAndRegisterTask(c tele.Context, chatID int64, threadID int, name, cronExpr, taskType, taskData string) error {
+	taskID, err := m.schedulerRepo.CreateTask(chatID, threadID, name, cronExpr, taskType, taskData)
+	if err != nil {
+		m.logger.Error("failed to create task", zap.Error(err))
+		return c.Send("❌ Ошибка при создании задачи")
+	}
+
+	task, err := m.schedulerRepo.GetTask(taskID)
+	if err != nil {
+		m.logger.Error("failed to get task", zap.Error(err))
+		return c.Send("❌ Ошибка при получении задачи")
+	}
+
+	if err := m.registerTask(task); err != nil {
+		m.logger.Error("failed to register task in cron", zap.Error(err))
+		return c.Send("❌ Ошибка при регистрации задачи в планировщике")
+	}
+
+	_ = m.eventRepo.Log(chatID, c.Sender().ID, "scheduler", "task_created",
+		fmt.Sprintf("Task %s created", name))
+
+	scopeLabel := "для всего чата"
+	scopeHint := "💡 Для создания задачи для топика используйте команду внутри топика"
+	if threadID != 0 {
+		scopeLabel = "для этого топика"
+		scopeHint = "💡 Для создания задачи для всего чата используйте команду в основном чате"
+	}
+
+	scopeMsg := fmt.Sprintf("✅ Задача создана <b>%s</b>\n\n%s\n\n"+
+		"ID: %d\n"+
+		"Название: <code>%s</code>\n"+
+		"Расписание: <code>%s</code>\n"+
+		"Тип: %s", scopeLabel, scopeHint, taskID, name, cronExpr, taskType)
+
+	return c.Send(scopeMsg, &tele.SendOptions{ParseMode: tele.ModeHTML})
+}
+
 func (m *SchedulerModule) handleAddTask(c tele.Context) error {
 	chatID := c.Chat().ID
 	threadID := core.GetThreadID(m.db, c)
 
 	m.logger.Info("handleAddTask called", zap.Int64("chat_id", chatID), zap.Int("thread_id", threadID), zap.Int64("user_id", c.Sender().ID))
 
-	// Убеждаемся что chat_id существует в таблице chats (для foreign key).
-	// scheduled_tasks имеет REFERENCES chats(chat_id) — без записи в chats INSERT упадёт.
-	_, _ = m.db.Exec(`
-		INSERT INTO chats (chat_id, chat_type, title)
-		VALUES ($1, 'unknown', 'unknown')
-		ON CONFLICT (chat_id) DO NOTHING
-	`, chatID)
+	// scheduled_tasks имеет FK на chats(chat_id) — без записи в chats INSERT упадёт.
+	if err := m.chatRepo.EnsureExists(chatID); err != nil {
+		m.logger.Error("failed to ensure chat exists", zap.Error(err))
+	}
 
-	var taskType, taskData string
-
-	if c.Message().ReplyTo != nil {
-		// Парсим параметры команды /addtask
-		text := strings.TrimSpace(c.Text())
-		if !strings.HasPrefix(text, "/addtask ") {
-			return c.Send("❌ Неверный формат команды")
-		}
-		text = text[len("/addtask "):]
-
-		parts := strings.SplitN(text, " ", 2)
-		if len(parts) < 2 {
+	name, cronExpr, rest, errMsg := parseAddTaskArgs(c.Text())
+	if errMsg != "" {
+		// В reply-режиме показываем короткую справку, в text-режиме — полную.
+		if c.Message().ReplyTo != nil && errMsg == "❌ Не указано имя или cron-выражение" {
 			return c.Send("Использование: /addtask <name> \"<cron>\" (reply на сообщение со стикером/фото/гифкой/etc.)\nПример: /addtask monday_sticker \"0 9 * * 1\"")
 		}
-
-		name := parts[0]
-		remaining := strings.TrimSpace(parts[1])
-
-		// Parse cron expression in quotes
-		if !strings.HasPrefix(remaining, "\"") {
-			return c.Send("❌ Cron выражение должно быть в кавычках")
-		}
-		endQuote := strings.Index(remaining[1:], "\"")
-		if endQuote == -1 {
-			return c.Send("❌ Неверный формат cron выражения")
-		}
-		cronExpr := remaining[1 : endQuote+1]
-
-		if _, err := cron.ParseStandard(cronExpr); err != nil {
-			return c.Send(fmt.Sprintf("❌ Неверное cron выражение: %v", err))
-		}
-
-		// Валидация имени задачи
-		if len(name) == 0 {
-			return c.Send("❌ Имя задачи не может быть пустым")
-		}
-		if len(name) > 200 {
-			return c.Send("❌ Имя задачи слишком длинное (макс. 200 символов)")
-		}
-
-		replyMsg := c.Message().ReplyTo
-		if replyMsg.Sticker != nil {
-			taskType = "sticker"
-			taskData = replyMsg.Sticker.FileID
-		} else if replyMsg.Photo != nil {
-			taskType = "photo"
-			taskData = replyMsg.Photo.FileID
-		} else if replyMsg.Animation != nil {
-			taskType = "animation"
-			taskData = replyMsg.Animation.FileID
-		} else if replyMsg.Video != nil {
-			taskType = "video"
-			taskData = replyMsg.Video.FileID
-		} else if replyMsg.Voice != nil {
-			taskType = "voice"
-			taskData = replyMsg.Voice.FileID
-		} else if replyMsg.Document != nil {
-			taskType = "document"
-			taskData = replyMsg.Document.FileID
-		} else if replyMsg.Audio != nil {
-			taskType = "audio"
-			taskData = replyMsg.Audio.FileID
-		} else {
-			taskType = "text"
-			taskData = replyMsg.Text
-		}
-
-		taskID, err := m.schedulerRepo.CreateTask(chatID, threadID, name, cronExpr, taskType, taskData)
-		if err != nil {
-			m.logger.Error("failed to create task", zap.Error(err))
-			return c.Send("❌ Ошибка при создании задачи")
-		}
-
-		task, err := m.schedulerRepo.GetTask(taskID)
-		if err != nil {
-			m.logger.Error("failed to get task", zap.Error(err))
-			return c.Send("❌ Ошибка при получении задачи")
-		}
-
-		if err := m.registerTask(task); err != nil {
-			m.logger.Error("failed to register task in cron", zap.Error(err))
-			return c.Send("❌ Ошибка при регистрации задачи в планировщике")
-		}
-
-		_ = m.eventRepo.Log(chatID, c.Sender().ID, "scheduler", "task_created",
-			fmt.Sprintf("Task %s created", name))
-
-		var scopeMsg string
-		if threadID != 0 {
-			scopeMsg = fmt.Sprintf("✅ Задача создана <b>для этого топика</b>\n\n💡 Для создания задачи для всего чата используйте команду в основном чате\n\n"+
-				"ID: %d\n"+
-				"Название: <code>%s</code>\n"+
-				"Расписание: <code>%s</code>\n"+
-				"Тип: %s", taskID, name, cronExpr, taskType)
-		} else {
-			scopeMsg = fmt.Sprintf("✅ Задача создана <b>для всего чата</b>\n\n💡 Для создания задачи для топика используйте команду внутри топика\n\n"+
-				"ID: %d\n"+
-				"Название: <code>%s</code>\n"+
-				"Расписание: <code>%s</code>\n"+
-				"Тип: %s", taskID, name, cronExpr, taskType)
-		}
-
-		return c.Send(scopeMsg, &tele.SendOptions{ParseMode: tele.ModeHTML})
-	} else {
-		// Text mode
-		text := strings.TrimSpace(c.Text())
-		if !strings.HasPrefix(text, "/addtask ") {
-			return c.Send("❌ Неверный формат команды")
-		}
-		text = text[len("/addtask "):]
-
-		parts := strings.SplitN(text, " ", 2)
-		if len(parts) < 2 {
+		if c.Message().ReplyTo == nil && errMsg == "❌ Не указано имя или cron-выражение" {
 			return c.Send("❌ Неверный формат команды\n\n" +
 				"Использование:\n" +
 				"/addtask <name> \"<cron>\" <type> <data>\n" +
@@ -454,87 +455,28 @@ func (m *SchedulerModule) handleAddTask(c tele.Context) error {
 				"0 9 * * 1 - каждый понедельник в 9:00\n" +
 				"0 9 * * 1-5 - пн-пт в 9:00")
 		}
+		return c.Send(errMsg)
+	}
 
-		name := parts[0]
-
-		// Валидация имени задачи (аналогично reply-mode)
-		if len(name) == 0 {
-			return c.Send("❌ Имя задачи не может быть пустым")
-		}
-		if len(name) > 200 {
-			return c.Send("❌ Имя задачи слишком длинное (макс. 200 символов)")
-		}
-
-		remaining := parts[1]
-
-		// Parse cron expression in quotes
-		if !strings.HasPrefix(remaining, "\"") {
-			return c.Send("❌ Cron выражение должно быть в кавычках")
-		}
-		endQuote := strings.Index(remaining[1:], "\"")
-		if endQuote == -1 {
-			return c.Send("❌ Неверный формат cron выражения")
-		}
-		cronExpr := remaining[1 : endQuote+1]
-		remaining = remaining[endQuote+2:] // skip "
-		remaining = strings.TrimSpace(remaining)
-
-		parts = strings.SplitN(remaining, " ", 2)
-		if len(parts) < 2 {
+	var taskType, taskData string
+	if c.Message().ReplyTo != nil {
+		// Reply-режим: тип и данные берём из reply-сообщения.
+		taskType, taskData = extractTaskTypeFromReply(c.Message().ReplyTo)
+	} else {
+		// Text-режим: парсим тип и данные из остатка после "cron".
+		typeParts := strings.SplitN(rest, " ", 2)
+		if len(typeParts) < 2 {
 			return c.Send("❌ Неверный формат команды")
 		}
+		taskType = typeParts[0]
+		taskData = strings.Trim(typeParts[1], "\"")
 
-		taskType = parts[0]
-		taskData = strings.Trim(parts[1], "\"")
-
-		if _, err := cron.ParseStandard(cronExpr); err != nil {
-			return c.Send(fmt.Sprintf("❌ Неверное cron выражение: %v", err))
-		}
-
-		if taskType != "sticker" && taskType != "text" && taskType != "photo" && taskType != "animation" && taskType != "video" && taskType != "voice" && taskType != "document" && taskType != "audio" {
+		if !validTaskTypes[taskType] {
 			return c.Send("❌ Неверный тип задачи. Доступны: sticker, text, photo, animation, video, voice, document, audio")
 		}
-
-		chatID := c.Chat().ID
-		threadID := core.GetThreadID(m.db, c)
-
-		taskID, err := m.schedulerRepo.CreateTask(chatID, threadID, name, cronExpr, taskType, taskData)
-		if err != nil {
-			m.logger.Error("failed to create task", zap.Error(err))
-			return c.Send("❌ Ошибка при создании задачи")
-		}
-
-		task, err := m.schedulerRepo.GetTask(taskID)
-		if err != nil {
-			m.logger.Error("failed to get task", zap.Error(err))
-			return c.Send("❌ Ошибка при получении задачи")
-		}
-
-		if err := m.registerTask(task); err != nil {
-			m.logger.Error("failed to register task in cron", zap.Error(err))
-			return c.Send("❌ Ошибка при регистрации задачи в планировщике")
-		}
-
-		_ = m.eventRepo.Log(chatID, c.Sender().ID, "scheduler", "task_created",
-			fmt.Sprintf("Task %s created", name))
-
-		var scopeMsg string
-		if threadID != 0 {
-			scopeMsg = fmt.Sprintf("✅ Задача создана <b>для этого топика</b>\n\n💡 Для создания задачи для всего чата используйте команду в основном чате\n\n"+
-				"ID: %d\n"+
-				"Название: <code>%s</code>\n"+
-				"Расписание: <code>%s</code>\n"+
-				"Тип: %s", taskID, name, cronExpr, taskType)
-		} else {
-			scopeMsg = fmt.Sprintf("✅ Задача создана <b>для всего чата</b>\n\n💡 Для создания задачи для топика используйте команду внутри топика\n\n"+
-				"ID: %d\n"+
-				"Название: <code>%s</code>\n"+
-				"Расписание: <code>%s</code>\n"+
-				"Тип: %s", taskID, name, cronExpr, taskType)
-		}
-
-		return c.Send(scopeMsg, &tele.SendOptions{ParseMode: tele.ModeHTML})
 	}
+
+	return m.createAndRegisterTask(c, chatID, threadID, name, cronExpr, taskType, taskData)
 }
 
 func (m *SchedulerModule) handleDeleteTask(c tele.Context) error {

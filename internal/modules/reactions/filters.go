@@ -336,19 +336,13 @@ func (m *ReactionsModule) handleAddBan(c telebot.Context) error {
 		}
 	}
 
-	// Убеждаемся что chat_id существует в таблице chats (для foreign key)
-	_, err := m.db.Exec(`
-		INSERT INTO chats (chat_id, chat_type, title)
-		VALUES ($1, 'unknown', 'unknown')
-		ON CONFLICT (chat_id) DO NOTHING
-	`, chatID)
-	if err != nil {
+	if err := m.chatRepo.EnsureExists(chatID); err != nil {
 		m.logger.Error("failed to ensure chat exists", zap.Error(err))
 		return c.Send("❌ Ошибка при проверке чата")
 	}
 
 	// Вставляем в keyword_reactions с полем action (фильтр, не реакция)
-	_, err = m.db.Exec(`
+	_, err := m.db.Exec(`
 		INSERT INTO keyword_reactions (chat_id, thread_id, pattern, is_regex, response_type, response_content, description, action, is_active)
 		VALUES ($1, $2, $3, $4, 'none', '', '', $5, true)
 	`, chatID, threadID, pattern, isRegex, action)
@@ -504,13 +498,10 @@ func (m *ReactionsModule) handleSetProfanity(c telebot.Context) error {
 	chatID := c.Chat().ID
 	threadID := core.GetThreadID(m.db, c)
 
-	// Убеждаемся что chat_id существует в таблице chats (для foreign key).
-	// profanity_settings имеет REFERENCES chats(chat_id) — без записи в chats INSERT упадёт.
-	_, _ = m.db.Exec(`
-		INSERT INTO chats (chat_id, chat_type, title)
-		VALUES ($1, 'unknown', 'unknown')
-		ON CONFLICT (chat_id) DO NOTHING
-	`, chatID)
+	// profanity_settings имеет FK на chats(chat_id) — без записи в chats INSERT упадёт.
+	if err := m.chatRepo.EnsureExists(chatID); err != nil {
+		m.logger.Error("failed to ensure chat exists", zap.Error(err))
+	}
 
 	_, err := m.db.Exec(`
 		INSERT INTO profanity_settings (chat_id, thread_id, action, updated_at)

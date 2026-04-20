@@ -40,15 +40,17 @@ func initModules(db *sql.DB, bot *tele.Bot, logger *zap.Logger, cfg *config.Conf
 	contentLimitsRepo := repositories.NewContentLimitsRepository(db)
 	schedulerRepo := repositories.NewSchedulerRepository(db)
 	messageRepo := repositories.NewMessageRepository(db, logger)
+	chatRepo := repositories.NewChatRepository(db)
 
 	// Создаём модули
 	// messageRepo — единый экземпляр для всех модулей (statistics, limiter, reactions).
 	// Раньше каждый модуль создавал свой NewMessageRepository — 3 одинаковых объекта на одну БД.
+	// chatRepo — общий экземпляр; модули используют EnsureExists() перед INSERT с FK на chats.
 	modules := &Modules{
 		Statistics:  statistics.New(db, eventRepo, messageRepo, logger, bot),
-		Limiter:     limiter.New(db, vipRepo, contentLimitsRepo, messageRepo, eventRepo, logger, bot),
-		Scheduler:   scheduler.New(db, schedulerRepo, eventRepo, logger, bot),
-		Reactions:   reactions.New(db, vipRepo, contentLimitsRepo, messageRepo, eventRepo, logger, bot),
+		Limiter:     limiter.New(db, vipRepo, contentLimitsRepo, messageRepo, eventRepo, chatRepo, logger, bot),
+		Scheduler:   scheduler.New(db, schedulerRepo, eventRepo, chatRepo, logger, bot),
+		Reactions:   reactions.New(db, vipRepo, contentLimitsRepo, messageRepo, eventRepo, chatRepo, logger, bot),
 		Maintenance: maintenance.New(db, logger, cfg.DBRetentionMonths),
 	}
 

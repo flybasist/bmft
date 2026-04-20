@@ -20,19 +20,21 @@ type LimiterModule struct {
 	contentLimitsRepo *repositories.ContentLimitsRepository
 	messageRepo       *repositories.MessageRepository
 	eventRepo         *repositories.EventRepository
+	chatRepo          *repositories.ChatRepository
 	logger            *zap.Logger
 	bot               *tele.Bot
 }
 
 // New создаёт новый экземпляр LimiterModule.
 // messageRepo — общий экземпляр из initModules (не создаём дубликат).
-func New(db *sql.DB, vipRepo *repositories.VIPRepository, contentLimitsRepo *repositories.ContentLimitsRepository, messageRepo *repositories.MessageRepository, eventRepo *repositories.EventRepository, logger *zap.Logger, bot *tele.Bot) *LimiterModule {
+func New(db *sql.DB, vipRepo *repositories.VIPRepository, contentLimitsRepo *repositories.ContentLimitsRepository, messageRepo *repositories.MessageRepository, eventRepo *repositories.EventRepository, chatRepo *repositories.ChatRepository, logger *zap.Logger, bot *tele.Bot) *LimiterModule {
 	return &LimiterModule{
 		db:                db,
 		vipRepo:           vipRepo,
 		contentLimitsRepo: contentLimitsRepo,
 		messageRepo:       messageRepo,
 		eventRepo:         eventRepo,
+		chatRepo:          chatRepo,
 		logger:            logger,
 		bot:               bot,
 	}
@@ -402,12 +404,9 @@ func (m *LimiterModule) handleSetLimit(c tele.Context) error {
 
 	m.logger.Info("handleSetLimit called", zap.Int64("chat_id", chatID), zap.Int("thread_id", threadID), zap.Int64("user_id", c.Sender().ID))
 
-	// Убеждаемся что chat_id существует в таблице chats (для foreign key)
-	_, _ = m.db.Exec(`
-		INSERT INTO chats (chat_id, chat_type, title)
-		VALUES ($1, 'unknown', 'unknown')
-		ON CONFLICT (chat_id) DO NOTHING
-	`, chatID)
+	if err := m.chatRepo.EnsureExists(chatID); err != nil {
+		m.logger.Error("failed to ensure chat exists", zap.Error(err))
+	}
 
 	args := c.Args()
 	if len(args) != 2 {
@@ -487,12 +486,9 @@ func (m *LimiterModule) handleSetVIP(c tele.Context) error {
 
 	m.logger.Info("handleSetVIP called", zap.Int64("chat_id", chatID), zap.Int("thread_id", threadID), zap.Int64("user_id", c.Sender().ID))
 
-	// Убеждаемся что chat_id существует в таблице chats (для foreign key)
-	_, _ = m.db.Exec(`
-		INSERT INTO chats (chat_id, chat_type, title)
-		VALUES ($1, 'unknown', 'unknown')
-		ON CONFLICT (chat_id) DO NOTHING
-	`, chatID)
+	if err := m.chatRepo.EnsureExists(chatID); err != nil {
+		m.logger.Error("failed to ensure chat exists", zap.Error(err))
+	}
 
 	if c.Message().ReplyTo == nil {
 		return c.Send("❌ Ответьте этой командой на сообщение пользователя")

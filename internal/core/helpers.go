@@ -61,14 +61,10 @@ func GetThreadIDFromMessage(db *sql.DB, msg *telebot.Message) int {
 	var isForum bool
 	err := db.QueryRow(`SELECT is_forum FROM chats WHERE chat_id = $1`, msg.Chat.ID).Scan(&isForum)
 
-	// Если ошибка или не форум - возвращаем 0
-	if err != nil {
-		if err != sql.ErrNoRows {
-			// Можно добавить логгер в параметры функции
-		}
-		return 0
-	}
-	if !isForum {
+	// Если ошибка (включая sql.ErrNoRows) или не форум — возвращаем 0.
+	// Логгер сюда не пробрасываем намеренно: функция вызывается на каждом сообщении,
+	// а ошибки этого запроса (нет записи о чате) — нормальная ситуация при первом обращении.
+	if err != nil || !isForum {
 		return 0
 	}
 

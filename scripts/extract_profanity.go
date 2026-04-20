@@ -1,3 +1,15 @@
+//go:build tools
+// +build tools
+
+// Утилита для регенерации словаря мата (internal/profanity/dictionary.dat.gz)
+// из исходников проекта denexapp/russian-bad-words.
+//
+// Запуск:
+//   go run -tags tools ./scripts/extract_profanity.go <path-to-russian-bad-words>
+//
+// Build-tag `tools` исключает файл из обычной сборки бота (`go build ./...`),
+// чтобы не было конфликта `package main` с cmd/bot.
+
 package main
 
 import (

@@ -20,6 +20,7 @@ type ReactionsModule struct {
 	contentLimitsRepo *repositories.ContentLimitsRepository
 	messageRepo       *repositories.MessageRepository
 	eventRepo         *repositories.EventRepository
+	chatRepo          *repositories.ChatRepository
 	logger            *zap.Logger
 	bot               *telebot.Bot
 }
@@ -59,6 +60,7 @@ func New(
 	contentLimitsRepo *repositories.ContentLimitsRepository,
 	messageRepo *repositories.MessageRepository,
 	eventRepo *repositories.EventRepository,
+	chatRepo *repositories.ChatRepository,
 	logger *zap.Logger,
 	bot *telebot.Bot,
 ) *ReactionsModule {
@@ -68,6 +70,7 @@ func New(
 		contentLimitsRepo: contentLimitsRepo,
 		messageRepo:       messageRepo,
 		eventRepo:         eventRepo,
+		chatRepo:          chatRepo,
 		logger:            logger,
 		bot:               bot,
 	}
@@ -554,9 +557,9 @@ func (m *ReactionsModule) handleAddReaction(c telebot.Context) error {
 	var pattern string
 	var dailyLimit int
 	var deleteOnLimit bool
-	var userID int64 = 0               // 0 = для всех пользователей
-	var triggerContentType string = "" // пустая строка = любой контент
-	var cooldown int = 30              // по умолчанию 30 секунд
+	var userID int64 = 0     // 0 = для всех пользователей
+	triggerContentType := "" // пустая строка = любой контент
+	cooldown := 30           // по умолчанию 30 секунд
 
 	// Проверяем префикс user:<user_id> для персональной реакции
 	// Пример: /addreaction user:123456 "" "Привет, рад тебя видеть!" "Персональное приветствие" photo 86400
@@ -747,19 +750,12 @@ func (m *ReactionsModule) handleAddReaction(c telebot.Context) error {
 		return c.Send("❌ Дневной лимит должен быть от 0 до 10000")
 	}
 
-	// Убеждаемся что chat_id существует в таблице chats (для foreign key)
-	// Используем ON CONFLICT DO NOTHING чтобы не перезаписывать существующие данные
-	_, err := m.db.Exec(`
-		INSERT INTO chats (chat_id, chat_type, title)
-		VALUES ($1, 'unknown', 'unknown')
-		ON CONFLICT (chat_id) DO NOTHING
-	`, chatID)
-	if err != nil {
+	if err := m.chatRepo.EnsureExists(chatID); err != nil {
 		m.logger.Error("failed to ensure chat exists", zap.Error(err))
 		return c.Send("❌ Ошибка при проверке чата")
 	}
 
-	_, err = m.db.Exec(`
+	_, err := m.db.Exec(`
 		INSERT INTO keyword_reactions (chat_id, thread_id, user_id, pattern, response_type, response_content, description, is_regex, trigger_content_type, cooldown, daily_limit, delete_on_limit, is_active)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, false, $8, $9, $10, $11, true)
 	`, chatID, threadID, userIDParam, pattern, responseType, responseContent, description, triggerContentTypeParam, cooldown, dailyLimit, deleteOnLimit)
