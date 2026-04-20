@@ -69,3 +69,30 @@ func wrapSetVIPWithWizard(legacy tele.HandlerFunc, startWizard func(c tele.Conte
 		return startWizard(c)
 	}
 }
+
+// wrapSetLimitWithWizard — двухрежимный handler для /setlimit.
+//
+// Старый синтаксис «/setlimit <type> <value>» (с опц. ReplyTo для персонального
+// лимита) всегда идёт в legacy. Wizard запускается только когда:
+//  1. аргументы пусты;
+//  2. группа (не личка);
+//  3. не анонимный админ.
+//
+// ReplyTo в wizard НЕ является обязательным (в отличие от /setvip):
+// без reply wizard поставит лимит на весь скоуп (чат/топик), с reply —
+// персональный для цитируемого пользователя.
+func wrapSetLimitWithWizard(legacy tele.HandlerFunc, startWizard func(c tele.Context) error) tele.HandlerFunc {
+	return func(c tele.Context) error {
+		if len(c.Args()) > 0 {
+			return legacy(c)
+		}
+		chat := c.Chat()
+		if chat == nil || (chat.Type != tele.ChatGroup && chat.Type != tele.ChatSuperGroup) {
+			return legacy(c)
+		}
+		if core.IsAnonymousAdmin(c.Message()) {
+			return legacy(c)
+		}
+		return startWizard(c)
+	}
+}

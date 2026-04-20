@@ -122,6 +122,14 @@ func (m *LimiterModule) HandleSetVIP(c tele.Context) error {
 	return m.handleSetVIP(c)
 }
 
+// HandleSetLimit — публичная обёртка над handleSetLimit для wizard-фолбэка
+// (cmd/bot/wizards.go::wrapSetLimitWithWizard). Используется, когда есть
+// аргументы (старый синтаксис /setlimit <type> <value>) или контекст
+// не подходит для wizard'а.
+func (m *LimiterModule) HandleSetLimit(c tele.Context) error {
+	return m.handleSetLimit(c)
+}
+
 // OnMessage обрабатывает входящие сообщения
 func (m *LimiterModule) OnMessage(ctx *core.MessageContext) error {
 	// Пропускаем приватные сообщения и команды.

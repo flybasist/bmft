@@ -189,6 +189,12 @@ func run() error {
 	vipRepo := repositories.NewVIPRepository(db)
 	startSetVIPWizard := wizard.RegisterSetVIP(bot, wizardMgr, vipRepo, chatRepo, eventRepo, logger)
 
+	// startSetLimitWizard — точка входа для /setlimit без аргументов.
+	// ContentLimitsRepository без состояния — безопасно создать второй экземпляр
+	// (идентично экземпляру в modules.go).
+	contentLimitsRepo := repositories.NewContentLimitsRepository(db)
+	startSetLimitWizard := wizard.RegisterSetLimit(bot, wizardMgr, contentLimitsRepo, chatRepo, eventRepo, logger)
+
 	// Регистрируем базовые команды
 	registerCommands(bot, chatRepo, eventRepo, logger, botVersion, startWelcomeWizard)
 
@@ -203,6 +209,10 @@ func run() error {
 	// и нет аргументов. Старый синтаксис «/setvip <reason>» (как reply)
 	// продолжает работать через legacy handler.
 	bot.Handle("/setvip", wrapSetVIPWithWizard(modules.Limiter.HandleSetVIP, startSetVIPWizard))
+
+	// /setlimit: wizard без аргументов; старый синтаксис
+	// «/setlimit <type> <value>» (с опц. ReplyTo) — через legacy.
+	bot.Handle("/setlimit", wrapSetLimitWithWizard(modules.Limiter.HandleSetLimit, startSetLimitWizard))
 
 	// Создаём контекст для graceful shutdown
 	ctx, cancel := context.WithCancel(context.Background())
