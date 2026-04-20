@@ -314,9 +314,9 @@ func (m *StatisticsModule) handleChatStats(c tele.Context, date time.Time) error
 	var sb strings.Builder
 
 	if threadID != 0 {
-		sb.WriteString(fmt.Sprintf("📊 <b>Статистика топика за %s</b>\n\n", date.Format("02.01.2006")))
+		sb.WriteString(fmt.Sprintf("📊 <b>Статистика топика за %s</b>\n\n", date.Format(core.DateFormat)))
 	} else {
-		sb.WriteString(fmt.Sprintf("📊 <b>Статистика чата за %s</b>\n\n", date.Format("02.01.2006")))
+		sb.WriteString(fmt.Sprintf("📊 <b>Статистика чата за %s</b>\n\n", date.Format(core.DateFormat)))
 	}
 
 	contentTypeEmoji := map[string]string{
@@ -378,9 +378,9 @@ func (m *StatisticsModule) handleTopChat(c tele.Context, date time.Time) error {
 	var sb strings.Builder
 
 	if threadID != 0 {
-		sb.WriteString(fmt.Sprintf("🏆 <b>Топ активных участников топика за %s</b>\n\n", date.Format("02.01.2006")))
+		sb.WriteString(fmt.Sprintf("🏆 <b>Топ активных участников топика за %s</b>\n\n", date.Format(core.DateFormat)))
 	} else {
-		sb.WriteString(fmt.Sprintf("🏆 <b>Топ активных участников чата за %s</b>\n\n", date.Format("02.01.2006")))
+		sb.WriteString(fmt.Sprintf("🏆 <b>Топ активных участников чата за %s</b>\n\n", date.Format(core.DateFormat)))
 	}
 
 	medals := []string{"🥇", "🥈", "🥉"}

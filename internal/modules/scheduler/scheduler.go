@@ -304,7 +304,7 @@ func (m *SchedulerModule) handleListTasks(c tele.Context) error {
 		msg.WriteString(fmt.Sprintf("   Тип: %s\n", task.TaskType))
 
 		if task.LastRun != nil {
-			msg.WriteString(fmt.Sprintf("   Последний запуск: %s\n", task.LastRun.Format("02.01.2006 15:04")))
+			msg.WriteString(fmt.Sprintf("   Последний запуск: %s\n", task.LastRun.Format(core.DateTimeFormat)))
 		}
 		msg.WriteString("\n")
 	}

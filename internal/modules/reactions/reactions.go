@@ -499,40 +499,11 @@ func (m *ReactionsModule) incrementDailyCount(chatID, reactionID, userID int64) 
 		zap.Int64("user_id", userID))
 }
 
-// parseQuotedArgs парсит строку команды с учётом кавычек
-// Пример: `/addreaction "text with spaces" sticker` → ["text with spaces", "sticker"]
+// parseQuotedArgs — обёртка над core.ParseQuotedTokens, убирающая префикс команды /addreaction.
+// Оставлена как thin wrapper для ясности call-site в handleAddReaction.
 func parseQuotedArgs(text string) []string {
-	// Убираем команду в начале
-	text = strings.TrimPrefix(text, "/addreaction")
-	text = strings.TrimSpace(text)
-
-	var args []string
-	var current strings.Builder
-	inQuote := false
-
-	for i := 0; i < len(text); i++ {
-		ch := text[i]
-
-		switch ch {
-		case '"':
-			inQuote = !inQuote
-		case ' ', '\t':
-			if inQuote {
-				current.WriteByte(ch)
-			} else if current.Len() > 0 {
-				args = append(args, current.String())
-				current.Reset()
-			}
-		default:
-			current.WriteByte(ch)
-		}
-	}
-
-	if current.Len() > 0 {
-		args = append(args, current.String())
-	}
-
-	return args
+	text = strings.TrimSpace(strings.TrimPrefix(text, "/addreaction"))
+	return core.ParseQuotedTokens(text)
 }
 
 func (m *ReactionsModule) handleAddReaction(c telebot.Context) error {

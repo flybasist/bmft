@@ -9,6 +9,22 @@ import (
 	tele "gopkg.in/telebot.v3"
 )
 
+// IsAnonymousAdmin возвращает true, если сообщение отправлено анонимным админом
+// (включён режим "Remain Anonymous"). Такие сообщения приходят от имени
+// самой группы: msg.SenderChat == текущий чат. Sender при этом равен
+// GroupAnonymousBot (ID 1087968824) — одинаков для всех анонимов, поэтому
+// по Sender различить конкретного человека невозможно.
+//
+// Признак SenderChat == chat нельзя подделать обычным пользователем —
+// Telegram проставляет это поле только для post-as-chat сообщений.
+//
+// Используется в AdminOnlyMiddleware (разрешает команду) и wizard'ами
+// (отказ в wizard — нет уникального UserID для state, пользователя отправляем
+// на старый синтаксис).
+func IsAnonymousAdmin(msg *tele.Message) bool {
+	return msg != nil && msg.SenderChat != nil && msg.Chat != nil && msg.SenderChat.ID == msg.Chat.ID
+}
+
 // adminCacheEntry — кэш списка админов чата.
 type adminCacheEntry struct {
 	adminIDs  map[int64]bool
@@ -149,11 +165,9 @@ func AdminOnlyMiddleware(ac *AdminChecker, logger *zap.Logger) tele.MiddlewareFu
 				return next(c)
 			}
 
-			// Anonymous admin: сообщение отправлено от имени самой группы
-			// (включён режим "Remain Anonymous"). В getChatAdministrators такие
-			// пользователи не возвращаются — Telegram скрывает их личность.
-			// Признак невозможно подделать: SenderChat == текущий чат.
-			if msg.SenderChat != nil && msg.SenderChat.ID == c.Chat().ID {
+			// Anonymous admin: сообщение отправлено от имени самой группы.
+			// См. IsAnonymousAdmin для подробностей (security model + почему нельзя подделать).
+			if IsAnonymousAdmin(msg) {
 				return next(c)
 			}
 

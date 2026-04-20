@@ -21,25 +21,6 @@ import (
 // История захода всё равно видна в админке Telegram.
 const welcomeMessageTTL = 5 * time.Minute
 
-// scheduleMessageDelete планирует удаление сообщения через ttl.
-// Использует time.AfterFunc — таймер не блокирует и переживает обычные
-// операции бота. При shutdown бота незавершённые таймеры просто молча
-// провалятся (Delete вернёт ошибку, она логируется на уровне Debug).
-func scheduleMessageDelete(bot *tele.Bot, msg *tele.Message, ttl time.Duration, logger *zap.Logger) {
-	if msg == nil {
-		return
-	}
-	time.AfterFunc(ttl, func() {
-		if err := bot.Delete(msg); err != nil {
-			logger.Debug("failed to delete scheduled message",
-				zap.Error(err),
-				zap.Int("message_id", msg.ID),
-				zap.Int64("chat_id", msg.Chat.ID),
-			)
-		}
-	})
-}
-
 // registerCommands регистрирует все команды бота.
 // Хендлеры для базовых команд: /start, /help, /version.
 func registerCommands(
@@ -158,7 +139,7 @@ func handleUserJoined(chatRepo *repositories.ChatRepository, logger *zap.Logger)
 			return sendErr
 		}
 		if settings.TTLSeconds > 0 {
-			scheduleMessageDelete(c.Bot(), sentMsg, time.Duration(settings.TTLSeconds)*time.Second, logger)
+			core.ScheduleDelete(c.Bot(), sentMsg, time.Duration(settings.TTLSeconds)*time.Second, logger)
 		}
 		return nil
 	}

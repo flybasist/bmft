@@ -4,9 +4,83 @@ import (
 	"database/sql"
 	"encoding/json"
 	"strconv"
+	"strings"
+	"time"
 
+	"go.uber.org/zap"
 	"gopkg.in/telebot.v3"
 )
+
+// DateFormat — единый формат даты для сообщений пользователям (DD.MM.YYYY).
+// Используется в statistics, scheduler, wizard'ах.
+const DateFormat = "02.01.2006"
+
+// DateTimeFormat — формат даты с временем (DD.MM.YYYY HH:MM).
+const DateTimeFormat = "02.01.2006 15:04"
+
+// ScheduleDelete планирует удаление сообщения через ttl. Неблокирующий:
+// использует time.AfterFunc, таймер переживает обычные операции бота.
+// При shutdown незавершённые таймеры тихо провалятся (Delete вернёт ошибку, лог Debug).
+// Используется welcome-обработчиком и будет использоваться wizard'ами
+// для авто-удаления информационных подтверждений.
+func ScheduleDelete(bot *telebot.Bot, msg *telebot.Message, ttl time.Duration, logger *zap.Logger) {
+	if msg == nil {
+		return
+	}
+	time.AfterFunc(ttl, func() {
+		if err := bot.Delete(msg); err != nil {
+			logger.Debug("failed to delete scheduled message",
+				zap.Error(err),
+				zap.Int("message_id", msg.ID),
+				zap.Int64("chat_id", msg.Chat.ID),
+			)
+		}
+	})
+}
+
+// ParseQuotedTokens разбирает строку на токены с учётом двойных кавычек.
+// Примеры:
+//
+//	`hello world`        → ["hello", "world"]
+//	`"hello world"`      → ["hello world"]
+//	`a "b c" d`          → ["a", "b c", "d"]
+//	`""`                 → []   (пустые кавычки не создают токен)
+//
+// Не выполняет escape внутри кавычек и не обрабатывает одиночные кавычки
+// — реальные команды бота этого не требуют. Для сложных случаев (cron в
+// кавычках после имени) scheduler использует собственный parseAddTaskArgs.
+func ParseQuotedTokens(text string) []string {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return nil
+	}
+
+	var tokens []string
+	var current strings.Builder
+	inQuote := false
+
+	for i := 0; i < len(text); i++ {
+		ch := text[i]
+		switch ch {
+		case '"':
+			inQuote = !inQuote
+		case ' ', '\t':
+			if inQuote {
+				current.WriteByte(ch)
+			} else if current.Len() > 0 {
+				tokens = append(tokens, current.String())
+				current.Reset()
+			}
+		default:
+			current.WriteByte(ch)
+		}
+	}
+
+	if current.Len() > 0 {
+		tokens = append(tokens, current.String())
+	}
+	return tokens
+}
 
 // DisplayName возвращает отображаемое имя пользователя для сообщений бота.
 // @username если есть, иначе FirstName, иначе "Пользователь".
