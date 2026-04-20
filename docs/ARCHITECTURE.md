@@ -32,6 +32,8 @@ bmft/
 │   ├── logx/                    # Настройка zap + lumberjack
 │   ├── migrations/              # Автоматические миграции БД
 │   ├── profanity/               # Загрузчик словаря мата (embedded)
+│   ├── wizard/                  # Интерактивные wizard'ы: state store,
+│   │                            # text-router middleware, все 7 сценариев
 │   ├── modules/
 │   │   ├── statistics/          # Модуль статистики
 │   │   ├── limiter/             # Модуль лимитов
@@ -58,8 +60,10 @@ Telegram → Long Polling → telebot.v3
                      AdminOnlyMiddleware        ← кэш 60с, не-админ → delete
                      LoggerMiddleware
                      PanicRecovery
+                     wizard.TextInterceptMiddleware  ← если юзер в wizard —
+                                                       роутинг в текстовый handler
                               │
-                     ┌────────┴────────┐
+                     ┌────────┼────────┐
                      │   statistics    │  ← записывает в messages
                      ├─────────────────┤
                      │    limiter      │  ← проверяет лимиты, может удалить
@@ -67,6 +71,10 @@ Telegram → Long Polling → telebot.v3
                      │   reactions     │  ← мат → бан-слова → автоответы
                      └─────────────────┘
 ```
+
+Inline-кнопки (callback'и) обрабатываются отдельными handler'ами и НЕ проходят
+через AdminOnlyMiddleware (она работает только с текстовыми командами). Для админ-
+кнопок используется обёртка `core.AdminOnlyCallback(adminChecker, logger, h)`.
 
 Каждый модуль получает `*core.MessageContext` и может:
 - Читать/анализировать сообщение

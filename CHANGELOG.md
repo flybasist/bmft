@@ -2,6 +2,38 @@
 
 ## Refactoring 2026-04-20
 
+### Phase 5 — Interactive wizards & inline actions
+
+Поэтапная (0–8) реализация пошаговых мастеров на inline-кнопках для админских команд
+и кнопок 🗑 удаления в listing-командах. Старый синтаксис всех команд сохранён и имеет
+приоритет (вызов с аргументами → legacy-handler).
+
+**Инфраструктура (этап 0, commit `e3630df`)**
+- Новый пакет `internal/wizard`: in-memory state store (одна сессия на chat×user,
+  idle-timeout 5 мин, ConfirmTTL 60 сек), `Manager` с `RegisterTextHandler`, и
+  `TextInterceptMiddleware` — встроена в pipeline после PanicRecovery.
+
+**Wizard'ы (этапы 1–7)**
+- `e3630df` — `/welcome` (on/off + TTL + текст)
+- `4c0fdae` — `/setprofanity` (выбор действия кнопками)
+- `32cb5ef` — `/setvip` (подтверждение + причина, требует reply)
+- `dfbc62a` — `/setlimit` (выбор типа контента → пресеты или своё число)
+- `e7d293f` — `/addban` (pattern → действие delete/warn/delete_warn)
+- `71eb831` — `/addtask` (имя → cron-пресет/своё → текст; reply-медиа пропускает шаг 3)
+- `77941f4` — `/addreaction` (pattern → описание → ответ; reply-медиа пропускает шаг 3)
+
+**Inline-действия (этап 8, commit `122c19c`)**
+- `internal/core/admin_check.go`: `AdminOnlyCallback(ac, logger, h)` — обёртка для
+  callback-handler'ов (AdminOnlyMiddleware работает только с текстом).
+- `/listtasks`, `/listbans`, `/listreactions` — кнопки 🗑 рядом с записями
+  (≤50 на сообщение). Для `/listreactions` кнопки добавляются только при выводе в
+  одно сообщение (после splitIntoMessages теряется связь line→reaction).
+
+**Ограничения wizard'ов**
+- Только в группах/супергруппах; не работают в личке и для анонимных админов.
+- Любая команда (`/cancel`, `/help` и т.д.) или кнопка «❌ Отменить» прерывает мастер.
+- Финальные сообщения wizard'а удаляются через 60 сек (чистота чата).
+
 ### Phase 2 — cleanup (commit `6166554`)
 
 - Удалены мёртвые ветки и дубли, единый стиль импортов и комментариев на русском

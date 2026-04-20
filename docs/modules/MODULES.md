@@ -41,7 +41,7 @@ statistics → limiter → reactions
 - Особый тип `banned_words` — лимит на мат (работает вместе с Reactions)
 - При превышении лимита сообщение удаляется, pipeline останавливается
 
-**Команды:** `/limiter`, `/mystats`, `/getlimit`, `/setlimit`, `/setvip`, `/removevip`, `/listvips`
+**Команды:** `/limiter`, `/mystats`, `/getlimit`, `/setlimit` (🧙 wizard), `/setvip` (🧙 wizard с reply), `/removevip`, `/listvips`
 
 ---
 
@@ -70,9 +70,9 @@ statistics → limiter → reactions
 **Порядок проверки:** мат → бан-слова → автоответы
 
 **Команды:**
-- Автоответы: `/reactions`, `/addreaction`, `/listreactions`, `/removereaction`
-- Фильтр слов: `/textfilter`, `/addban`, `/listbans`, `/removeban`
-- Фильтр мата: `/profanity`, `/setprofanity`, `/profanitystatus`, `/removeprofanity`
+- Автоответы: `/reactions`, `/addreaction` (🧙 wizard), `/listreactions` (inline 🗑), `/removereaction`
+- Фильтр слов: `/textfilter`, `/addban` (🧙 wizard), `/listbans` (inline 🗑), `/removeban`
+- Фильтр мата: `/profanity`, `/setprofanity` (🧙 wizard), `/profanitystatus`, `/removeprofanity`
 
 ---
 
@@ -85,7 +85,7 @@ statistics → limiter → reactions
 - Время: Europe/Moscow (UTC+3)
 - При shutdown все задачи корректно останавливаются
 
-**Команды:** `/scheduler`, `/addtask`, `/listtasks`, `/deltask`, `/runtask`
+**Команды:** `/scheduler`, `/addtask` (🧙 wizard), `/listtasks` (inline 🗑), `/deltask`, `/runtask`
 
 ---
 
@@ -109,3 +109,29 @@ Limiter ← Reactions (banned_words лимит работает вместе с 
 ```
 
 Все модули используют общие пакеты: `core` (helpers, middleware), `postgresql/repositories`.
+
+---
+
+## Интерактивные wizard'ы
+
+Админские команды помеченные «🧙 wizard» в **групповых чатах** поддерживают
+пошаговый мастер с inline-кнопками (вызов без аргументов). Реализация — пакет
+`internal/wizard`:
+
+- **State store** (в памяти): одна активная сессия на (chat×user); idle-timeout 5 мин.
+- **TextInterceptMiddleware**: встраивается в pipeline после PanicRecovery; если у юзера
+  есть активный wizard и пришёл не-командный текст — роутится в обработчик шага.
+- **Отмена**: любая команда (`/cancel`, `/help` и т.д.) или кнопка «❌ Отменить».
+- **Ограничения**: не работает в личке и для анонимных админов.
+- **Старый синтаксис сохраняется**: вызов с аргументами обрабатывается легаси-handler'ом
+  модуля.
+
+Список wizard'ов: `/welcome`, `/setprofanity`, `/setvip`, `/setlimit`, `/addban`,
+`/addtask`, `/addreaction`.
+
+## Inline-кнопки в списках
+
+Команды `/listtasks`, `/listbans`, `/listreactions` выводят inline-кнопки 🗑 рядом с
+записями (до 50 кнопок на сообщение; для `/listreactions` — только при выводе в одно
+сообщение). Обработчики callback'ов защищены `core.AdminOnlyCallback`, выполняют DELETE
+в своём chat_id и при успехе показывают alert.
