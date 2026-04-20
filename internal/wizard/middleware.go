@@ -18,9 +18,8 @@ import (
 //     (например, /cancel или другая команда сработает нормально).
 //   - В остальных случаях — next(c) без изменений.
 //
-// onText — функция-роутер, которая по state.Wizard и state.Step вызывает
-// нужный обработчик текста конкретного wizard'а. Регистрируется через
-// SetTextRouter() при инициализации Manager'а.
+// onText — обработчики текста, зарегистрированные через RegisterTextHandler
+// для каждого wizard'а отдельно (ключ — имя wizard'а из state.Wizard).
 func (m *Manager) TextInterceptMiddleware() tele.MiddlewareFunc {
 	return func(next tele.HandlerFunc) tele.HandlerFunc {
 		return func(c tele.Context) error {
@@ -48,9 +47,10 @@ func (m *Manager) TextInterceptMiddleware() tele.MiddlewareFunc {
 				return next(c)
 			}
 
-			// Передаём текст в роутер wizard'а.
-			if m.textRouter == nil {
-				m.logger.Warn("wizard text intercepted but no router registered",
+			// Передаём текст в обработчик wizard'а по имени.
+			handler, ok := m.textHandlers[state.Wizard]
+			if !ok {
+				m.logger.Warn("wizard text intercepted but no handler registered",
 					zap.String("wizard", state.Wizard),
 					zap.String("step", state.Step))
 				return next(c)
@@ -60,7 +60,7 @@ func (m *Manager) TextInterceptMiddleware() tele.MiddlewareFunc {
 			// поставить ли AwaitText снова (если шаг повторяется при ошибке валидации).
 			state.AwaitText = false
 
-			if err := m.textRouter(c, state, msg.Text); err != nil {
+			if err := handler(c, state, msg.Text); err != nil {
 				m.logger.Warn("wizard text handler failed",
 					zap.String("wizard", state.Wizard),
 					zap.String("step", state.Step),
@@ -83,12 +83,16 @@ func (m *Manager) TextInterceptMiddleware() tele.MiddlewareFunc {
 	}
 }
 
-// TextRouter — функция-роутер для текстового ввода.
-// Регистрируется через SetTextRouter при сборке Manager'а с wizard'ами.
-type TextRouter func(c tele.Context, state *State, text string) error
+// TextHandler — обработчик текстовога ввода одного wizard'а.
+// Отвечает за валидацию ввода, переход к следующему шагу или завершение.
+type TextHandler func(c tele.Context, state *State, text string) error
 
-// SetTextRouter подключает обработчик текстовых шагов всех wizard'ов.
-// Должен вызываться один раз при инициализации (после регистрации wizard'ов).
-func (m *Manager) SetTextRouter(router TextRouter) {
-	m.textRouter = router
+// RegisterTextHandler регистрирует текстовый обработчик для wizard'а с именем name.
+// Вызывается wizard'ом при инициализации (в RegisterXxx).
+// Два wizard'а с одним и тем же именем — ошибка конфигурации; логируем warning.
+func (m *Manager) RegisterTextHandler(name string, handler TextHandler) {
+	if _, exists := m.textHandlers[name]; exists {
+		m.logger.Warn("wizard text handler overwritten", zap.String("name", name))
+	}
+	m.textHandlers[name] = handler
 }

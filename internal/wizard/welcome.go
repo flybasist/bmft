@@ -67,17 +67,8 @@ func RegisterWelcome(bot *tele.Bot, mgr *Manager, chatRepo *repositories.ChatRep
 	btnBack := tele.Btn{Unique: uniqueWelcomeBack, Text: "⬅ Назад"}
 	bot.Handle(&btnBack, w.handleBack)
 
-	// Регистрируем глобальный text-router. По мере добавления новых wizard'ов
-	// этот router нужно расширять (switch по state.Wizard).
-	mgr.SetTextRouter(func(c tele.Context, state *State, text string) error {
-		switch state.Wizard {
-		case wizardWelcomeName:
-			return w.handleWelcomeTextInput(c, state, text)
-		default:
-			logger.Warn("wizard text-router: unknown wizard", zap.String("wizard", state.Wizard))
-			return nil
-		}
-	})
+	// Регистрируем text-handler для шага manual TTL.
+	mgr.RegisterTextHandler(wizardWelcomeName, w.handleWelcomeTextInput)
 
 	return w.start
 }

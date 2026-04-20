@@ -27,23 +27,24 @@ import (
 // Manager не предписывает конкретные шаги — это делает каждый wizard
 // (см. internal/wizard/welcome.go как пример).
 type Manager struct {
-	store      *stateStore
-	bot        *tele.Bot
-	db         *sql.DB
-	admin      *core.AdminChecker
-	logger     *zap.Logger
-	textRouter TextRouter
+	store        *stateStore
+	bot          *tele.Bot
+	db           *sql.DB
+	admin        *core.AdminChecker
+	logger       *zap.Logger
+	textHandlers map[string]TextHandler
 }
 
 // NewManager создаёт менеджер wizard'ов.
 // db нужен для получения корректного ThreadID в text-intercept middleware.
 func NewManager(bot *tele.Bot, db *sql.DB, admin *core.AdminChecker, logger *zap.Logger) *Manager {
 	return &Manager{
-		store:  newStateStore(),
-		bot:    bot,
-		db:     db,
-		admin:  admin,
-		logger: logger,
+		store:        newStateStore(),
+		bot:          bot,
+		db:           db,
+		admin:        admin,
+		logger:       logger,
+		textHandlers: make(map[string]TextHandler),
 	}
 }
 

@@ -181,6 +181,14 @@ func run() error {
 	// дублируется (см. internal/wizard/profanity.go комментарий о синхронизации).
 	startSetProfanityWizard := wizard.RegisterSetProfanity(bot, wizardMgr, db, chatRepo, eventRepo, logger)
 
+	// startSetVIPWizard — точка входа для /setvip как reply без аргументов.
+	// Используем переиспользуемый VIPRepository (тот же экземпляр, что и в
+	// initModules — см. modules.go: vipRepo := repositories.NewVIPRepository(db)).
+	// NewVIPRepository создаёт лёгкую обёртку без состояния, поэтому второй
+	// экземпляр здесь безопасен и эквивалентен.
+	vipRepo := repositories.NewVIPRepository(db)
+	startSetVIPWizard := wizard.RegisterSetVIP(bot, wizardMgr, vipRepo, chatRepo, eventRepo, logger)
+
 	// Регистрируем базовые команды
 	registerCommands(bot, chatRepo, eventRepo, logger, botVersion, startWelcomeWizard)
 
@@ -190,6 +198,11 @@ func run() error {
 	// на обёртку, которая запускает wizard при пустых аргументах в группе
 	// и не от anonymous-админа, а в остальных случаях вызывает legacy.
 	bot.Handle("/setprofanity", wrapSetProfanityWithWizard(modules.Reactions.HandleSetProfanity, startSetProfanityWizard))
+
+	// Аналогично для /setvip: wizard запускается только если есть ReplyTo
+	// и нет аргументов. Старый синтаксис «/setvip <reason>» (как reply)
+	// продолжает работать через legacy handler.
+	bot.Handle("/setvip", wrapSetVIPWithWizard(modules.Limiter.HandleSetVIP, startSetVIPWizard))
 
 	// Создаём контекст для graceful shutdown
 	ctx, cancel := context.WithCancel(context.Background())

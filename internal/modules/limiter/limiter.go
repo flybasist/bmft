@@ -115,6 +115,13 @@ func (m *LimiterModule) RegisterAdminCommands(bot *tele.Bot) {
 	bot.Handle("/listvips", m.handleListVIPs)
 }
 
+// HandleSetVIP — публичная обёртка над handleSetVIP для wizard-фолбэка
+// (cmd/bot/wizards.go::wrapSetVIPWithWizard). Используется, когда есть
+// аргументы или нет ReplyTo — старый синтаксис должен работать как раньше.
+func (m *LimiterModule) HandleSetVIP(c tele.Context) error {
+	return m.handleSetVIP(c)
+}
+
 // OnMessage обрабатывает входящие сообщения
 func (m *LimiterModule) OnMessage(ctx *core.MessageContext) error {
 	// Пропускаем приватные сообщения и команды.

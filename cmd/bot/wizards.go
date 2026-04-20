@@ -38,3 +38,34 @@ func wrapSetProfanityWithWizard(legacy tele.HandlerFunc, startWizard func(c tele
 		return startWizard(c)
 	}
 }
+
+// wrapSetVIPWithWizard — аналогично wrapSetProfanityWithWizard, но с
+// дополнительным правилом: /setvip требует ReplyTo (target определяется
+// через цитируемое сообщение). Без ReplyTo wizard невозможен — отдаём
+// в legacy, тот покажет «❌ Ответьте этой командой на сообщение».
+//
+// Маршрутизация:
+//  1. len(args) > 0    → legacy (старый синтаксис «/setvip <reason>»).
+//  2. не группа        → legacy.
+//  3. anonymous admin  → legacy.
+//  4. ReplyTo == nil   → legacy (он отправит подсказку).
+//  5. иначе            → wizard.
+func wrapSetVIPWithWizard(legacy tele.HandlerFunc, startWizard func(c tele.Context) error) tele.HandlerFunc {
+	return func(c tele.Context) error {
+		if len(c.Args()) > 0 {
+			return legacy(c)
+		}
+		chat := c.Chat()
+		if chat == nil || (chat.Type != tele.ChatGroup && chat.Type != tele.ChatSuperGroup) {
+			return legacy(c)
+		}
+		msg := c.Message()
+		if msg == nil || core.IsAnonymousAdmin(msg) {
+			return legacy(c)
+		}
+		if msg.ReplyTo == nil || msg.ReplyTo.Sender == nil {
+			return legacy(c)
+		}
+		return startWizard(c)
+	}
+}
