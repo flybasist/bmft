@@ -45,8 +45,8 @@ func registerCommands(
 	// /start — приветствие
 	bot.Handle("/start", handleStart(chatRepo, eventRepo, logger))
 
-	// /help — помощь
-	bot.Handle("/help", handleHelp(logger))
+	// /help — помощь (главное меню + callback'и разделов)
+	registerHelpHandlers(bot, logger)
 
 	// /welcome — управление приветствием (admin-only через AdminOnlyMiddleware).
 	bot.Handle("/welcome", handleWelcome(chatRepo, logger, startWelcomeWizard))
@@ -102,15 +102,11 @@ func handleUserJoined(chatRepo *repositories.ChatRepository, logger *zap.Logger)
 				logger.Error("failed to create chat on bot join", zap.Error(err))
 			}
 
-			answer := "👋 Всем привет! Я BMFT (Bot Moderator For Telegram) — ваш новый помощник в управлении чатом!\n\n" +
-				"🔹 Автоматическая статистика активности\n" +
-				"🔹 Лимиты на контент (фото, видео, стикеры)\n" +
-				"🔹 Автоответы, фильтры и модерация контента\n" +
-				"🔹 Запланированные задачи по расписанию\n\n" +
-				"Используйте /help для списка всех команд.\n" +
-				"Администраторы могут настраивать модули самостоятельно.\n\n" +
-				"💬 Автор бота: @FlyBasist"
-			return c.Send(answer)
+			answer := "👋 Привет! Я <b>BMFT</b> — модульный бот для модерации и автоматизации чата.\n\n" +
+				"Что умею: статистика, лимиты на контент, автоответы, фильтр мата, задачи по расписанию.\n\n" +
+				"Дайте мне права администратора и нажмите /help — там кнопками сгруппированы все команды.\n\n" +
+				"💬 Автор: @FlyBasist"
+			return c.Send(answer, &tele.SendOptions{ParseMode: tele.ModeHTML})
 		}
 
 		// Приветствие обычного пользователя.
@@ -186,53 +182,132 @@ func handleStart(
 	}
 }
 
-// handleHelp возвращает хендлер для команды /help
-func handleHelp(logger *zap.Logger) func(tele.Context) error {
-	return func(c tele.Context) error {
+// ──────────────────────────────────────────────────────────────────────────────
+// /help — интерактивное меню разделов на inline-кнопках
+// ──────────────────────────────────────────────────────────────────────────────
+//
+// Главное сообщение содержит легенду условных обозначений и кнопки разделов.
+// Нажатие на раздел редактирует текст сообщения (без отправки нового) и меняет
+// клавиатуру на одну кнопку «◀ Назад». Callback'и /help — общедоступные
+// (не оборачиваются в AdminOnlyCallback): просмотр справки разрешён всем.
+
+var (
+	helpBtnCore  = tele.Btn{Unique: "help_core", Text: "🔹 Основные"}
+	helpBtnStats = tele.Btn{Unique: "help_stats", Text: "📊 Statistics"}
+	helpBtnLimit = tele.Btn{Unique: "help_limit", Text: "🛡 Limiter"}
+	helpBtnReact = tele.Btn{Unique: "help_react", Text: "💬 Reactions"}
+	helpBtnSched = tele.Btn{Unique: "help_sched", Text: "🕐 Scheduler"}
+	helpBtnBack  = tele.Btn{Unique: "help_back", Text: "◀ Назад"}
+)
+
+const helpMainText = `📖 <b>BMFT — справка</b>
+
+Команды сгруппированы по модулям. Условные обозначения:
+🔒 — только для администраторов
+🧙 — поддерживает wizard в группе (вызов без аргументов)
+
+Выберите раздел:`
+
+const helpBodyCore = `🔹 <b>Основные команды</b>
+
+/start — приветствие и инициализация чата
+/help — эта справка
+/version — версия бота
+🔒 🧙 /welcome — приветствие новых участников`
+
+const helpBodyStats = `📊 <b>Statistics</b> — сбор статистики активности
+
+/statistics — общий обзор
+/myweek — ваша активность за неделю
+🔒 /chatstats — статистика чата
+🔒 /topchat — топ участников`
+
+const helpBodyLimit = `🛡 <b>Limiter</b> — лимиты на типы контента
+
+/limiter — справка модуля
+/mystats — мои счётчики
+/getlimit — лимиты этого чата
+🔒 🧙 /setlimit — установить лимит
+🔒 🧙 /setvip — выдать VIP (reply на сообщение)
+🔒 /removevip — снять VIP
+🔒 /listvips — список VIP`
+
+const helpBodyReact = `💬 <b>Reactions</b> — автоответы и фильтры
+
+<b>Автоответы:</b>
+/reactions — справка
+🔒 🧙 /addreaction
+🔒 /listreactions (с кнопками 🗑)
+🔒 /removereaction
+
+<b>Запрещённые слова:</b>
+/textfilter — справка
+🔒 🧙 /addban
+🔒 /listbans (с кнопками 🗑)
+🔒 /removeban
+
+<b>Фильтр мата:</b>
+/profanity — справка
+🔒 🧙 /setprofanity
+🔒 /profanitystatus
+🔒 /removeprofanity`
+
+const helpBodySched = `🕐 <b>Scheduler</b> — задачи по расписанию (cron)
+
+/scheduler — справка модуля
+🔒 🧙 /addtask
+🔒 /listtasks (с кнопками 🗑)
+🔒 /deltask
+🔒 /runtask`
+
+func helpMainMarkup() *tele.ReplyMarkup {
+	m := &tele.ReplyMarkup{}
+	m.Inline(
+		m.Row(helpBtnCore, helpBtnStats),
+		m.Row(helpBtnLimit, helpBtnReact),
+		m.Row(helpBtnSched),
+	)
+	return m
+}
+
+func helpBackMarkup() *tele.ReplyMarkup {
+	m := &tele.ReplyMarkup{}
+	m.Inline(m.Row(helpBtnBack))
+	return m
+}
+
+// registerHelpHandlers регистрирует /help и callback'и навигации по разделам.
+func registerHelpHandlers(bot *tele.Bot, logger *zap.Logger) {
+	bot.Handle("/help", func(c tele.Context) error {
 		logger.Info("handling /help command",
 			zap.Int64("chat_id", c.Chat().ID),
 			zap.Int64("user_id", c.Sender().ID),
 		)
+		return c.Send(helpMainText, &tele.SendOptions{ParseMode: tele.ModeHTML, DisableWebPagePreview: true}, helpMainMarkup())
+	})
 
-		helpMsg := `📖 Доступные команды:
-
-🔹 Основные:
-/start — приветствие и инициализация
-/help — эта справка
-/version — информация о версии бота
-🔒 /welcome — приветствие новых участников (on/off/ttl)
-
-🤖 Модули бота (работают автоматически):
-
-🔹 statistics — статистика активности
-   Собирает данные о сообщениях пользователей
-   📌 /statistics, /myweek
-   📌 🔒 /chatstats, 🔒 /topchat
-
-🔹 limiter — контроль лимитов контента
-   Ограничивает фото, видео, стикеры и т.д.
-   📌 /limiter, /mystats, /getlimit
-   📌 🔒 /setlimit, 🔒 /setvip, 🔒 /removevip, 🔒 /listvips
-
-🔹 reactions — реакции, фильтры и модерация
-   Автоответы, фильтрация слов и мата
-   📌 /reactions — автоответы на ключевые слова
-      🔒 /addreaction, 🔒 /listreactions, 🔒 /removereaction
-   📌 /textfilter — фильтр запрещённых слов
-      🔒 /addban, 🔒 /listbans, 🔒 /removeban
-   📌 /profanity — фильтр ненормативной лексики
-      🔒 /setprofanity, 🔒 /profanitystatus, 🔒 /removeprofanity
-
-🔹 scheduler — запланированные задачи
-   Выполняет задачи по расписанию (cron)
-   📌 /scheduler
-   📌 🔒 /addtask, 🔒 /listtasks, 🔒 /deltask, 🔒 /runtask
-
-🔒 = команда доступна только администраторам чата
-💡 Используйте команду модуля (например /reactions) для подробной справки.`
-
-		return c.Send(helpMsg)
+	sections := []struct {
+		btn  *tele.Btn
+		body string
+	}{
+		{&helpBtnCore, helpBodyCore},
+		{&helpBtnStats, helpBodyStats},
+		{&helpBtnLimit, helpBodyLimit},
+		{&helpBtnReact, helpBodyReact},
+		{&helpBtnSched, helpBodySched},
 	}
+	for i := range sections {
+		s := sections[i]
+		bot.Handle(s.btn, func(c tele.Context) error {
+			_ = c.Respond()
+			return c.Edit(s.body, &tele.SendOptions{ParseMode: tele.ModeHTML, DisableWebPagePreview: true}, helpBackMarkup())
+		})
+	}
+
+	bot.Handle(&helpBtnBack, func(c tele.Context) error {
+		_ = c.Respond()
+		return c.Edit(helpMainText, &tele.SendOptions{ParseMode: tele.ModeHTML, DisableWebPagePreview: true}, helpMainMarkup())
+	})
 }
 
 // handleWelcome — управление приветствием новых пользователей (admin-only).
