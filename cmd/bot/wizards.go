@@ -121,3 +121,30 @@ func wrapAddBanWithWizard(legacy tele.HandlerFunc, startWizard func(c tele.Conte
 		return startWizard(c)
 	}
 }
+
+// wrapAddTaskWithWizard — двухрежимный handler для /addtask.
+//
+// Старый синтаксис «/addtask <name> "<cron>" <type> <data>» (или с reply
+// на медиа и аргументами) — всегда legacy. Wizard запускается только когда:
+//  1. аргументы пусты;
+//  2. группа (не личка);
+//  3. не анонимный админ.
+//
+// ReplyTo разрешён: если он содержит медиа, wizard извлечёт type/file_id
+// из reply на старте и пропустит шаг 3 (ввод текста). Без ReplyTo wizard
+// собирает всё (имя/cron/текст) и создаёт текстовую задачу.
+func wrapAddTaskWithWizard(legacy tele.HandlerFunc, startWizard func(c tele.Context) error) tele.HandlerFunc {
+	return func(c tele.Context) error {
+		if len(c.Args()) > 0 {
+			return legacy(c)
+		}
+		chat := c.Chat()
+		if chat == nil || (chat.Type != tele.ChatGroup && chat.Type != tele.ChatSuperGroup) {
+			return legacy(c)
+		}
+		if core.IsAnonymousAdmin(c.Message()) {
+			return legacy(c)
+		}
+		return startWizard(c)
+	}
+}

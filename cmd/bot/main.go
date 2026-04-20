@@ -200,6 +200,15 @@ func run() error {
 	// при изменении схемы нужно править оба места.
 	startAddBanWizard := wizard.RegisterAddBan(bot, wizardMgr, db, chatRepo, eventRepo, logger)
 
+	// startAddTaskWizard — точка входа для /addtask без аргументов.
+	// SchedulerRepository без состояния — безопасно создать второй экземпляр.
+	// modules.Scheduler нужен как taskRegistrar (RegisterTaskByID активирует
+	// только что созданную задачу в cron без перезапуска бота).
+	schedulerRepo := repositories.NewSchedulerRepository(db)
+	startAddTaskWizard := wizard.RegisterAddTask(
+		bot, wizardMgr, schedulerRepo, chatRepo, eventRepo, modules.Scheduler, logger,
+	)
+
 	// Регистрируем базовые команды
 	registerCommands(bot, chatRepo, eventRepo, logger, botVersion, startWelcomeWizard)
 
@@ -222,6 +231,11 @@ func run() error {
 	// /addban: wizard без аргументов (паттерн вводится в ходе wizard'а);
 	// старый синтаксис «/addban <pattern> <action>» — через legacy.
 	bot.Handle("/addban", wrapAddBanWithWizard(modules.Reactions.HandleAddBan, startAddBanWizard))
+
+	// /addtask: wizard без аргументов; ReplyTo с медиа на старте упрощает
+	// поток до 2 шагов (имя+cron). Старый синтаксис
+	// «/addtask <name> "<cron>" <type> <data>» — через legacy.
+	bot.Handle("/addtask", wrapAddTaskWithWizard(modules.Scheduler.HandleAddTask, startAddTaskWizard))
 
 	// Создаём контекст для graceful shutdown
 	ctx, cancel := context.WithCancel(context.Background())

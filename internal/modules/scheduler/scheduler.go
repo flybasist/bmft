@@ -135,6 +135,27 @@ func (m *SchedulerModule) RegisterAdminCommands(bot *tele.Bot) {
 	bot.Handle("/runtask", m.handleRunTask)
 }
 
+// HandleAddTask — публичная обёртка над handleAddTask для wizard-фолбэка
+// (cmd/bot/wizards.go::wrapAddTaskWithWizard). Используется legacy-путём
+// при наличии аргументов или другого неподдерживаемого wizard'ом контекста.
+func (m *SchedulerModule) HandleAddTask(c tele.Context) error {
+	return m.handleAddTask(c)
+}
+
+// RegisterTaskByID загружает задачу из БД по ID и регистрирует её в cron.
+// Используется wizard'ом /addtask после успешного CreateTask для активации
+// только что созданной задачи без перезапуска бота.
+//
+// Дублирует первые 5 строк handleAddTask::createAndRegisterTask, но возвращает
+// ошибку (а не отправляет ответ в чат) — wizard сам формирует сообщение.
+func (m *SchedulerModule) RegisterTaskByID(taskID int64) error {
+	task, err := m.schedulerRepo.GetTask(taskID)
+	if err != nil {
+		return fmt.Errorf("failed to get task %d: %w", taskID, err)
+	}
+	return m.registerTask(task)
+}
+
 func (m *SchedulerModule) loadActiveTasks() error {
 	tasks, err := m.schedulerRepo.GetActiveTasks()
 	if err != nil {
