@@ -209,6 +209,11 @@ func run() error {
 		bot, wizardMgr, schedulerRepo, chatRepo, eventRepo, modules.Scheduler, logger,
 	)
 
+	// startAddReactionWizard — точка входа для /addreaction без аргументов.
+	// Использует прямой INSERT в keyword_reactions (как handleAddReaction в reactions.go);
+	// при изменении схемы нужно править оба места.
+	startAddReactionWizard := wizard.RegisterAddReaction(bot, wizardMgr, db, chatRepo, eventRepo, logger)
+
 	// Регистрируем базовые команды
 	registerCommands(bot, chatRepo, eventRepo, logger, botVersion, startWelcomeWizard)
 
@@ -236,6 +241,11 @@ func run() error {
 	// поток до 2 шагов (имя+cron). Старый синтаксис
 	// «/addtask <name> "<cron>" <type> <data>» — через legacy.
 	bot.Handle("/addtask", wrapAddTaskWithWizard(modules.Scheduler.HandleAddTask, startAddTaskWizard))
+
+	// /addreaction: wizard покрывает базовый сценарий (pattern+description+ответ);
+	// расширенные опции (user:, cooldown, daily_limit, content_type, delete) —
+	// только через legacy «/addreaction args...».
+	bot.Handle("/addreaction", wrapAddReactionWithWizard(modules.Reactions.HandleAddReaction, startAddReactionWizard))
 
 	// Создаём контекст для graceful shutdown
 	ctx, cancel := context.WithCancel(context.Background())

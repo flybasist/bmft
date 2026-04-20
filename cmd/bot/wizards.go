@@ -148,3 +148,32 @@ func wrapAddTaskWithWizard(legacy tele.HandlerFunc, startWizard func(c tele.Cont
 		return startWizard(c)
 	}
 }
+
+// wrapAddReactionWithWizard — двухрежимный handler для /addreaction.
+//
+// Legacy синтаксис обширный («/addreaction [user:<id>] <pattern> <response>
+// <description> [<content_type>] [<cooldown>] [<daily_limit>] [delete]» или
+// с reply-режимом и аргументами) — всегда legacy. Wizard запускается только
+// когда:
+//  1. аргументы пусты;
+//  2. группа (не личка);
+//  3. не анонимный админ.
+//
+// ReplyTo разрешён: если содержит медиа, wizard использует это как ответ
+// и пропускает шаг 3 (ввод текста). Без ReplyTo wizard собирает текстовый
+// ответ через шаг 3.
+func wrapAddReactionWithWizard(legacy tele.HandlerFunc, startWizard func(c tele.Context) error) tele.HandlerFunc {
+	return func(c tele.Context) error {
+		if len(c.Args()) > 0 {
+			return legacy(c)
+		}
+		chat := c.Chat()
+		if chat == nil || (chat.Type != tele.ChatGroup && chat.Type != tele.ChatSuperGroup) {
+			return legacy(c)
+		}
+		if core.IsAnonymousAdmin(c.Message()) {
+			return legacy(c)
+		}
+		return startWizard(c)
+	}
+}

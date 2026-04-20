@@ -204,6 +204,14 @@ func (m *ReactionsModule) HandleAddBan(c telebot.Context) error {
 	return m.handleAddBan(c)
 }
 
+// HandleAddReaction — публичная обёртка над handleAddReaction для wizard-фолбэка
+// (cmd/bot/wizards.go::wrapAddReactionWithWizard). Используется, когда есть
+// аргументы (legacy с расширенными опциями user:/cooldown/daily_limit/...) или
+// контекст не подходит для wizard'а (личка, анонимный админ).
+func (m *ReactionsModule) HandleAddReaction(c telebot.Context) error {
+	return m.handleAddReaction(c)
+}
+
 func (m *ReactionsModule) OnMessage(ctx *core.MessageContext) error {
 	msg := ctx.Message
 
