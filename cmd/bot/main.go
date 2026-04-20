@@ -195,6 +195,11 @@ func run() error {
 	contentLimitsRepo := repositories.NewContentLimitsRepository(db)
 	startSetLimitWizard := wizard.RegisterSetLimit(bot, wizardMgr, contentLimitsRepo, chatRepo, eventRepo, logger)
 
+	// startAddBanWizard — точка входа для /addban без аргументов.
+	// Использует прямой SQL в keyword_reactions (как handleAddBan в reactions/filters.go);
+	// при изменении схемы нужно править оба места.
+	startAddBanWizard := wizard.RegisterAddBan(bot, wizardMgr, db, chatRepo, eventRepo, logger)
+
 	// Регистрируем базовые команды
 	registerCommands(bot, chatRepo, eventRepo, logger, botVersion, startWelcomeWizard)
 
@@ -213,6 +218,10 @@ func run() error {
 	// /setlimit: wizard без аргументов; старый синтаксис
 	// «/setlimit <type> <value>» (с опц. ReplyTo) — через legacy.
 	bot.Handle("/setlimit", wrapSetLimitWithWizard(modules.Limiter.HandleSetLimit, startSetLimitWizard))
+
+	// /addban: wizard без аргументов (паттерн вводится в ходе wizard'а);
+	// старый синтаксис «/addban <pattern> <action>» — через legacy.
+	bot.Handle("/addban", wrapAddBanWithWizard(modules.Reactions.HandleAddBan, startAddBanWizard))
 
 	// Создаём контекст для graceful shutdown
 	ctx, cancel := context.WithCancel(context.Background())

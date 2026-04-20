@@ -196,6 +196,14 @@ func (m *ReactionsModule) HandleSetProfanity(c telebot.Context) error {
 	return m.handleSetProfanity(c)
 }
 
+// HandleAddBan — публичная обёртка над handleAddBan для wizard-фолбэка
+// (cmd/bot/wizards.go::wrapAddBanWithWizard). Используется, когда есть
+// аргументы (старый синтаксис «/addban <pattern> <action>») или контекст
+// не подходит для wizard'а.
+func (m *ReactionsModule) HandleAddBan(c telebot.Context) error {
+	return m.handleAddBan(c)
+}
+
 func (m *ReactionsModule) OnMessage(ctx *core.MessageContext) error {
 	msg := ctx.Message
 

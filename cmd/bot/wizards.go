@@ -96,3 +96,28 @@ func wrapSetLimitWithWizard(legacy tele.HandlerFunc, startWizard func(c tele.Con
 		return startWizard(c)
 	}
 }
+
+// wrapAddBanWithWizard — двухрежимный handler для /addban.
+//
+// Старый синтаксис «/addban <pattern> <action>» — всегда legacy.
+// Wizard запускается только когда:
+//  1. аргументы пусты;
+//  2. группа (не личка);
+//  3. не анонимный админ.
+//
+// ReplyTo не используется (паттерн вводится как текст в ходе wizard'а).
+func wrapAddBanWithWizard(legacy tele.HandlerFunc, startWizard func(c tele.Context) error) tele.HandlerFunc {
+	return func(c tele.Context) error {
+		if len(c.Args()) > 0 {
+			return legacy(c)
+		}
+		chat := c.Chat()
+		if chat == nil || (chat.Type != tele.ChatGroup && chat.Type != tele.ChatSuperGroup) {
+			return legacy(c)
+		}
+		if core.IsAnonymousAdmin(c.Message()) {
+			return legacy(c)
+		}
+		return startWizard(c)
+	}
+}
