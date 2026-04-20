@@ -305,6 +305,12 @@ func handleWelcome(chatRepo *repositories.ChatRepository, logger *zap.Logger) fu
 			if err != nil || ttl < 0 {
 				return c.Send("TTL должен быть целым числом ≥ 0.")
 			}
+			// Допустимый диапазон: 0 (отключено), либо 10..86400 секунд (24 часа).
+			// 0..9 фактически означает «удалить мгновенно» — приветствие не успевает прочитать никто.
+			// >24ч — у Telegram нет смысла, всё равно сообщение можно удалить ботом не дольше 48ч.
+			if ttl != 0 && (ttl < 10 || ttl > 86400) {
+				return c.Send("TTL должен быть 0 (без авто-удаления) либо в диапазоне 10..86400 секунд (24 часа).")
+			}
 			if err := chatRepo.SetWelcomeTTL(chatID, ttl); err != nil {
 				logger.Error("welcome: set ttl", zap.Error(err), zap.Int64("chat_id", chatID))
 				return c.Send("Не удалось сохранить настройку.")

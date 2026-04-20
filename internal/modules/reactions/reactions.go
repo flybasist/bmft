@@ -204,8 +204,8 @@ func (m *ReactionsModule) OnMessage(ctx *core.MessageContext) error {
 
 	m.logger.Debug("reactions OnMessage", zap.Int64("chat_id", chatID), zap.Int("thread_id", threadID), zap.Int64("user_id", userID), zap.String("text", msg.Text))
 
-	isVIP, _ := m.vipRepo.IsVIP(chatID, threadID, userID)
-	if isVIP {
+	// VIP-статус уже проверен в middleware и передан через ctx (единая точка на pipeline).
+	if ctx.IsVIP {
 		return nil
 	}
 

@@ -4,6 +4,7 @@ package scheduler
 import (
 	"database/sql"
 	"fmt"
+	"html"
 	"strconv"
 	"strings"
 	"sync"
@@ -422,7 +423,10 @@ func (m *SchedulerModule) createAndRegisterTask(c tele.Context, chatID int64, th
 		"ID: %d\n"+
 		"Название: <code>%s</code>\n"+
 		"Расписание: <code>%s</code>\n"+
-		"Тип: %s", scopeLabel, scopeHint, taskID, name, cronExpr, taskType)
+		"Тип: %s", scopeLabel, scopeHint, taskID,
+		html.EscapeString(name),     // пользовательский ввод — escape обязателен
+		html.EscapeString(cronExpr), // cron-выражение валидировано парсером, но escape для единообразия
+		taskType)                    // taskType — enum из белого списка, безопасен
 
 	return c.Send(scopeMsg, &tele.SendOptions{ParseMode: tele.ModeHTML})
 }

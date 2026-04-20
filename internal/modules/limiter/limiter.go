@@ -4,6 +4,7 @@ package limiter
 import (
 	"database/sql"
 	"fmt"
+	"html"
 	"strconv"
 	"strings"
 
@@ -130,13 +131,8 @@ func (m *LimiterModule) OnMessage(ctx *core.MessageContext) error {
 	threadID := ctx.ThreadID
 	userID := ctx.Sender.ID
 
-	// Проверяем VIP-статус (с fallback: топик → чат)
-	isVIP, err := m.vipRepo.IsVIP(chatID, threadID, userID)
-	if err != nil {
-		m.logger.Error("failed to check VIP status", zap.Error(err))
-		return nil // Не блокируем сообщение из-за ошибки
-	}
-	if isVIP {
+	// VIP-статус уже проверен в middleware и передан через ctx (было 2 запроса на сообщение).
+	if ctx.IsVIP {
 		return nil // VIP не имеет лимитов
 	}
 
@@ -596,12 +592,15 @@ func (m *LimiterModule) handleListVIPs(c tele.Context) error {
 		chatMember, apiErr := m.bot.ChatMemberOf(c.Chat(), &tele.User{ID: vip.UserID})
 		if apiErr == nil && chatMember != nil && chatMember.User != nil {
 			if chatMember.User.Username != "" {
-				displayName = fmt.Sprintf("@%s", chatMember.User.Username)
+				// Username — безопасный ASCII (a-z0-9_), но оставим escape для единообразия.
+				displayName = fmt.Sprintf("@%s", html.EscapeString(chatMember.User.Username))
 			} else if chatMember.User.FirstName != "" {
-				displayName = chatMember.User.FirstName
+				// FirstName — пользовательский ввод, escape обязателен для ModeHTML.
+				displayName = html.EscapeString(chatMember.User.FirstName)
 			}
 		}
-		text += fmt.Sprintf("%d. %s\n   Причина: %s\n\n", i+1, displayName, vip.Reason)
+		// vip.Reason — ввод админа при /setvip, escape обязателен.
+		text += fmt.Sprintf("%d. %s\n   Причина: %s\n\n", i+1, displayName, html.EscapeString(vip.Reason))
 	}
 
 	return c.Send(text, &tele.SendOptions{ParseMode: tele.ModeHTML})

@@ -149,6 +149,14 @@ func AdminOnlyMiddleware(ac *AdminChecker, logger *zap.Logger) tele.MiddlewareFu
 				return next(c)
 			}
 
+			// Anonymous admin: сообщение отправлено от имени самой группы
+			// (включён режим "Remain Anonymous"). В getChatAdministrators такие
+			// пользователи не возвращаются — Telegram скрывает их личность.
+			// Признак невозможно подделать: SenderChat == текущий чат.
+			if msg.SenderChat != nil && msg.SenderChat.ID == c.Chat().ID {
+				return next(c)
+			}
+
 			// Админская команда — проверяем права (с кэшем)
 			isAdmin, err := ac.IsAdmin(c.Chat(), c.Sender().ID)
 			if err != nil {

@@ -89,7 +89,7 @@ func initModules(db *sql.DB, bot *tele.Bot, logger *zap.Logger, cfg *config.Conf
 
 	// Регистрируем pipeline обработки сообщений
 	logger.Info("registering message pipeline")
-	registerPipeline(bot, modules, db, logger)
+	registerPipeline(bot, modules, vipRepo, db, logger)
 
 	return modules, nil
 }
@@ -129,12 +129,13 @@ func (m *Modules) shutdownModules(logger *zap.Logger) error {
 // 3. Reactions — фильтры (мат, бан-слова) + автоответы на ключевые слова
 //
 // ThreadID вычисляется один раз в первом middleware и кешируется через c.Set (−2 SQL-запроса).
+// IsVIP проверяется один раз и кешируется (−1 SQL-запрос: Limiter+Reactions раньше дублировали).
 // MessageDeleted пропагируется через c.Set: если Limiter удалил сообщение,
 // Reactions видит MessageDeleted=true и считает мат без повторного удаления.
-func registerPipeline(bot *tele.Bot, modules *Modules, db *sql.DB, logger *zap.Logger) {
-	bot.Use(wrapModuleMiddleware(modules.Statistics.OnMessage, "statistics", db, logger))
-	bot.Use(wrapModuleMiddleware(modules.Limiter.OnMessage, "limiter", db, logger))
-	bot.Use(wrapModuleMiddleware(modules.Reactions.OnMessage, "reactions", db, logger))
+func registerPipeline(bot *tele.Bot, modules *Modules, vipRepo *repositories.VIPRepository, db *sql.DB, logger *zap.Logger) {
+	bot.Use(wrapModuleMiddleware(modules.Statistics.OnMessage, "statistics", vipRepo, db, logger))
+	bot.Use(wrapModuleMiddleware(modules.Limiter.OnMessage, "limiter", vipRepo, db, logger))
+	bot.Use(wrapModuleMiddleware(modules.Reactions.OnMessage, "reactions", vipRepo, db, logger))
 
 	logger.Info("message pipeline registered", zap.Int("modules", 3))
 }
@@ -149,6 +150,7 @@ func registerPipeline(bot *tele.Bot, modules *Modules, db *sql.DB, logger *zap.L
 func wrapModuleMiddleware(
 	onMessage func(*core.MessageContext) error,
 	moduleName string,
+	vipRepo *repositories.VIPRepository,
 	db *sql.DB,
 	logger *zap.Logger,
 ) tele.MiddlewareFunc {
@@ -169,6 +171,24 @@ func wrapModuleMiddleware(
 				c.Set("pipelineThreadID", threadID)
 			}
 
+			// VIP-статус проверяется один раз и кешируется для всех модулей.
+			// Раньше Limiter и Reactions вызывали vipRepo.IsVIP независимо — 2 SQL-запроса.
+			// Пропускаем проверку для приватов/команд/нет sender — там VIP не нужен.
+			var isVIP bool
+			if cached := c.Get("pipelineIsVIP"); cached != nil {
+				isVIP = cached.(bool)
+			} else if msg.Sender != nil && !msg.Private() {
+				v, err := vipRepo.IsVIP(msg.Chat.ID, threadID, msg.Sender.ID)
+				if err != nil {
+					logger.Warn("VIP check failed in pipeline",
+						zap.Int64("chat_id", msg.Chat.ID),
+						zap.Int64("user_id", msg.Sender.ID),
+						zap.Error(err))
+				}
+				isVIP = v
+				c.Set("pipelineIsVIP", isVIP)
+			}
+
 			// MessageDeleted пропагируется между модулями.
 			// Если Limiter удалил сообщение, Reactions увидит и скорректирует поведение.
 			messageDeleted := false
@@ -182,6 +202,7 @@ func wrapModuleMiddleware(
 				Sender:         msg.Sender,
 				Bot:            c.Bot(),
 				ThreadID:       threadID,
+				IsVIP:          isVIP,
 				MessageDeleted: messageDeleted,
 			}
 

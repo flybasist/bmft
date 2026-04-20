@@ -12,6 +12,7 @@ import (
 //
 // Reactions включает: фильтр мата, фильтр запрещённых слов, автоответы.
 // ThreadID вычисляется один раз в middleware и кешируется для всех модулей (−2 SQL-запроса).
+// IsVIP проверяется один раз в middleware и кешируется (−1 SQL-запрос: было 2 проверки в Limiter+Reactions).
 // MessageDeleted пропагируется между модулями: если Limiter удалил сообщение,
 // Reactions увидит MessageDeleted=true и скорректирует поведение (подсчёт мата без delete/warn).
 type MessageContext struct {
@@ -20,6 +21,7 @@ type MessageContext struct {
 	Chat           *tele.Chat    // Чат из которого пришло сообщение
 	Sender         *tele.User    // Пользователь, отправивший сообщение
 	ThreadID       int           // ID топика (0 = основной чат, вычислен в middleware)
+	IsVIP          bool          // VIP-статус автора (проверен один раз в middleware)
 	MessageDeleted bool          // Сообщение удалено (пропагируется через pipeline)
 }
 
