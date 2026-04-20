@@ -156,6 +156,67 @@ func (m *SchedulerModule) RegisterTaskByID(taskID int64) error {
 	return m.registerTask(task)
 }
 
+// UniqueDeleteTask — Unique значение inline-кнопки 🗑 для /listtasks.
+// cmd/bot/main.go регистрирует callback с обёрткой core.AdminOnlyCallback
+// (без неё любой пользователь смог бы нажать кнопку и удалить задачу).
+const UniqueDeleteTask = "del_task"
+
+// listTasksMaxButtons — максимум inline-кнопок 🗑 в одном сообщении /listtasks.
+// Telegram допускает до 100 кнопок на сообщение; берём с большим запасом.
+// При превышении кнопки не добавляются, пользователь использует /deltask <id>.
+const listTasksMaxButtons = 50
+
+// HandleDeleteTaskCallback обрабатывает нажатие inline-кнопки 🗑 в /listtasks.
+// Data callback'а — taskID (int64) в виде строки.
+//
+// Безопасность:
+//   - admin-проверка делается в AdminOnlyCallback на уровне регистрации;
+//   - дополнительно проверяем что task.ChatID == c.Chat().ID (защита от
+//     callback'а из чужого чата при пересылке сообщений).
+//
+// Поведение: удаляет задачу из БД и cron, отвечает alert'ом «✅ Удалено».
+// Сообщение со списком НЕ перерисовывается — повторное нажатие вернёт
+// «Не найдено».
+func (m *SchedulerModule) HandleDeleteTaskCallback(c tele.Context) error {
+	cb := c.Callback()
+	if cb == nil {
+		return nil
+	}
+	taskID, err := strconv.ParseInt(strings.TrimSpace(cb.Data), 10, 64)
+	if err != nil {
+		return c.Respond(&tele.CallbackResponse{Text: "❌ Некорректный ID", ShowAlert: true})
+	}
+
+	task, err := m.schedulerRepo.GetTask(taskID)
+	if err != nil {
+		return c.Respond(&tele.CallbackResponse{Text: "ℹ️ Задача не найдена", ShowAlert: true})
+	}
+	if task.ChatID != c.Chat().ID {
+		// Защита от ситуации с пересланным сообщением: задача чужого чата.
+		return c.Respond(&tele.CallbackResponse{Text: "🚫 Задача из другого чата", ShowAlert: true})
+	}
+
+	if err := m.schedulerRepo.DeleteTask(taskID); err != nil {
+		m.logger.Error("delete task callback: db delete", zap.Error(err), zap.Int64("task_id", taskID))
+		return c.Respond(&tele.CallbackResponse{Text: "❌ Ошибка БД", ShowAlert: true})
+	}
+
+	m.mu.Lock()
+	if entryID, ok := m.taskEntries[taskID]; ok {
+		m.cron.Remove(entryID)
+		delete(m.taskEntries, taskID)
+	}
+	m.mu.Unlock()
+
+	_ = m.eventRepo.Log(c.Chat().ID, c.Sender().ID, "scheduler", "task_deleted",
+		fmt.Sprintf("Task %d deleted via inline button", taskID))
+
+	return c.Respond(&tele.CallbackResponse{
+		Text:      fmt.Sprintf("✅ Задача %d удалена", taskID),
+		ShowAlert: true,
+	})
+}
+
 func (m *SchedulerModule) loadActiveTasks() error {
 	tasks, err := m.schedulerRepo.GetActiveTasks()
 	if err != nil {
@@ -338,7 +399,32 @@ func (m *SchedulerModule) handleListTasks(c tele.Context) error {
 	msg.WriteString("Поддерживаемые типы: text, sticker, photo, animation, video, voice, document, audio\n")
 	msg.WriteString("Reply на сообщение для автоматического определения типа")
 
-	return c.Send(msg.String(), &tele.SendOptions{ParseMode: tele.ModeMarkdown})
+	// Inline-кнопки 🗑 для каждой задачи (по 2 в ряд) — только если задач немного.
+	// Регистрация callback'а: cmd/bot/main.go через core.AdminOnlyCallback.
+	opts := &tele.SendOptions{ParseMode: tele.ModeMarkdown}
+	if len(tasks) <= listTasksMaxButtons {
+		markup := &tele.ReplyMarkup{}
+		rows := make([]tele.Row, 0, (len(tasks)+1)/2)
+		row := make([]tele.Btn, 0, 2)
+		for _, task := range tasks {
+			row = append(row, tele.Btn{
+				Unique: UniqueDeleteTask,
+				Text:   fmt.Sprintf("🗑 #%d %s", task.ID, task.TaskName),
+				Data:   strconv.FormatInt(task.ID, 10),
+			})
+			if len(row) == 2 {
+				rows = append(rows, markup.Row(row...))
+				row = row[:0]
+			}
+		}
+		if len(row) > 0 {
+			rows = append(rows, markup.Row(row...))
+		}
+		markup.Inline(rows...)
+		opts.ReplyMarkup = markup
+	}
+
+	return c.Send(msg.String(), opts)
 }
 
 // validTaskTypes — разрешённые типы данных для задачи планировщика.

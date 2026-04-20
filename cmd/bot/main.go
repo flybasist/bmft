@@ -19,6 +19,8 @@ import (
 	"github.com/flybasist/bmft/internal/core"
 	"github.com/flybasist/bmft/internal/logx"
 	"github.com/flybasist/bmft/internal/migrations"
+	"github.com/flybasist/bmft/internal/modules/reactions"
+	"github.com/flybasist/bmft/internal/modules/scheduler"
 	"github.com/flybasist/bmft/internal/postgresql"
 	"github.com/flybasist/bmft/internal/postgresql/repositories"
 	"github.com/flybasist/bmft/internal/profanity"
@@ -246,6 +248,17 @@ func run() error {
 	// расширенные опции (user:, cooldown, daily_limit, content_type, delete) —
 	// только через legacy «/addreaction args...».
 	bot.Handle("/addreaction", wrapAddReactionWithWizard(modules.Reactions.HandleAddReaction, startAddReactionWizard))
+
+	// Inline-кнопки 🗑 в /listtasks, /listbans, /listreactions.
+	// AdminOnlyMiddleware покрывает ТОЛЬКО текстовые команды; callback-кнопки
+	// требуют отдельной проверки прав через core.AdminOnlyCallback, иначе любой
+	// пользователь, увидевший сообщение со списком, мог бы их нажать.
+	bot.Handle(&tele.Btn{Unique: scheduler.UniqueDeleteTask},
+		core.AdminOnlyCallback(adminChecker, logger, modules.Scheduler.HandleDeleteTaskCallback))
+	bot.Handle(&tele.Btn{Unique: reactions.UniqueDeleteBan},
+		core.AdminOnlyCallback(adminChecker, logger, modules.Reactions.HandleDeleteBanCallback))
+	bot.Handle(&tele.Btn{Unique: reactions.UniqueDeleteReaction},
+		core.AdminOnlyCallback(adminChecker, logger, modules.Reactions.HandleDeleteReactionCallback))
 
 	// Создаём контекст для graceful shutdown
 	ctx, cancel := context.WithCancel(context.Background())

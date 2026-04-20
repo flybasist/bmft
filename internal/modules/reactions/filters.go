@@ -8,6 +8,7 @@ import (
 	"database/sql"
 	"fmt"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/flybasist/bmft/internal/core"
@@ -438,7 +439,35 @@ func (m *ReactionsModule) handleListBans(c telebot.Context) error {
 		text += fmt.Sprintf("%d. %s ID: %d [%s]\n   Паттерн: <code>%s</code>\n   Действие: %s\n\n", i+1, status, b.ID, scope, b.Pattern, b.Action)
 	}
 
-	return c.Send(text, &telebot.SendOptions{ParseMode: telebot.ModeHTML})
+	// Inline-кнопки 🗑 — только если запретов немного. См. UniqueDeleteBan.
+	opts := &telebot.SendOptions{ParseMode: telebot.ModeHTML}
+	if len(bans) <= listBansMaxButtons {
+		markup := &telebot.ReplyMarkup{}
+		rows := make([]telebot.Row, 0, (len(bans)+1)/2)
+		row := make([]telebot.Btn, 0, 2)
+		for _, b := range bans {
+			label := b.Pattern
+			if len(label) > 20 {
+				label = label[:20] + "…"
+			}
+			row = append(row, telebot.Btn{
+				Unique: UniqueDeleteBan,
+				Text:   fmt.Sprintf("🗑 #%d %s", b.ID, label),
+				Data:   strconv.FormatInt(b.ID, 10),
+			})
+			if len(row) == 2 {
+				rows = append(rows, markup.Row(row...))
+				row = row[:0]
+			}
+		}
+		if len(row) > 0 {
+			rows = append(rows, markup.Row(row...))
+		}
+		markup.Inline(rows...)
+		opts.ReplyMarkup = markup
+	}
+
+	return c.Send(text, opts)
 }
 
 // handleRemoveBan обрабатывает команду /removeban — удаление запрещённого слова.
@@ -475,6 +504,54 @@ func (m *ReactionsModule) handleRemoveBan(c telebot.Context) error {
 		fmt.Sprintf("Removed filter ID=%s (chat=%d)", banID, chatID))
 
 	return c.Send(fmt.Sprintf("✅ Запрет #%s удалён", banID), &telebot.SendOptions{ParseMode: telebot.ModeHTML})
+}
+
+// UniqueDeleteBan — Unique значение inline-кнопки 🗑 для /listbans.
+// cmd/bot/main.go регистрирует callback с обёрткой core.AdminOnlyCallback.
+const UniqueDeleteBan = "del_ban"
+
+// listBansMaxButtons — лимит на кнопки в одном сообщении /listbans
+// (Telegram допускает до 100; берём с запасом).
+const listBansMaxButtons = 50
+
+// HandleDeleteBanCallback обрабатывает нажатие inline-кнопки 🗑 в /listbans.
+// Data — banID (int64) в виде строки. Удаляет ТОЛЬКО запись с action IS NOT NULL
+// (фильтр), что повторяет защиту handleRemoveBan от случайного удаления реакции.
+//
+// Безопасность:
+//   - admin-проверка через AdminOnlyCallback на уровне регистрации;
+//   - WHERE chat_id = $1 защищает от удаления записи из чужого чата.
+func (m *ReactionsModule) HandleDeleteBanCallback(c telebot.Context) error {
+	cb := c.Callback()
+	if cb == nil {
+		return nil
+	}
+	banID, err := strconv.ParseInt(strings.TrimSpace(cb.Data), 10, 64)
+	if err != nil {
+		return c.Respond(&telebot.CallbackResponse{Text: "❌ Некорректный ID", ShowAlert: true})
+	}
+
+	chatID := c.Chat().ID
+	result, err := m.db.Exec(`
+		DELETE FROM keyword_reactions
+		WHERE chat_id = $1 AND id = $2 AND action IS NOT NULL
+	`, chatID, banID)
+	if err != nil {
+		m.logger.Error("delete ban callback: db delete", zap.Error(err), zap.Int64("ban_id", banID))
+		return c.Respond(&telebot.CallbackResponse{Text: "❌ Ошибка БД", ShowAlert: true})
+	}
+	rowsAffected, _ := result.RowsAffected()
+	if rowsAffected == 0 {
+		return c.Respond(&telebot.CallbackResponse{Text: "ℹ️ Запись не найдена", ShowAlert: true})
+	}
+
+	_ = m.eventRepo.Log(chatID, c.Sender().ID, "reactions", "remove_filter",
+		fmt.Sprintf("Removed filter ID=%d via inline button (chat=%d)", banID, chatID))
+
+	return c.Respond(&telebot.CallbackResponse{
+		Text:      fmt.Sprintf("✅ Запрет %d удалён", banID),
+		ShowAlert: true,
+	})
 }
 
 // ============================================================================

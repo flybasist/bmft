@@ -979,7 +979,12 @@ func (m *ReactionsModule) handleListReactions(c telebot.Context) error {
 
 	m.logger.Debug("handleListReactions formatted response", zap.Int("total_reactions", len(reactions)), zap.Int("pages", len(messages)))
 
-	// Отправляем каждую часть
+	// Отправляем каждую часть. Inline-кнопки 🗑 добавляем ТОЛЬКО если всё
+	// помещается в одно сообщение (len(messages)==1) и реакций ≤ 50.
+	// При пагинации связь line→reaction теряется, поэтому без кнопок —
+	// пользователь использует /removereaction <id>.
+	addButtons := len(messages) == 1 && len(reactions) <= listReactionsMaxButtons
+
 	for i, msg := range messages {
 		var header string
 		if len(messages) > 1 {
@@ -989,7 +994,34 @@ func (m *ReactionsModule) handleListReactions(c telebot.Context) error {
 		}
 		text := header + msg
 
-		if err := c.Send(text, &telebot.SendOptions{ParseMode: telebot.ModeHTML}); err != nil {
+		opts := &telebot.SendOptions{ParseMode: telebot.ModeHTML}
+		if addButtons {
+			markup := &telebot.ReplyMarkup{}
+			rows := make([]telebot.Row, 0, (len(reactions)+1)/2)
+			row := make([]telebot.Btn, 0, 2)
+			for _, r := range reactions {
+				label := r.Pattern
+				if len(label) > 20 {
+					label = label[:20] + "…"
+				}
+				row = append(row, telebot.Btn{
+					Unique: UniqueDeleteReaction,
+					Text:   fmt.Sprintf("🗑 #%d %s", r.ID, label),
+					Data:   strconv.FormatInt(r.ID, 10),
+				})
+				if len(row) == 2 {
+					rows = append(rows, markup.Row(row...))
+					row = row[:0]
+				}
+			}
+			if len(row) > 0 {
+				rows = append(rows, markup.Row(row...))
+			}
+			markup.Inline(rows...)
+			opts.ReplyMarkup = markup
+		}
+
+		if err := c.Send(text, opts); err != nil {
 			m.logger.Error("handleListReactions send failed", zap.Error(err), zap.Int("page", i+1), zap.Int("text_length", len(text)))
 			return c.Send("❌ Не удалось отправить список реакций (ошибка API)")
 		}
@@ -1035,4 +1067,52 @@ func (m *ReactionsModule) handleRemoveReaction(c telebot.Context) error {
 		fmt.Sprintf("Removed reaction ID=%s (chat=%d)", reactionID, chatID))
 
 	return c.Send(fmt.Sprintf("✅ Реакция #%s удалена", reactionID), &telebot.SendOptions{ParseMode: telebot.ModeHTML})
+}
+
+// UniqueDeleteReaction — Unique значение inline-кнопки 🗑 для /listreactions.
+// cmd/bot/main.go регистрирует callback с обёрткой core.AdminOnlyCallback.
+const UniqueDeleteReaction = "del_reaction"
+
+// listReactionsMaxButtons — лимит на кнопки в одном сообщении /listreactions.
+// При большем количестве реакций кнопки не добавляются (потому что
+// list разбивается на несколько сообщений и связь line→reaction теряется);
+// пользователь использует /removereaction <id>.
+const listReactionsMaxButtons = 50
+
+// HandleDeleteReactionCallback обрабатывает нажатие inline-кнопки 🗑 в /listreactions.
+// Data — reactionID (int64) в виде строки.
+//
+// В отличие от HandleDeleteBanCallback, тут НЕТ фильтра action IS NULL:
+// /listreactions показывает только обычные реакции, кнопка не появится
+// для записей-фильтров. WHERE chat_id защищает от чужих чатов.
+func (m *ReactionsModule) HandleDeleteReactionCallback(c telebot.Context) error {
+	cb := c.Callback()
+	if cb == nil {
+		return nil
+	}
+	reactionID, err := strconv.ParseInt(strings.TrimSpace(cb.Data), 10, 64)
+	if err != nil {
+		return c.Respond(&telebot.CallbackResponse{Text: "❌ Некорректный ID", ShowAlert: true})
+	}
+
+	chatID := c.Chat().ID
+	result, err := m.db.Exec(`
+		DELETE FROM keyword_reactions WHERE chat_id = $1 AND id = $2
+	`, chatID, reactionID)
+	if err != nil {
+		m.logger.Error("delete reaction callback: db delete", zap.Error(err), zap.Int64("reaction_id", reactionID))
+		return c.Respond(&telebot.CallbackResponse{Text: "❌ Ошибка БД", ShowAlert: true})
+	}
+	rowsAffected, _ := result.RowsAffected()
+	if rowsAffected == 0 {
+		return c.Respond(&telebot.CallbackResponse{Text: "ℹ️ Реакция не найдена", ShowAlert: true})
+	}
+
+	_ = m.eventRepo.Log(chatID, c.Sender().ID, "reactions", "remove_reaction",
+		fmt.Sprintf("Removed reaction ID=%d via inline button (chat=%d)", reactionID, chatID))
+
+	return c.Respond(&telebot.CallbackResponse{
+		Text:      fmt.Sprintf("✅ Реакция %d удалена", reactionID),
+		ShowAlert: true,
+	})
 }

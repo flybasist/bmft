@@ -193,3 +193,42 @@ func AdminOnlyMiddleware(ac *AdminChecker, logger *zap.Logger) tele.MiddlewareFu
 		}
 	}
 }
+
+// AdminOnlyCallback оборачивает обработчик inline-кнопки проверкой админства.
+// AdminOnlyMiddleware фильтрует только текстовые команды по списку adminCommands;
+// callback'и от inline-клавиатуры она не покрывает. Любой пользователь, увидевший
+// сообщение с админскими кнопками (например /listtasks), мог бы их нажать.
+//
+// Поведение:
+//   - не-админ → c.Respond с alert «нет прав» (без удаления исходного сообщения,
+//     чтобы не сломать UX другим админам в чате);
+//   - анонимный админ (от имени группы) → разрешено (как в AdminOnlyMiddleware);
+//   - ошибка проверки → отказ + alert.
+func AdminOnlyCallback(ac *AdminChecker, logger *zap.Logger, h tele.HandlerFunc) tele.HandlerFunc {
+	return func(c tele.Context) error {
+		// У callback'ов c.Sender() = автор нажатия, c.Chat() = чат сообщения.
+		if c.Callback() == nil {
+			return h(c)
+		}
+		if IsAnonymousAdmin(c.Message()) {
+			// Анонимный админ — нажатие от имени группы; разрешаем как в текстовых командах.
+			return h(c)
+		}
+
+		isAdmin, err := ac.IsAdmin(c.Chat(), c.Sender().ID)
+		if err != nil {
+			logger.Warn("callback admin check failed",
+				zap.Error(err),
+				zap.Int64("chat_id", c.Chat().ID),
+				zap.Int64("user_id", c.Sender().ID),
+			)
+			_ = c.Respond(&tele.CallbackResponse{Text: "❌ Ошибка проверки прав", ShowAlert: true})
+			return nil
+		}
+		if !isAdmin {
+			_ = c.Respond(&tele.CallbackResponse{Text: "🚫 Только для администраторов", ShowAlert: true})
+			return nil
+		}
+		return h(c)
+	}
+}
