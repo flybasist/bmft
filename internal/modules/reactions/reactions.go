@@ -189,6 +189,13 @@ func (m *ReactionsModule) RegisterAdminCommands(bot *telebot.Bot) {
 	bot.Handle("/profanitystatus", m.handleProfanityStatus)
 }
 
+// HandleSetProfanity — публичная обёртка над handleSetProfanity.
+// Используется в cmd/bot, где /setprofanity перерегистрируется на
+// двухрежимный handler (wizard | legacy) после wizard.RegisterSetProfanity.
+func (m *ReactionsModule) HandleSetProfanity(c telebot.Context) error {
+	return m.handleSetProfanity(c)
+}
+
 func (m *ReactionsModule) OnMessage(ctx *core.MessageContext) error {
 	msg := ctx.Message
 

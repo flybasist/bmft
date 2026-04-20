@@ -176,8 +176,20 @@ func run() error {
 	// startWelcomeWizard — точка входа для /welcome без аргументов.
 	startWelcomeWizard := wizard.RegisterWelcome(bot, wizardMgr, chatRepo, logger)
 
+	// startSetProfanityWizard — точка входа для /setprofanity без аргументов.
+	// Wizard package не знает про reactions, поэтому SQL для profanity_settings
+	// дублируется (см. internal/wizard/profanity.go комментарий о синхронизации).
+	startSetProfanityWizard := wizard.RegisterSetProfanity(bot, wizardMgr, db, chatRepo, eventRepo, logger)
+
 	// Регистрируем базовые команды
 	registerCommands(bot, chatRepo, eventRepo, logger, botVersion, startWelcomeWizard)
+
+	// Перерегистрируем /setprofanity на двухрежимный handler (wizard | legacy).
+	// initModules уже зарегистрировал legacy handler через
+	// modules.Reactions.RegisterAdminCommands; здесь мы перетираем endpoint
+	// на обёртку, которая запускает wizard при пустых аргументах в группе
+	// и не от anonymous-админа, а в остальных случаях вызывает legacy.
+	bot.Handle("/setprofanity", wrapSetProfanityWithWizard(modules.Reactions.HandleSetProfanity, startSetProfanityWizard))
 
 	// Создаём контекст для graceful shutdown
 	ctx, cancel := context.WithCancel(context.Background())

@@ -1,0 +1,40 @@
+package main
+
+import (
+	tele "gopkg.in/telebot.v3"
+
+	"github.com/flybasist/bmft/internal/core"
+)
+
+// wrapSetProfanityWithWizard возвращает handler /setprofanity, который
+// маршрутизирует команду в wizard или в legacy-handler модуля reactions.
+//
+// Маршрутизация (порядок приоритета):
+//
+//  1. Если есть аргументы (например, "/setprofanity delete") → legacy
+//     (старый синтаксис сохраняется для скриптов и быстрых изменений).
+//  2. Если контекст не из группы (личка) → legacy
+//     (wizard в личке запрещён security model'ью; legacy сам обработает).
+//  3. Если отправитель — anonymous admin → legacy
+//     (wizard не различит таких пользователей; см. core.IsAnonymousAdmin).
+//  4. Иначе → wizard.
+//
+// Wrapper нужен потому, что wizard package не знает про reactions module,
+// и мы не хотим тащить wizard.Manager внутрь модулей. Вместо этого
+// перерегистрируем endpoint в main.go ПОСЛЕ initModules — telebot
+// перезаписывает обработчик при повторном bot.Handle с тем же endpoint'ом.
+func wrapSetProfanityWithWizard(legacy tele.HandlerFunc, startWizard func(c tele.Context) error) tele.HandlerFunc {
+	return func(c tele.Context) error {
+		if len(c.Args()) > 0 {
+			return legacy(c)
+		}
+		chat := c.Chat()
+		if chat == nil || (chat.Type != tele.ChatGroup && chat.Type != tele.ChatSuperGroup) {
+			return legacy(c)
+		}
+		if core.IsAnonymousAdmin(c.Message()) {
+			return legacy(c)
+		}
+		return startWizard(c)
+	}
+}
