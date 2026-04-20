@@ -4,6 +4,7 @@ package reactions
 import (
 	"database/sql"
 	"fmt"
+	"html"
 	"regexp"
 	"strconv"
 	"strings"
@@ -921,56 +922,82 @@ func (m *ReactionsModule) handleListReactions(c telebot.Context) error {
 		scopeHeader = "📋 <b>Список реакций (для всего чата):</b>\n\n"
 	}
 
-	// Формируем строки для каждой реакции
+	// Формируем строки для каждой реакции.
+	// Компактный формат — основная инфа в 1-2 строки; необязательные поля
+	// (cooldown ≠ default, daily_limit, delete, фильтры user/content_type)
+	// добавляются только при наличии отличий от дефолта. Подробности по
+	// конкретной записи — через /removereaction (показывает всё) или повторное
+	// добавление с нужными опциями.
 	var lines []string
 	for i, r := range reactions {
 		status := "✅"
 		if !r.IsActive {
 			status = "❌"
 		}
-		deleteMsg := "нет"
-		if r.DeleteOnLimit {
-			deleteMsg = "да"
-		}
 		scope := "чат"
 		if r.ThreadID != 0 {
 			scope = "топик"
 		}
 
-		// Показываем user_id если реакция персональная
-		userInfo := ""
-		if r.UserID > 0 {
-			userInfo = fmt.Sprintf("\n   🎯 <b>Персональная для user_id:</b> %d", r.UserID)
+		descr := r.Description
+		if descr == "" {
+			descr = "—"
 		}
 
-		// Показываем trigger_content_type если задан
-		contentTypeInfo := ""
-		if r.TriggerContentType != "" {
-			contentTypeInfo = fmt.Sprintf("\n   📎 <b>Только для:</b> %s", r.TriggerContentType)
+		// Превью ответа: текст обрезаем до 40 символов; для file_id — короткая метка.
+		preview := r.ResponseContent
+		switch r.ResponseType {
+		case "text":
+			if len(preview) > 40 {
+				preview = preview[:40] + "…"
+			}
+			preview = fmt.Sprintf("<code>%s</code>", html.EscapeString(preview))
+		default:
+			preview = fmt.Sprintf("<i>%s</i>", r.ResponseType)
 		}
 
-		// Показываем cooldown если не стандартный
-		cooldownInfo := ""
+		// Строка 1: заголовок + паттерн + описание
+		header := fmt.Sprintf("%d. %s #%d [%s] <code>%s</code> — %s",
+			i+1, status, r.ID, scope, html.EscapeString(r.Pattern), html.EscapeString(descr))
+		// Строка 2: превью ответа
+		body := fmt.Sprintf("   → %s %s", r.ResponseType, preview)
+
+		// Строка 3 (опц): параметры, если отличаются от default
+		var params []string
 		if r.Cooldown != 30 {
-			if r.Cooldown >= 86400 {
-				days := r.Cooldown / 86400
-				cooldownInfo = fmt.Sprintf("\n   ⏰ <b>Кулдаун:</b> %d сек (%d дн.)", r.Cooldown, days)
-			} else if r.Cooldown >= 3600 {
-				hours := r.Cooldown / 3600
-				cooldownInfo = fmt.Sprintf("\n   ⏰ <b>Кулдаун:</b> %d сек (%d ч.)", r.Cooldown, hours)
-			} else {
-				cooldownInfo = fmt.Sprintf("\n   ⏰ <b>Кулдаун:</b> %d сек", r.Cooldown)
+			switch {
+			case r.Cooldown >= 86400:
+				params = append(params, fmt.Sprintf("⏰ %dд", r.Cooldown/86400))
+			case r.Cooldown >= 3600:
+				params = append(params, fmt.Sprintf("⏰ %dч", r.Cooldown/3600))
+			default:
+				params = append(params, fmt.Sprintf("⏰ %dс", r.Cooldown))
 			}
 		}
-
-		// Обрезаем длинные FileID для стикеров/фото
-		displayContent := r.ResponseContent
-		if len(displayContent) > 50 {
-			displayContent = displayContent[:50] + "..."
+		if r.DailyLimit > 0 {
+			params = append(params, fmt.Sprintf("📊 %d/день", r.DailyLimit))
+		}
+		if r.DeleteOnLimit {
+			params = append(params, "🗑 удалять")
 		}
 
-		line := fmt.Sprintf("%d. %s ID: %d [%s]\n   Паттерн: <code>%s</code>\n   Тип ответа: %s\n   Содержимое: <code>%s</code>\n   Описание: %s\n   Дневной лимит: %d\n   Удалять при превышении: %s%s%s%s", i+1, status, r.ID, scope, r.Pattern, r.ResponseType, displayContent, r.Description, r.DailyLimit, deleteMsg, userInfo, contentTypeInfo, cooldownInfo)
-		lines = append(lines, line)
+		// Строка 4 (опц): фильтры
+		var filters []string
+		if r.UserID > 0 {
+			filters = append(filters, fmt.Sprintf("🎯 user %d", r.UserID))
+		}
+		if r.TriggerContentType != "" {
+			filters = append(filters, fmt.Sprintf("📎 %s", r.TriggerContentType))
+		}
+
+		entry := header + "\n" + body
+		if len(params) > 0 {
+			entry += "\n   " + strings.Join(params, " · ")
+		}
+		if len(filters) > 0 {
+			entry += "\n   " + strings.Join(filters, " · ")
+		}
+		lines = append(lines, entry)
 	}
 
 	// Разбиваем на части по 3500 символов (оставляем запас до 4096)
