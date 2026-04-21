@@ -220,14 +220,10 @@ func (w *addTaskWizard) totalSteps(state *State) int {
 
 // renderStep2 — выбор cron (пресеты + ✏ Свой).
 func (w *addTaskWizard) renderStep2(state *State) (string, *tele.ReplyMarkup) {
-	name, _ := state.Data[dataKeyTaskName].(string)
 	text := fmt.Sprintf(
-		"<b>📅 Создание задачи: расписание</b>\n\n"+
-			"Имя: <code>%s</code>\n"+
-			"Область: %s\n"+
-			"%s\n\n"+
-			"Шаг 2/%d: выберите расписание или введите своё cron-выражение.",
-		html.EscapeString(name), w.scopeText(state), w.contentHint(state), w.totalSteps(state),
+		"<b>📅 Шаг 2/%d: расписание</b>\n"+
+			"Выберите пресет или введите своё cron-выражение.",
+		w.totalSteps(state),
 	)
 
 	markup := &tele.ReplyMarkup{}
@@ -257,15 +253,10 @@ func (w *addTaskWizard) renderStep2(state *State) (string, *tele.ReplyMarkup) {
 
 // renderStep3Text — приглашение ввести текст сообщения.
 func (w *addTaskWizard) renderStep3Text(state *State) string {
-	name, _ := state.Data[dataKeyTaskName].(string)
-	cronExpr, _ := state.Data[dataKeyCronExpr].(string)
 	return fmt.Sprintf(
-		"<b>📅 Создание задачи: текст</b>\n\n"+
-			"Имя: <code>%s</code>\n"+
-			"Расписание: <code>%s</code>\n"+
-			"Область: %s\n\n"+
-			"Шаг 3/3: отправьте <b>текст сообщения</b> (1..%d символов).",
-		html.EscapeString(name), html.EscapeString(cronExpr), w.scopeText(state), taskTextMaxLen,
+		"<b>📅 Шаг 3/3: текст</b>\n"+
+			"Отправьте <b>текст сообщения</b> (1..%d символов).",
+		taskTextMaxLen,
 	)
 }
 

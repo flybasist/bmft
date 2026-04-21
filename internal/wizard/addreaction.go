@@ -160,43 +160,29 @@ func (w *addReactionWizard) totalSteps(state *State) int {
 // renderStep1 — приглашение ввести паттерн.
 func (w *addReactionWizard) renderStep1(state *State) string {
 	return fmt.Sprintf(
-		"<b>💬 Добавление реакции</b>\n\n"+
-			"Область: %s\n"+
-			"%s\n\n"+
-			"Шаг 1/%d: отправьте <b>паттерн</b> — слово или фразу-триггер (1..%d символов).\n"+
-			"Например: <code>привет</code>\n\n"+
-			"<i>Расширенные опции (cooldown, daily_limit, user:, content_type) "+
-			"доступны через legacy «/addreaction args...».</i>",
-		w.scopeText(state), w.responseHint(state), w.totalSteps(state), reactPatternMaxLen,
+		"<b>💬 Шаг 1/%d: паттерн</b>\n"+
+			"Область: %s · %s\n\n"+
+			"Отправьте слово или фразу-триггер (1..%d символов).\n"+
+			"Например: <code>привет</code>",
+		w.totalSteps(state), w.scopeText(state), w.responseHint(state), reactPatternMaxLen,
 	)
 }
 
 // renderStep2 — приглашение ввести описание.
 func (w *addReactionWizard) renderStep2(state *State) string {
-	pattern, _ := state.Data[dataKeyReactPattern].(string)
 	return fmt.Sprintf(
-		"<b>💬 Добавление реакции: описание</b>\n\n"+
-			"Паттерн: <code>%s</code>\n"+
-			"Область: %s\n"+
-			"%s\n\n"+
-			"Шаг 2/%d: отправьте <b>описание</b> (1..%d символов) — для /listreactions.",
-		html.EscapeString(pattern), w.scopeText(state), w.responseHint(state),
+		"<b>💬 Шаг 2/%d: описание</b>\n"+
+			"Отправьте короткое описание (1..%d символов) — оно показывается в /listreactions.",
 		w.totalSteps(state), reactDescriptionMaxLen,
 	)
 }
 
 // renderStep3 — приглашение ввести текстовый ответ.
 func (w *addReactionWizard) renderStep3(state *State) string {
-	pattern, _ := state.Data[dataKeyReactPattern].(string)
-	descr, _ := state.Data[dataKeyReactDescr].(string)
 	return fmt.Sprintf(
-		"<b>💬 Добавление реакции: текст ответа</b>\n\n"+
-			"Паттерн: <code>%s</code>\n"+
-			"Описание: <code>%s</code>\n"+
-			"Область: %s\n\n"+
-			"Шаг 3/3: отправьте <b>текст ответа</b> (1..%d символов).",
-		html.EscapeString(pattern), html.EscapeString(descr),
-		w.scopeText(state), reactResponseMaxLen,
+		"<b>💬 Шаг 3/3: текст ответа</b>\n"+
+			"Отправьте текст, которым бот будет отвечать (1..%d символов).",
+		reactResponseMaxLen,
 	)
 }
 
