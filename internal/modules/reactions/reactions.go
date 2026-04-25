@@ -811,7 +811,7 @@ func (m *ReactionsModule) handleAddReaction(c telebot.Context) error {
 		displayContent = displayContent[:50] + "..."
 	}
 
-	return c.Send(fmt.Sprintf("%sПаттерн: <code>%s</code>\nТип ответа: %s\nСодержимое: <code>%s</code>\nОписание: %s\nДневной лимит: %d%s%s%s", scopeMsg, pattern, responseType, displayContent, description, dailyLimit, deleteMsg, contentTypeMsg, cooldownMsg), &telebot.SendOptions{ParseMode: telebot.ModeHTML})
+	return c.Send(fmt.Sprintf("%sПаттерн: <code>%s</code>\nТип ответа: %s\nСодержимое: <code>%s</code>\nОписание: %s\nДневной лимит: %d%s%s%s", scopeMsg, html.EscapeString(pattern), responseType, html.EscapeString(displayContent), html.EscapeString(description), dailyLimit, deleteMsg, contentTypeMsg, cooldownMsg), &telebot.SendOptions{ParseMode: telebot.ModeHTML})
 }
 
 // splitIntoMessages разбивает список строк на несколько частей по maxLen символов

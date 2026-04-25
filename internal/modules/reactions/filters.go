@@ -7,6 +7,7 @@ package reactions
 import (
 	"database/sql"
 	"fmt"
+	"html"
 	"regexp"
 	"strconv"
 	"strings"
@@ -359,9 +360,9 @@ func (m *ReactionsModule) handleAddBan(c telebot.Context) error {
 
 	var scopeMsg string
 	if threadID != 0 {
-		scopeMsg = fmt.Sprintf("✅ Запрещённое слово добавлено <b>для этого топика</b>\n\n💡 Для настройки всего чата используйте команду в основном чате\n\nПаттерн: <code>%s</code>\nДействие: %s", pattern, action)
+		scopeMsg = fmt.Sprintf("✅ Запрещённое слово добавлено <b>для этого топика</b>\n\n💡 Для настройки всего чата используйте команду в основном чате\n\nПаттерн: <code>%s</code>\nДействие: %s", html.EscapeString(pattern), action)
 	} else {
-		scopeMsg = fmt.Sprintf("✅ Запрещённое слово добавлено <b>для всего чата</b>\n\n💡 Для настройки топика используйте команду внутри топика\n\nПаттерн: <code>%s</code>\nДействие: %s", pattern, action)
+		scopeMsg = fmt.Sprintf("✅ Запрещённое слово добавлено <b>для всего чата</b>\n\n💡 Для настройки топика используйте команду внутри топика\n\nПаттерн: <code>%s</code>\nДействие: %s", html.EscapeString(pattern), action)
 	}
 
 	return c.Send(scopeMsg, &telebot.SendOptions{ParseMode: telebot.ModeHTML})
@@ -436,7 +437,7 @@ func (m *ReactionsModule) handleListBans(c telebot.Context) error {
 		if b.ThreadID != 0 {
 			scope = "топик"
 		}
-		text += fmt.Sprintf("%d. %s ID: %d [%s]\n   Паттерн: <code>%s</code>\n   Действие: %s\n\n", i+1, status, b.ID, scope, b.Pattern, b.Action)
+		text += fmt.Sprintf("%d. %s ID: %d [%s]\n   Паттерн: <code>%s</code>\n   Действие: %s\n\n", i+1, status, b.ID, scope, html.EscapeString(b.Pattern), b.Action)
 	}
 
 	// Inline-кнопки 🗑 — только если запретов немного. См. UniqueDeleteBan.
