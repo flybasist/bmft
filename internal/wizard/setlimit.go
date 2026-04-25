@@ -201,12 +201,9 @@ func (w *setLimitWizard) renderStep2(state *State) (string, *tele.ReplyMarkup) {
 	typeName := contentTypeName(contentType)
 
 	text := fmt.Sprintf(
-		"<b>📊 Установка лимита</b>\n\n"+
-			"Тип: <b>%s</b>\n"+
-			"Область: %s\n\n"+
+		"<b>📊 Лимит на %s</b>\n"+
 			"Выберите значение (сообщений в сутки):",
 		html.EscapeString(typeName),
-		w.scopeText(state),
 	)
 
 	markup := &tele.ReplyMarkup{}
@@ -266,10 +263,8 @@ func (w *setLimitWizard) handleValue(c tele.Context) error {
 		state.Step = stepLimitCustom
 		w.mgr.AwaitText(state, stepLimitCustom)
 		text := fmt.Sprintf(
-			"<b>✏ Введите значение лимита</b>\n\n"+
-				"Целое число от 0 до %d (0 = без лимита) "+
-				"или -1 для полного запрета.\n"+
-				"Команда (например /cancel) отменит wizard.",
+			"<b>✏ Введите лимит</b>\n"+
+				"Целое число от 0 до %d (или -1 = запретить).",
 			limitMaxValue,
 		)
 		markup := &tele.ReplyMarkup{}

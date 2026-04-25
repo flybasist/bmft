@@ -133,10 +133,8 @@ func (w *welcomeWizard) renderStep1(state *State) (string, *tele.ReplyMarkup) {
 
 // renderStep2 — выбор TTL после включения приветствия.
 func (w *welcomeWizard) renderStep2() (string, *tele.ReplyMarkup) {
-	text := "<b>⚙ Время авто-удаления приветствия</b>\n\n" +
-		"Через сколько секунд бот удалит сообщение «Привет, @user»?\n" +
-		"Это нужно, чтобы чат не засорялся при массовом наплыве пользователей.\n\n" +
-		"Выберите пресет или введите вручную (10..86400 сек, либо 0 — не удалять):"
+	text := "<b>⚙ Авто-удаление приветствия</b>\n" +
+		"Через сколько удалять сообщение \xabПривет, @user\xbb?"
 
 	markup := &tele.ReplyMarkup{}
 	markup.Inline(
