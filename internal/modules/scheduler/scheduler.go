@@ -369,9 +369,9 @@ func (m *SchedulerModule) handleListTasks(c tele.Context) error {
 
 	var msg strings.Builder
 	if threadID != 0 {
-		msg.WriteString("📋 *Задачи планировщика (для этого топика):*\n\n")
+		msg.WriteString("📋 <b>Задачи планировщика (для этого топика):</b>\n\n")
 	} else {
-		msg.WriteString("📋 *Задачи планировщика (для всего чата):*\n\n")
+		msg.WriteString("📋 <b>Задачи планировщика (для всего чата):</b>\n\n")
 	}
 
 	for i, task := range tasks {
@@ -380,9 +380,9 @@ func (m *SchedulerModule) handleListTasks(c tele.Context) error {
 			status = "⏸️"
 		}
 
-		msg.WriteString(fmt.Sprintf("%d. %s %s\n", i+1, status, task.TaskName))
+		msg.WriteString(fmt.Sprintf("%d. %s %s\n", i+1, status, html.EscapeString(task.TaskName)))
 		msg.WriteString(fmt.Sprintf("   ID: %d\n", task.ID))
-		msg.WriteString(fmt.Sprintf("   Расписание: %s\n", task.CronExpr))
+		msg.WriteString(fmt.Sprintf("   Расписание: <code>%s</code>\n", html.EscapeString(task.CronExpr)))
 		msg.WriteString(fmt.Sprintf("   Тип: %s\n", task.TaskType))
 
 		if task.LastRun != nil {
@@ -401,7 +401,7 @@ func (m *SchedulerModule) handleListTasks(c tele.Context) error {
 
 	// Inline-кнопки 🗑 для каждой задачи (по 2 в ряд) — только если задач немного.
 	// Регистрация callback'а: cmd/bot/main.go через core.AdminOnlyCallback.
-	opts := &tele.SendOptions{ParseMode: tele.ModeMarkdown}
+	opts := &tele.SendOptions{ParseMode: tele.ModeHTML}
 	if len(tasks) <= listTasksMaxButtons {
 		markup := &tele.ReplyMarkup{}
 		rows := make([]tele.Row, 0, (len(tasks)+1)/2)
