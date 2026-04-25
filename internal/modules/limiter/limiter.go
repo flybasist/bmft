@@ -283,7 +283,7 @@ func (m *LimiterModule) handleMyStats(c tele.Context) error {
 		} else {
 			vipScope = " (весь чат)"
 		}
-		return c.Send(fmt.Sprintf("👑 *VIP-статус активен%s*\n\nВсе лимиты для вас отключены!", vipScope), &tele.SendOptions{ParseMode: tele.ModeMarkdown})
+		return c.Send(fmt.Sprintf("👑 <b>VIP-статус активен%s</b>\n\nВсе лимиты для вас отключены!", vipScope), &tele.SendOptions{ParseMode: tele.ModeHTML})
 	}
 
 	limits, err := m.contentLimitsRepo.GetLimits(chatID, threadID, &userID)
@@ -345,7 +345,7 @@ func (m *LimiterModule) handleMyStats(c tele.Context) error {
 			text += fmt.Sprintf("%s %s: %d из %d%s\n", t.emoji, t.name, counter, t.value, warn)
 		}
 	}
-	return c.Send(text, &tele.SendOptions{ParseMode: tele.ModeMarkdown})
+	return c.Send(text, &tele.SendOptions{ParseMode: tele.ModeHTML})
 }
 
 // handleGetLimit показывает текущие лимиты чата (доступно всем пользователям)
@@ -404,9 +404,9 @@ func (m *LimiterModule) handleGetLimit(c tele.Context) error {
 		text += "✅ Лимиты не установлены. Все типы контента разрешены без ограничений.\n"
 	}
 
-	text += "\n💡 Используйте `/mystats` чтобы посмотреть вашу личную статистику"
+	text += "\n💡 Используйте /mystats чтобы посмотреть вашу личную статистику"
 
-	return c.Send(text, &tele.SendOptions{ParseMode: tele.ModeMarkdown})
+	return c.Send(text, &tele.SendOptions{ParseMode: tele.ModeHTML})
 }
 
 // handleSetLimit устанавливает лимит
@@ -467,28 +467,28 @@ func (m *LimiterModule) handleSetLimit(c tele.Context) error {
 	if threadID != 0 {
 		// Команда выполнена в топике
 		if userID == nil {
-			msg = fmt.Sprintf("✅ Лимит установлен для **этого топика**\n\n%s: %d в день\n\n💡 Для настройки всего чата используйте команду в основном чате (не в топике)", contentType, limitValue)
+			msg = fmt.Sprintf("✅ Лимит установлен для <b>этого топика</b>\n\n%s: %d в день\n\n💡 Для настройки всего чата используйте команду в основном чате (не в топике)", contentType, limitValue)
 		} else {
-			msg = fmt.Sprintf("✅ Персональный лимит установлен для пользователя **в этом топике**\n\n%s: %d в день\n\n💡 Для настройки на весь чат используйте команду в основном чате", contentType, limitValue)
+			msg = fmt.Sprintf("✅ Персональный лимит установлен для пользователя <b>в этом топике</b>\n\n%s: %d в день\n\n💡 Для настройки на весь чат используйте команду в основном чате", contentType, limitValue)
 		}
 	} else {
 		// Команда выполнена в основном чате
 		if userID == nil {
-			msg = fmt.Sprintf("✅ Лимит установлен для **всего чата**\n\n%s: %d в день\n\n💡 Для настройки конкретного топика используйте команду внутри топика", contentType, limitValue)
+			msg = fmt.Sprintf("✅ Лимит установлен для <b>всего чата</b>\n\n%s: %d в день\n\n💡 Для настройки конкретного топика используйте команду внутри топика", contentType, limitValue)
 		} else {
-			msg = fmt.Sprintf("✅ Персональный лимит установлен для пользователя **во всём чате**\n\n%s: %d в день", contentType, limitValue)
+			msg = fmt.Sprintf("✅ Персональный лимит установлен для пользователя <b>во всём чате</b>\n\n%s: %d в день", contentType, limitValue)
 		}
 	}
 
 	// Контекстные предупреждения для специальных типов лимитов
 	if contentType == "banned_words" && limitValue > 0 {
-		msg += "\n\n⚠️ Для работы этого лимита необходимо включить фильтр мата: `/setprofanity delete`"
+		msg += "\n\n⚠️ Для работы этого лимита необходимо включить фильтр мата: /setprofanity"
 	}
 	if contentType == "text" && limitValue == -1 {
-		msg += "\n\n⚠️ При полном запрете текста фильтры (`/addban`, `/setprofanity`) не смогут проверять текстовые сообщения — Limiter удаляет их до проверки фильтрами."
+		msg += "\n\n⚠️ При полном запрете текста фильтры (/addban, /setprofanity) не смогут проверять текстовые сообщения — Limiter удаляет их до проверки фильтрами."
 	}
 
-	return c.Send(msg, &tele.SendOptions{ParseMode: tele.ModeMarkdown})
+	return c.Send(msg, &tele.SendOptions{ParseMode: tele.ModeHTML})
 }
 
 // handleSetVIP устанавливает VIP-статус
@@ -529,12 +529,12 @@ func (m *LimiterModule) handleSetVIP(c tele.Context) error {
 
 	var msg string
 	if threadID != 0 {
-		msg = fmt.Sprintf("✅ VIP-статус выдан пользователю %s **для этого топика**\n\n💡 Теперь он игнорирует все лимиты в этом топике.\nДля выдачи VIP на весь чат используйте команду в основном чате.", displayName)
+		msg = fmt.Sprintf("✅ VIP-статус выдан пользователю %s <b>для этого топика</b>\n\n💡 Теперь он игнорирует все лимиты в этом топике.\nДля выдачи VIP на весь чат используйте команду в основном чате.", html.EscapeString(displayName))
 	} else {
-		msg = fmt.Sprintf("✅ VIP-статус выдан пользователю %s **для всего чата**\n\n💡 Теперь он игнорирует все лимиты во всех топиках.", displayName)
+		msg = fmt.Sprintf("✅ VIP-статус выдан пользователю %s <b>для всего чата</b>\n\n💡 Теперь он игнорирует все лимиты во всех топиках.", html.EscapeString(displayName))
 	}
 
-	return c.Send(msg, &tele.SendOptions{ParseMode: tele.ModeMarkdown})
+	return c.Send(msg, &tele.SendOptions{ParseMode: tele.ModeHTML})
 }
 
 // handleRemoveVIP снимает VIP-статус
@@ -562,12 +562,12 @@ func (m *LimiterModule) handleRemoveVIP(c tele.Context) error {
 
 	var msg string
 	if threadID != 0 {
-		msg = fmt.Sprintf("✅ VIP-статус снят с %s **для этого топика**\n\n💡 Чтобы снять VIP на весь чат, используйте команду в основном чате.", displayName)
+		msg = fmt.Sprintf("✅ VIP-статус снят с %s <b>для этого топика</b>\n\n💡 Чтобы снять VIP на весь чат, используйте команду в основном чате.", html.EscapeString(displayName))
 	} else {
-		msg = fmt.Sprintf("✅ VIP-статус снят с %s **для всего чата**", displayName)
+		msg = fmt.Sprintf("✅ VIP-статус снят с %s <b>для всего чата</b>", html.EscapeString(displayName))
 	}
 
-	return c.Send(msg, &tele.SendOptions{ParseMode: tele.ModeMarkdown})
+	return c.Send(msg, &tele.SendOptions{ParseMode: tele.ModeHTML})
 }
 
 // handleListVIPs показывает список VIP-пользователей
