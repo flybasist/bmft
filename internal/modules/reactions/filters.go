@@ -601,7 +601,7 @@ func (m *ReactionsModule) handleSetProfanity(c telebot.Context) error {
 		scope = "всего чата"
 	}
 
-	return c.Reply(fmt.Sprintf("✅ Фильтр мата включен для %s\nДействие: %s", scope, action))
+	return c.Reply(fmt.Sprintf("✅ Фильтр мата включён для %s.\nДействие: <code>%s</code>", scope, action), &telebot.SendOptions{ParseMode: telebot.ModeHTML})
 }
 
 // handleRemoveProfanity обрабатывает команду /removeprofanity — выключение фильтра мата.

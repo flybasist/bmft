@@ -370,7 +370,7 @@ func handleWelcome(chatRepo *repositories.ChatRepository, logger *zap.Logger, st
 				logger.Error("welcome: set disabled", zap.Error(err), zap.Int64("chat_id", chatID))
 				return c.Send("Не удалось сохранить настройку.")
 			}
-			return c.Send("⛔ Приветствие выключено.")
+			return c.Send("✅ Приветствие выключено.")
 		case "ttl":
 			if len(args) < 2 {
 				return c.Send("Укажите TTL в секундах: /welcome ttl 300 (0 — не удалять).")
