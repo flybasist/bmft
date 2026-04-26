@@ -114,28 +114,15 @@ var adminCommands = map[string]bool{
 	// core
 	"/welcome": true,
 	// limiter
-	"/setlimit":  true,
-	"/setvip":    true,
-	"/removevip": true,
-	"/listvips":  true,
-	// statistics
-	"/chatstats": true,
-	"/topchat":   true,
+	"/setlimit": true,
+	"/setvip":   true,
 	// reactions
 	"/addreaction":     true,
-	"/listreactions":   true,
-	"/removereaction":  true,
 	"/addban":          true,
-	"/listbans":        true,
-	"/removeban":       true,
 	"/setprofanity":    true,
 	"/removeprofanity": true,
-	"/profanitystatus": true,
 	// scheduler
-	"/listtasks": true,
-	"/addtask":   true,
-	"/deltask":   true,
-	"/runtask":   true,
+	"/addtask": true,
 }
 
 // adminDenyTTL — через сколько секунд удалять уведомление об отказе и

@@ -79,11 +79,11 @@ Pipeline обработки сообщений: `statistics → limiter → reac
 - Fallback логика: топик → чат → дефолт
 - Независимая настройка для каждого топика
 
-### Интерактивные wizard'ы и inline-кнопки
-- 7 админских команд (`/welcome`, `/setprofanity`, `/setvip`, `/setlimit`, `/addban`, `/addtask`, `/addreaction`) поддерживают пошаговый мастер на inline-кнопках при вызове без аргументов в группе
+### Интерактивное меню и wizard'ы
+- `/help` открывает inline-меню с кнопками — все действия через одно сообщение
+- 7 админских команд (`/welcome`, `/setprofanity`, `/setvip`, `/setlimit`, `/addban`, `/addtask`, `/addreaction`) поддерживают пошаговый мастер на inline-кнопках
 - Старый синтаксис всех команд сохранён и имеет приоритет
-- `/listtasks`, `/listbans`, `/listreactions` показывают кнопки 🗑 удаления рядом с записями
-- Подробнее: [modules/MODULES.md](modules/MODULES.md), [COMMANDS_ACCESS.md](COMMANDS_ACCESS.md)
+- Подробнее: [COMMANDS_ACCESS.md](COMMANDS_ACCESS.md)
 
 ### База данных
 - PostgreSQL 16+ с партиционированием

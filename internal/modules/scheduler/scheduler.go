@@ -77,62 +77,11 @@ func (m *SchedulerModule) Shutdown() error {
 }
 
 func (m *SchedulerModule) RegisterCommands(bot *tele.Bot) {
-	// /scheduler — справка по модулю
-	bot.Handle("/scheduler", func(c tele.Context) error {
-		msg := "⏰ <b>Модуль Scheduler</b> — Запланированные задачи\n\n"
-		msg += "Автоматическая отправка сообщений по расписанию (cron).\n\n"
-		msg += "<b>Доступные команды:</b>\n\n"
-
-		msg += "🔹 <code>/addtask</code> — Добавить задачу (только админы)\n\n"
-
-		msg += "<b>Способ 1 - Текстовое сообщение:</b>\n"
-		msg += "<code>/addtask &lt;имя&gt; \"&lt;cron&gt;\" text \"&lt;текст&gt;\"</code>\n"
-		msg += "📌 Пример:\n"
-		msg += "<code>/addtask утро \"0 9 * * *\" text \"Доброе утро!\"</code>\n\n"
-
-		msg += "<b>Способ 2 - Медиа (стикер/фото/гифка):</b>\n"
-		msg += "Ответьте на стикер/фото/гифку и напишите:\n"
-		msg += "<code>/addtask &lt;имя&gt; \"&lt;cron&gt;\"</code>\n"
-		msg += "📌 Пример:\n"
-		msg += "<code>/addtask стикер \"0 9 * * 1\"</code> (reply на стикер)\n\n"
-
-		msg += "🔹 <code>/listtasks</code> — Список всех активных задач (только админы)\n\n"
-
-		msg += "🔹 <code>/deltask &lt;ID&gt;</code> — Удалить задачу (только админы)\n"
-		msg += "   📌 Пример: <code>/deltask 3</code>\n\n"
-
-		msg += "🔹 <code>/runtask &lt;ID&gt;</code> — Запустить задачу немедленно (только админы)\n"
-		msg += "   📌 Пример: <code>/runtask 3</code>\n\n"
-
-		msg += "📅 <b>Формат cron:</b> минута час день месяц день_недели\n"
-		msg += "• <code>0 9 * * *</code> — каждый день в 9:00\n"
-		msg += "• <code>0 */6 * * *</code> — каждые 6 часов\n"
-		msg += "• <code>0 9 * * 1</code> — каждый понедельник в 9:00\n"
-		msg += "• <code>0 0 1 * *</code> — 1-го числа каждого месяца в 00:00\n\n"
-
-		msg += "<b>⏰ ВРЕМЯ СЕРВЕРА (Europe/Moscow, UTC+3):</b>\n"
-		msg += "⚠️ Время указывается по московскому времени (MSK):\n"
-		msg += "• Москва: 9:00 MSK = <code>0 9 * * *</code>\n"
-		msg += "• Алматы (UTC+5): 9:00 ALMT = <code>0 7 * * *</code> (7:00 MSK)\n"
-		msg += "• Владивосток (UTC+10): 9:00 VLAT = <code>0 2 * * *</code> (2:00 MSK)\n\n"
-
-		msg += "⚙️ <b>Работа с топиками:</b>\n"
-		msg += "• Команда в топике → задача отправляется только в этот топик\n"
-		msg += "• Команда в основном чате → задача для всего чата\n\n"
-
-		msg += "💡 <i>Подсказки:</i>\n"
-		msg += "• Проверяйте cron на сайте <b>crontab.guru</b>\n"
-		msg += "• Конвертер времени: <b>worldtimebuddy.com</b>"
-
-		return core.SendWithTTL(c, msg, core.InfoResponseTTL, m.logger, &tele.SendOptions{ParseMode: tele.ModeHTML})
-	})
+	// Справка обслуживается inline-меню (cmd/bot/menus.go).
 }
 
 func (m *SchedulerModule) RegisterAdminCommands(bot *tele.Bot) {
-	bot.Handle("/listtasks", m.handleListTasks)
 	bot.Handle("/addtask", m.handleAddTask)
-	bot.Handle("/deltask", m.handleDeleteTask)
-	bot.Handle("/runtask", m.handleRunTask)
 }
 
 // HandleAddTask — публичная обёртка над handleAddTask для wizard-фолбэка
@@ -165,10 +114,6 @@ const UniqueDeleteTask = "del_task"
 // cmd/bot/main.go регистрирует callback с обёрткой core.AdminOnlyCallback.
 const UniqueRunTask = "run_task"
 
-// listTasksMaxButtons — максимум inline-кнопок 🗑 в одном сообщении /listtasks.
-// Telegram допускает до 100 кнопок на сообщение; берём с большим запасом.
-// При превышении кнопки не добавляются, пользователь использует /deltask <id>.
-const listTasksMaxButtons = 50
 
 // HandleDeleteTaskCallback обрабатывает нажатие inline-кнопки 🗑 в /listtasks.
 // Data callback'а — taskID (int64) в виде строки.
@@ -379,89 +324,6 @@ func (m *SchedulerModule) executeTask(task *repositories.ScheduledTask) {
 		fmt.Sprintf("Task %s executed", task.TaskName))
 }
 
-func (m *SchedulerModule) handleListTasks(c tele.Context) error {
-	m.logger.Info("handleListTasks called", zap.Int64("chat_id", c.Chat().ID), zap.Int64("user_id", c.Sender().ID))
-
-	chatID := c.Chat().ID
-	threadID := core.GetThreadID(m.db, c)
-
-	// Логируем событие
-	_ = m.eventRepo.Log(chatID, c.Sender().ID, "scheduler", "list_tasks",
-		fmt.Sprintf("Admin viewed tasks list (chat=%d, thread=%d)", chatID, threadID))
-
-	tasks, err := m.schedulerRepo.GetChatTasks(chatID, threadID)
-	if err != nil {
-		m.logger.Error("failed to get chat tasks", zap.Error(err))
-		return c.Send("❌ Ошибка при получении списка задач")
-	}
-
-	if len(tasks) == 0 {
-		if threadID != 0 {
-			return c.Send("📋 Нет задач планировщика для этого топика\n\nИспользуйте /addtask для создания новой задачи")
-		}
-		return c.Send("📋 Нет задач планировщика для всего чата\n\nИспользуйте /addtask для создания новой задачи")
-	}
-
-	var msg strings.Builder
-	if threadID != 0 {
-		msg.WriteString("📋 <b>Задачи планировщика (для этого топика):</b>\n\n")
-	} else {
-		msg.WriteString("📋 <b>Задачи планировщика (для всего чата):</b>\n\n")
-	}
-
-	for i, task := range tasks {
-		status := "✅"
-		if !task.IsActive {
-			status = "⏸️"
-		}
-
-		msg.WriteString(fmt.Sprintf("%d. %s %s\n", i+1, status, html.EscapeString(task.TaskName)))
-		msg.WriteString(fmt.Sprintf("   ID: %d\n", task.ID))
-		msg.WriteString(fmt.Sprintf("   Расписание: <code>%s</code>\n", html.EscapeString(task.CronExpr)))
-		msg.WriteString(fmt.Sprintf("   Тип: %s\n", task.TaskType))
-
-		if task.LastRun != nil {
-			msg.WriteString(fmt.Sprintf("   Последний запуск: %s\n", task.LastRun.Format(core.DateTimeFormat)))
-		}
-		msg.WriteString("\n")
-	}
-
-	msg.WriteString("━━━━━━━━━━━━━━━\n")
-	msg.WriteString("Команды:\n")
-	msg.WriteString("/addtask - добавить задачу\n")
-	msg.WriteString("/deltask <id> - удалить задачу\n")
-	msg.WriteString("/runtask <id> - запустить сейчас\n\n")
-	msg.WriteString("Поддерживаемые типы: text, sticker, photo, animation, video, voice, document, audio\n")
-	msg.WriteString("Reply на сообщение для автоматического определения типа")
-
-	// Inline-кнопки ▶ и 🗑 для каждой задачи — только если задач немного.
-	// Регистрация callback'ов: cmd/bot/main.go через core.AdminOnlyCallback.
-	opts := &tele.SendOptions{ParseMode: tele.ModeHTML}
-	if len(tasks) <= listTasksMaxButtons {
-		markup := &tele.ReplyMarkup{}
-		rows := make([]tele.Row, 0, len(tasks))
-		for _, task := range tasks {
-			taskIDStr := strconv.FormatInt(task.ID, 10)
-			rows = append(rows, markup.Row(
-				tele.Btn{
-					Unique: UniqueRunTask,
-					Text:   fmt.Sprintf("▶ #%d", task.ID),
-					Data:   taskIDStr,
-				},
-				tele.Btn{
-					Unique: UniqueDeleteTask,
-					Text:   fmt.Sprintf("🗑 #%d %s", task.ID, task.TaskName),
-					Data:   taskIDStr,
-				},
-			))
-		}
-		markup.Inline(rows...)
-		opts.ReplyMarkup = markup
-	}
-
-	return c.Send(msg.String(), opts)
-}
-
 // validTaskTypes — разрешённые типы данных для задачи планировщика.
 var validTaskTypes = map[string]bool{
 	"sticker": true, "text": true, "photo": true, "animation": true,
@@ -624,76 +486,4 @@ func (m *SchedulerModule) handleAddTask(c tele.Context) error {
 	}
 
 	return m.createAndRegisterTask(c, chatID, threadID, name, cronExpr, taskType, taskData)
-}
-
-func (m *SchedulerModule) handleDeleteTask(c tele.Context) error {
-	m.logger.Info("handleDeleteTask called", zap.Int64("chat_id", c.Chat().ID), zap.Int64("user_id", c.Sender().ID))
-
-	args := strings.Fields(c.Text())
-	if len(args) != 2 {
-		return c.Send("❌ Использование: /deltask <task_id>")
-	}
-
-	taskID, err := strconv.ParseInt(args[1], 10, 64)
-	if err != nil {
-		return c.Send("❌ Неверный ID задачи")
-	}
-
-	task, err := m.schedulerRepo.GetTask(taskID)
-	if err != nil {
-		return c.Send("❌ Задача не найдена")
-	}
-
-	if task.ChatID != c.Chat().ID {
-		return c.Send("❌ Задача не найдена в этом чате")
-	}
-
-	if err := m.schedulerRepo.DeleteTask(taskID); err != nil {
-		m.logger.Error("failed to delete task", zap.Error(err))
-		return c.Send("❌ Ошибка при удалении задачи")
-	}
-
-	// Удаляем задачу из cron в памяти
-	m.mu.Lock()
-	if entryID, ok := m.taskEntries[taskID]; ok {
-		m.cron.Remove(entryID)
-		delete(m.taskEntries, taskID)
-		m.logger.Info("removed cron entry",
-			zap.Int64("task_id", taskID),
-			zap.Int("cron_entry_id", int(entryID)),
-		)
-	}
-	m.mu.Unlock()
-
-	_ = m.eventRepo.Log(c.Chat().ID, c.Sender().ID, "scheduler", "task_deleted",
-		fmt.Sprintf("Task %d deleted", taskID))
-
-	return c.Send(fmt.Sprintf("✅ Задача %d удалена", taskID))
-}
-
-func (m *SchedulerModule) handleRunTask(c tele.Context) error {
-	m.logger.Info("handleRunTask called", zap.Int64("chat_id", c.Chat().ID), zap.Int64("user_id", c.Sender().ID))
-
-	args := strings.Fields(c.Text())
-	if len(args) != 2 {
-		return c.Send("❌ Использование: /runtask <task_id>")
-	}
-
-	taskID, err := strconv.ParseInt(args[1], 10, 64)
-	if err != nil {
-		return c.Send("❌ Неверный ID задачи")
-	}
-
-	task, err := m.schedulerRepo.GetTask(taskID)
-	if err != nil {
-		return c.Send("❌ Задача не найдена")
-	}
-
-	if task.ChatID != c.Chat().ID {
-		return c.Send("❌ Задача не найдена в этом чате")
-	}
-
-	go m.executeTask(task)
-
-	return c.Send(fmt.Sprintf("✅ Задача %s запущена", task.TaskName))
 }

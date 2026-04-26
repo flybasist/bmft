@@ -228,7 +228,7 @@ func (w *addTaskWizard) renderStep2(state *State) (string, *tele.ReplyMarkup) {
 
 	markup := &tele.ReplyMarkup{}
 	rows := make([]tele.Row, 0, len(cronPresets)/2+2)
-	row := make([]tele.Btn, 0, 2)
+	var row []tele.Btn
 	for i, p := range cronPresets {
 		row = append(row, tele.Btn{
 			Unique: uniqueTaskCron,
@@ -237,7 +237,7 @@ func (w *addTaskWizard) renderStep2(state *State) (string, *tele.ReplyMarkup) {
 		})
 		if (i+1)%2 == 0 {
 			rows = append(rows, markup.Row(row...))
-			row = row[:0]
+			row = nil
 		}
 	}
 	if len(row) > 0 {

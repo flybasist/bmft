@@ -25,7 +25,7 @@ CREATE TABLE chats (
     is_forum BOOLEAN DEFAULT FALSE,
     is_active BOOLEAN DEFAULT TRUE,
     welcome_enabled BOOLEAN NOT NULL DEFAULT TRUE,
-    welcome_ttl_seconds INTEGER NOT NULL DEFAULT 300,
+    welcome_ttl_seconds INTEGER NOT NULL DEFAULT 60,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
