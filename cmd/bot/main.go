@@ -255,6 +255,8 @@ func run() error {
 	// пользователь, увидевший сообщение со списком, мог бы их нажать.
 	bot.Handle(&tele.Btn{Unique: scheduler.UniqueDeleteTask},
 		core.AdminOnlyCallback(adminChecker, logger, modules.Scheduler.HandleDeleteTaskCallback))
+	bot.Handle(&tele.Btn{Unique: scheduler.UniqueRunTask},
+		core.AdminOnlyCallback(adminChecker, logger, modules.Scheduler.HandleRunTaskCallback))
 	bot.Handle(&tele.Btn{Unique: reactions.UniqueDeleteBan},
 		core.AdminOnlyCallback(adminChecker, logger, modules.Reactions.HandleDeleteBanCallback))
 	bot.Handle(&tele.Btn{Unique: reactions.UniqueDeleteReaction},

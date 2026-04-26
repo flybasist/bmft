@@ -121,7 +121,7 @@ func (w *addReactionWizard) start(c tele.Context) error {
 		markup := &tele.ReplyMarkup{}
 		markup.Inline(markup.Row(CancelButton()))
 
-		sent, err := c.Bot().Send(c.Chat(), text, markup, &tele.SendOptions{ParseMode: tele.ModeHTML})
+		sent, err := c.Bot().Send(c.Chat(), text, &tele.SendOptions{ParseMode: tele.ModeHTML, ReplyMarkup: markup})
 		if err != nil {
 			return err
 		}
@@ -376,7 +376,7 @@ func (w *addReactionWizard) editToStep(c tele.Context, state *State, text string
 		ID:   state.MessageID,
 		Chat: &tele.Chat{ID: state.Key.ChatID},
 	}
-	_, err := w.mgr.bot.Edit(editable, text, markup, &tele.SendOptions{ParseMode: tele.ModeHTML})
+	_, err := w.mgr.bot.Edit(editable, text, &tele.SendOptions{ParseMode: tele.ModeHTML, ReplyMarkup: markup})
 	if err != nil {
 		w.logger.Warn("addreaction wizard: edit failed", zap.Error(err))
 	}

@@ -11,7 +11,7 @@ import (
 // MessageRepository работает с таблицей messages (единый источник правды).
 // Вся информация о сообщениях хранится в messages с JSONB metadata
 // вместо отдельных таблиц-счётчиков.
-// Модули пишут свои данные в metadata (limiter, statistics, reactions, textfilter).
+// Модули пишут свои данные в metadata (statistics, profanity).
 type MessageRepository struct {
 	db     *sql.DB
 	logger *zap.Logger
@@ -27,25 +27,8 @@ func NewMessageRepository(db *sql.DB, logger *zap.Logger) *MessageRepository {
 
 // MessageMetadata содержит модуле-специфичные данные сообщения.
 type MessageMetadata struct {
-	Limiter    *LimiterMetadata    `json:"limiter,omitempty"`
 	Profanity  *ProfanityMetadata  `json:"profanity,omitempty"`
-	Reactions  *ReactionsMetadata  `json:"reactions,omitempty"`
 	Statistics *StatisticsMetadata `json:"statistics,omitempty"`
-}
-
-// LimiterMetadata — метаданные модуля Limiter.
-type LimiterMetadata struct {
-	Checked    bool   `json:"checked"`
-	LimitHit   bool   `json:"limit_hit"`
-	DailyCount int    `json:"daily_count"`
-	LimitType  string `json:"limit_type"`
-}
-
-// ReactionsMetadata — метаданные модуля Reactions.
-type ReactionsMetadata struct {
-	Triggered     []int64 `json:"triggered,omitempty"`      // ID реакций которые сработали
-	CooldownUntil *string `json:"cooldown_until,omitempty"` // ISO8601 timestamp
-	DailyCount    int     `json:"daily_count,omitempty"`    // Сколько раз сработало за день
 }
 
 // StatisticsMetadata — метаданные модуля Statistics.

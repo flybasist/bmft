@@ -27,7 +27,7 @@ type ReactionsModule struct {
 	bot               *telebot.Bot
 }
 
-type KeywordReaction struct {
+type keywordReaction struct {
 	ID                 int64
 	ChatID             int64
 	ThreadID           int64
@@ -116,7 +116,7 @@ func (m *ReactionsModule) RegisterCommands(bot *telebot.Bot) {
 		msg += "3. Автоответы на ключевые слова\n"
 		msg += "ℹ️ VIP-пользователи игнорируют все фильтры и автоответы"
 
-		return c.Send(msg, &telebot.SendOptions{ParseMode: telebot.ModeHTML})
+		return core.SendWithTTL(c, msg, core.InfoResponseTTL, m.logger, &telebot.SendOptions{ParseMode: telebot.ModeHTML})
 	})
 
 	// /textfilter — справка по фильтру запрещённых слов
@@ -146,7 +146,7 @@ func (m *ReactionsModule) RegisterCommands(bot *telebot.Bot) {
 
 		msg += "🛡️ <i>VIP-защита:</i> VIP-пользователи игнорируют фильтры."
 
-		return c.Send(msg, &telebot.SendOptions{ParseMode: telebot.ModeHTML})
+		return core.SendWithTTL(c, msg, core.InfoResponseTTL, m.logger, &telebot.SendOptions{ParseMode: telebot.ModeHTML})
 	})
 
 	// /profanity — справка по фильтру мата
@@ -168,7 +168,7 @@ func (m *ReactionsModule) RegisterCommands(bot *telebot.Bot) {
 		msg += "• <code>delete_warn</code> — удалить И предупредить\n\n"
 
 		msg += "🛡️ <i>VIP-защита:</i> VIP игнорируют фильтр."
-		return c.Send(msg, &telebot.SendOptions{ParseMode: telebot.ModeHTML})
+		return core.SendWithTTL(c, msg, core.InfoResponseTTL, m.logger, &telebot.SendOptions{ParseMode: telebot.ModeHTML})
 	})
 }
 
@@ -425,7 +425,7 @@ func (m *ReactionsModule) OnMessage(ctx *core.MessageContext) error {
 	return nil
 }
 
-func (m *ReactionsModule) loadReactions(chatID int64, threadID int, userID int64) ([]KeywordReaction, error) {
+func (m *ReactionsModule) loadReactions(chatID int64, threadID int, userID int64) ([]keywordReaction, error) {
 	m.logger.Debug("loadReactions called", zap.Int64("chat_id", chatID), zap.Int("thread_id", threadID), zap.Int64("user_id", userID))
 
 	// Читаем реакции напрямую из БД (без кеша).
@@ -454,9 +454,9 @@ func (m *ReactionsModule) loadReactions(chatID int64, threadID int, userID int64
 	}
 	defer rows.Close()
 
-	var reactions []KeywordReaction
+	var reactions []keywordReaction
 	for rows.Next() {
-		var r KeywordReaction
+		var r keywordReaction
 		if err := rows.Scan(&r.ID, &r.ChatID, &r.ThreadID, &r.UserID, &r.Pattern, &r.ResponseType, &r.ResponseContent, &r.Description, &r.TriggerContentType, &r.IsRegex, &r.Cooldown, &r.DailyLimit, &r.DeleteOnLimit, &r.Action, &r.IsActive); err != nil {
 			m.logger.Error("failed to scan reaction", zap.Error(err))
 			continue

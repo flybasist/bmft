@@ -38,6 +38,42 @@ func ScheduleDelete(bot *telebot.Bot, msg *telebot.Message, ttl time.Duration, l
 	})
 }
 
+// InfoResponseTTL — время жизни информационных ответов бота в группах.
+// Справочные и статистические ответы автоматически удаляются, чтобы не засорять чат.
+// В личных чатах TTL не применяется.
+const InfoResponseTTL = 2 * time.Minute
+
+// SendWithTTL отправляет сообщение; в группах планирует удаление через ttl.
+// В личных чатах или при ttl ≤ 0 — обычный c.Send без удаления.
+func SendWithTTL(c telebot.Context, what interface{}, ttl time.Duration, logger *zap.Logger, opts ...interface{}) error {
+	chat := c.Chat()
+	if ttl <= 0 || chat == nil || (chat.Type != telebot.ChatGroup && chat.Type != telebot.ChatSuperGroup) {
+		return c.Send(what, opts...)
+	}
+	sent, err := c.Bot().Send(chat, what, opts...)
+	if err != nil {
+		return err
+	}
+	ScheduleDelete(c.Bot(), sent, ttl, logger)
+	return nil
+}
+
+// ReplyWithTTL отправляет reply на сообщение; в группах планирует удаление через ttl.
+// В личных чатах или при ttl ≤ 0 — обычный c.Reply без удаления.
+func ReplyWithTTL(c telebot.Context, what interface{}, ttl time.Duration, logger *zap.Logger, opts ...interface{}) error {
+	chat := c.Chat()
+	msg := c.Message()
+	if ttl <= 0 || chat == nil || (chat.Type != telebot.ChatGroup && chat.Type != telebot.ChatSuperGroup) || msg == nil {
+		return c.Reply(what, opts...)
+	}
+	sent, err := c.Bot().Reply(msg, what, opts...)
+	if err != nil {
+		return err
+	}
+	ScheduleDelete(c.Bot(), sent, ttl, logger)
+	return nil
+}
+
 // ParseQuotedTokens разбирает строку на токены с учётом двойных кавычек.
 // Примеры:
 //

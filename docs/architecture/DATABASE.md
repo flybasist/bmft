@@ -34,7 +34,7 @@ PostgreSQL 16+ с партиционированием по месяцам.
 | Таблица | Описание |
 |---------|----------|
 | `profanity_dictionary` | Глобальный словарь (~5000 слов, embedded) |
-| `profanity_settings` | Per-chat/per-topic настройки (action: delete/warn/mute) |
+| `profanity_settings` | Per-chat/per-topic настройки (action: delete/warn/delete_warn) |
 
 ### Scheduler
 
@@ -80,6 +80,7 @@ messages_2025_08  (2025-08-01 .. 2025-09-01)
 
 - `001_initial_schema.sql` — полная актуальная схема (для новых установок)
 - `002_migration.sql` — обновление v1.0 → v1.1
-- `003_migration.sql` — обновление v1.1 → v1.1.1 (version bump)
+- `003_migration.sql` — обновление v1.1 → v1.1.1 (anti-spam hotfix)
+- `004_migration.sql` — обновление v1.1.1 → v1.2 (wizard'ы, UX, HTML)
 
 История версий — в [../../CHANGELOG.md](../../CHANGELOG.md). Миграции применяются автоматически при старте бота (`migrations.RunMigrationsIfNeeded`).

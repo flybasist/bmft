@@ -7,7 +7,8 @@
 - `001_initial_schema.sql` — Полная актуальная схема v1.1.1 (для новых установок)
 - `002_migration.sql` — Обновление v1.0 → v1.1 (bugfixes + консолидация модулей)
 - `003_migration.sql` — Обновление v1.1 → v1.1.1 (anti-spam hotfix)
-- `schema_migrations` — Таблица отслеживания версий (текущая: 3)
+- `004_migration.sql` — Обновление v1.1.1 → v1.2 (wizard'ы, UX, HTML)
+- `schema_migrations` — Таблица отслеживания версий (текущая: 4)
 
 ## Как работает
 
@@ -64,10 +65,10 @@ var ExpectedSchema = []ExpectedTable{
 
 ```bash
 # Сборка
-go build -o bmft-test ./cmd/bot/
+go build -o bmft-dev ./cmd/bot/
 
 # Запуск (миграция применится автоматически)
-./bmft
+./bmft-dev
 ```
 
 ## Откат миграций

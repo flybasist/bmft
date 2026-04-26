@@ -7,6 +7,7 @@ import (
 	"html"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/flybasist/bmft/internal/core"
 	"github.com/flybasist/bmft/internal/postgresql/repositories"
@@ -100,7 +101,7 @@ func (m *LimiterModule) RegisterCommands(bot *tele.Bot) {
 			zap.Int64("chat_id", c.Chat().ID),
 			zap.Int("msg_length", len(msg)))
 
-		return c.Send(msg, &tele.SendOptions{ParseMode: tele.ModeHTML})
+		return core.SendWithTTL(c, msg, core.InfoResponseTTL, m.logger, &tele.SendOptions{ParseMode: tele.ModeHTML})
 	})
 
 	bot.Handle("/mystats", m.handleMyStats)
@@ -345,7 +346,7 @@ func (m *LimiterModule) handleMyStats(c tele.Context) error {
 			text += fmt.Sprintf("%s %s: %d из %d%s\n", t.emoji, t.name, counter, t.value, warn)
 		}
 	}
-	return c.Send(text, &tele.SendOptions{ParseMode: tele.ModeHTML})
+	return core.SendWithTTL(c, text, core.InfoResponseTTL, m.logger, &tele.SendOptions{ParseMode: tele.ModeHTML})
 }
 
 // handleGetLimit показывает текущие лимиты чата (доступно всем пользователям)
@@ -406,7 +407,7 @@ func (m *LimiterModule) handleGetLimit(c tele.Context) error {
 
 	text += "\n💡 Используйте /mystats чтобы посмотреть вашу личную статистику"
 
-	return c.Send(text, &tele.SendOptions{ParseMode: tele.ModeHTML})
+	return core.SendWithTTL(c, text, core.InfoResponseTTL, m.logger, &tele.SendOptions{ParseMode: tele.ModeHTML})
 }
 
 // handleSetLimit устанавливает лимит
@@ -503,7 +504,9 @@ func (m *LimiterModule) handleSetVIP(c tele.Context) error {
 	}
 
 	if c.Message().ReplyTo == nil {
-		return c.Send("❌ Ответьте этой командой на сообщение пользователя")
+		return core.SendWithTTL(c,
+			"❌ Ответьте этой командой на сообщение пользователя.\n💡 В группе можно также написать <code>/setvip</code> без reply — бот запустит пошаговый мастер.",
+			15*time.Second, m.logger, &tele.SendOptions{ParseMode: tele.ModeHTML})
 	}
 
 	userID := c.Message().ReplyTo.Sender.ID
@@ -618,5 +621,5 @@ func (m *LimiterModule) handleListVIPs(c tele.Context) error {
 		text += fmt.Sprintf("%d. %s\n   Причина: %s\n\n", i+1, displayName, html.EscapeString(vip.Reason))
 	}
 
-	return c.Send(text, &tele.SendOptions{ParseMode: tele.ModeHTML})
+	return core.SendWithTTL(c, text, core.InfoResponseTTL, m.logger, &tele.SendOptions{ParseMode: tele.ModeHTML})
 }

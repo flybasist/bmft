@@ -394,7 +394,7 @@ docker-compose -f docker-compose.bot.yaml restart
 
 - 📖 [Документация по модулям](modules/MODULES.md)
 - 🗄️ [Структура базы данных](architecture/DATABASE.md)
-- 🔄 [Настройка ротации данных](guides/ROTATION.md)
+- 🔄 [Настройка ротации данных](ROTATION.md)
 - 📋 [Список всех команд](COMMANDS_ACCESS.md)
 
 ---

@@ -18,16 +18,16 @@ import (
 	"gopkg.in/telebot.v3"
 )
 
-// ProfanitySettings — настройки фильтра мата для конкретного чата/топика.
-type ProfanitySettings struct {
+// profanitySettings — настройки фильтра мата для конкретного чата/топика.
+type profanitySettings struct {
 	ChatID   int64
 	ThreadID int64
 	Action   string
 	WarnText string
 }
 
-// ProfanityWord — слово из глобального словаря мата.
-type ProfanityWord struct {
+// profanityWord — слово из глобального словаря мата.
+type profanityWord struct {
 	Pattern  string
 	IsRegex  bool
 	Severity string
@@ -171,7 +171,7 @@ func (m *ReactionsModule) checkProfanityLimit(ctx *core.MessageContext, chatID i
 }
 
 // performProfanityAction выполняет действие при обнаружении мата.
-func (m *ReactionsModule) performProfanityAction(ctx *core.MessageContext, settings *ProfanitySettings) {
+func (m *ReactionsModule) performProfanityAction(ctx *core.MessageContext, settings *profanitySettings) {
 	switch settings.Action {
 	case "delete":
 		if err := ctx.DeleteMessage(); err != nil {
@@ -196,7 +196,7 @@ func (m *ReactionsModule) performProfanityAction(ctx *core.MessageContext, setti
 }
 
 // performFilterAction выполняет действие для фильтра запрещённых слов (keyword_reactions с action).
-func (m *ReactionsModule) performFilterAction(ctx *core.MessageContext, reaction KeywordReaction) {
+func (m *ReactionsModule) performFilterAction(ctx *core.MessageContext, reaction keywordReaction) {
 	switch reaction.Action {
 	case "delete":
 		if err := ctx.DeleteMessage(); err != nil {
@@ -221,7 +221,7 @@ func (m *ReactionsModule) performFilterAction(ctx *core.MessageContext, reaction
 
 // loadProfanitySettings загружает настройки фильтра мата для чата/топика.
 // Логика fallback: сначала для конкретного топика, потом для всего чата.
-func (m *ReactionsModule) loadProfanitySettings(chatID int64, threadID int) (*ProfanitySettings, error) {
+func (m *ReactionsModule) loadProfanitySettings(chatID int64, threadID int) (*profanitySettings, error) {
 	m.logger.Debug("loadProfanitySettings called", zap.Int64("chat_id", chatID), zap.Int("thread_id", threadID))
 
 	// Сначала пробуем загрузить для конкретного топика
@@ -242,8 +242,8 @@ func (m *ReactionsModule) loadProfanitySettings(chatID int64, threadID int) (*Pr
 }
 
 // queryProfanitySettings загружает настройки для конкретного chat_id + thread_id.
-func (m *ReactionsModule) queryProfanitySettings(chatID int64, threadID int) (*ProfanitySettings, error) {
-	var settings ProfanitySettings
+func (m *ReactionsModule) queryProfanitySettings(chatID int64, threadID int) (*profanitySettings, error) {
+	var settings profanitySettings
 	err := m.db.QueryRow(`
 		SELECT chat_id, thread_id, action, COALESCE(warn_text, '')
 		FROM profanity_settings
@@ -267,7 +267,7 @@ func (m *ReactionsModule) queryProfanitySettings(chatID int64, threadID int) (*P
 }
 
 // loadProfanityDictionary загружает глобальный словарь мата из БД.
-func (m *ReactionsModule) loadProfanityDictionary() ([]ProfanityWord, error) {
+func (m *ReactionsModule) loadProfanityDictionary() ([]profanityWord, error) {
 	rows, err := m.db.Query(`
 		SELECT pattern, is_regex, severity
 		FROM profanity_dictionary
@@ -278,9 +278,9 @@ func (m *ReactionsModule) loadProfanityDictionary() ([]ProfanityWord, error) {
 	}
 	defer rows.Close()
 
-	var words []ProfanityWord
+	var words []profanityWord
 	for rows.Next() {
-		var word ProfanityWord
+		var word profanityWord
 		if err := rows.Scan(&word.Pattern, &word.IsRegex, &word.Severity); err != nil {
 			continue
 		}
@@ -668,5 +668,5 @@ func (m *ReactionsModule) handleProfanityStatus(c telebot.Context) error {
 	m.db.QueryRow("SELECT COUNT(*) FROM profanity_dictionary").Scan(&wordCount)
 	msg += fmt.Sprintf("\nСлов в словаре: %d", wordCount)
 
-	return c.Send(msg, &telebot.SendOptions{ParseMode: telebot.ModeHTML})
+	return core.SendWithTTL(c, msg, core.InfoResponseTTL, m.logger, &telebot.SendOptions{ParseMode: telebot.ModeHTML})
 }

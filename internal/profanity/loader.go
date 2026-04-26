@@ -17,30 +17,30 @@ import (
 //go:embed dictionary.dat.gz
 var embeddedDictionary []byte
 
-// DictionarySource определяет источник словаря
-type DictionarySource string
+// dictionarySource определяет источник словаря
+type dictionarySource string
 
 const (
-	SourceEmbedded DictionarySource = "embedded" // Встроенный словарь
-	SourceFile     DictionarySource = "file"     // Файл по пути
-	SourceSkip     DictionarySource = "skip"     // Пропустить загрузку
+	sourceEmbedded dictionarySource = "embedded" // Встроенный словарь
+	sourceFile     dictionarySource = "file"     // Файл по пути
+	sourceSkip     dictionarySource = "skip"     // Пропустить загрузку
 )
 
-// LoaderConfig конфигурация загрузчика
-type LoaderConfig struct {
-	Source   DictionarySource
-	FilePath string // Используется если Source == SourceFile
+// loaderConfig конфигурация загрузчика
+type loaderConfig struct {
+	Source   dictionarySource
+	FilePath string // Используется если Source == sourceFile
 }
 
-// LoadConfigFromEnv загружает конфигурацию из переменных окружения
-func LoadConfigFromEnv() LoaderConfig {
+// loadConfigFromEnv загружает конфигурацию из переменных окружения
+func loadConfigFromEnv() loaderConfig {
 	source := os.Getenv("PROFANITY_DICT_SOURCE")
 	if source == "" {
 		source = "embedded" // По умолчанию
 	}
 
-	return LoaderConfig{
-		Source:   DictionarySource(strings.ToLower(source)),
+	return loaderConfig{
+		Source:   dictionarySource(strings.ToLower(source)),
 		FilePath: os.Getenv("PROFANITY_DICT_PATH"),
 	}
 }
@@ -78,7 +78,7 @@ func loadFromEmbedded() ([]string, error) {
 
 // EnsureDictionary проверяет и загружает словарь в базу
 func EnsureDictionary(ctx context.Context, db *sql.DB, logger *zap.Logger) error {
-	config := LoadConfigFromEnv()
+	config := loadConfigFromEnv()
 
 	// Проверяем есть ли уже слова в базе
 	var count int
@@ -96,11 +96,11 @@ func EnsureDictionary(ctx context.Context, db *sql.DB, logger *zap.Logger) error
 	var words []string
 
 	switch config.Source {
-	case SourceSkip:
+	case sourceSkip:
 		logger.Info("profanity dictionary loading skipped (PROFANITY_DICT_SOURCE=skip)")
 		return nil
 
-	case SourceFile:
+	case sourceFile:
 		if config.FilePath == "" {
 			return fmt.Errorf("PROFANITY_DICT_PATH not set when source=file")
 		}
@@ -110,7 +110,7 @@ func EnsureDictionary(ctx context.Context, db *sql.DB, logger *zap.Logger) error
 			return fmt.Errorf("failed to load from file: %w", err)
 		}
 
-	case SourceEmbedded:
+	case sourceEmbedded:
 		fallthrough
 	default:
 		logger.Info("loading embedded profanity dictionary")

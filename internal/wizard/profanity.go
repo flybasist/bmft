@@ -102,7 +102,7 @@ func (w *profanityWizard) start(c tele.Context) error {
 	return w.mgr.Start(c, wizardProfanityName, initialData, func(state *State) error {
 		state.Step = stepProfanitySelect
 		text, markup := w.renderStep(state)
-		msg, err := c.Bot().Send(c.Chat(), text, markup, &tele.SendOptions{ParseMode: tele.ModeHTML})
+		msg, err := c.Bot().Send(c.Chat(), text, &tele.SendOptions{ParseMode: tele.ModeHTML, ReplyMarkup: markup})
 		if err != nil {
 			return err
 		}

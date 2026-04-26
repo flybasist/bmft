@@ -124,7 +124,7 @@ func (m *SchedulerModule) RegisterCommands(bot *tele.Bot) {
 		msg += "• Проверяйте cron на сайте <b>crontab.guru</b>\n"
 		msg += "• Конвертер времени: <b>worldtimebuddy.com</b>"
 
-		return c.Send(msg, &tele.SendOptions{ParseMode: tele.ModeHTML})
+		return core.SendWithTTL(c, msg, core.InfoResponseTTL, m.logger, &tele.SendOptions{ParseMode: tele.ModeHTML})
 	})
 }
 
@@ -160,6 +160,10 @@ func (m *SchedulerModule) RegisterTaskByID(taskID int64) error {
 // cmd/bot/main.go регистрирует callback с обёрткой core.AdminOnlyCallback
 // (без неё любой пользователь смог бы нажать кнопку и удалить задачу).
 const UniqueDeleteTask = "del_task"
+
+// UniqueRunTask — Unique значение inline-кнопки ▶ для /listtasks.
+// cmd/bot/main.go регистрирует callback с обёрткой core.AdminOnlyCallback.
+const UniqueRunTask = "run_task"
 
 // listTasksMaxButtons — максимум inline-кнопок 🗑 в одном сообщении /listtasks.
 // Telegram допускает до 100 кнопок на сообщение; берём с большим запасом.
@@ -213,6 +217,37 @@ func (m *SchedulerModule) HandleDeleteTaskCallback(c tele.Context) error {
 
 	return c.Respond(&tele.CallbackResponse{
 		Text:      fmt.Sprintf("✅ Задача %d удалена", taskID),
+		ShowAlert: true,
+	})
+}
+
+// HandleRunTaskCallback обрабатывает нажатие inline-кнопки ▶ в /listtasks.
+// Data callback'а — taskID (int64) в виде строки.
+func (m *SchedulerModule) HandleRunTaskCallback(c tele.Context) error {
+	cb := c.Callback()
+	if cb == nil {
+		return nil
+	}
+	taskID, err := strconv.ParseInt(strings.TrimSpace(cb.Data), 10, 64)
+	if err != nil {
+		return c.Respond(&tele.CallbackResponse{Text: "❌ Некорректный ID", ShowAlert: true})
+	}
+
+	task, err := m.schedulerRepo.GetTask(taskID)
+	if err != nil {
+		return c.Respond(&tele.CallbackResponse{Text: "ℹ️ Задача не найдена", ShowAlert: true})
+	}
+	if task.ChatID != c.Chat().ID {
+		return c.Respond(&tele.CallbackResponse{Text: "🚫 Задача из другого чата", ShowAlert: true})
+	}
+
+	go m.executeTask(task)
+
+	_ = m.eventRepo.Log(c.Chat().ID, c.Sender().ID, "scheduler", "task_run",
+		fmt.Sprintf("Task %d (%s) run via inline button", taskID, task.TaskName))
+
+	return c.Respond(&tele.CallbackResponse{
+		Text:      fmt.Sprintf("▶ Задача %s запущена", task.TaskName),
 		ShowAlert: true,
 	})
 }
@@ -399,26 +434,26 @@ func (m *SchedulerModule) handleListTasks(c tele.Context) error {
 	msg.WriteString("Поддерживаемые типы: text, sticker, photo, animation, video, voice, document, audio\n")
 	msg.WriteString("Reply на сообщение для автоматического определения типа")
 
-	// Inline-кнопки 🗑 для каждой задачи (по 2 в ряд) — только если задач немного.
-	// Регистрация callback'а: cmd/bot/main.go через core.AdminOnlyCallback.
+	// Inline-кнопки ▶ и 🗑 для каждой задачи — только если задач немного.
+	// Регистрация callback'ов: cmd/bot/main.go через core.AdminOnlyCallback.
 	opts := &tele.SendOptions{ParseMode: tele.ModeHTML}
 	if len(tasks) <= listTasksMaxButtons {
 		markup := &tele.ReplyMarkup{}
-		rows := make([]tele.Row, 0, (len(tasks)+1)/2)
-		row := make([]tele.Btn, 0, 2)
+		rows := make([]tele.Row, 0, len(tasks))
 		for _, task := range tasks {
-			row = append(row, tele.Btn{
-				Unique: UniqueDeleteTask,
-				Text:   fmt.Sprintf("🗑 #%d %s", task.ID, task.TaskName),
-				Data:   strconv.FormatInt(task.ID, 10),
-			})
-			if len(row) == 2 {
-				rows = append(rows, markup.Row(row...))
-				row = row[:0]
-			}
-		}
-		if len(row) > 0 {
-			rows = append(rows, markup.Row(row...))
+			taskIDStr := strconv.FormatInt(task.ID, 10)
+			rows = append(rows, markup.Row(
+				tele.Btn{
+					Unique: UniqueRunTask,
+					Text:   fmt.Sprintf("▶ #%d", task.ID),
+					Data:   taskIDStr,
+				},
+				tele.Btn{
+					Unique: UniqueDeleteTask,
+					Text:   fmt.Sprintf("🗑 #%d %s", task.ID, task.TaskName),
+					Data:   taskIDStr,
+				},
+			))
 		}
 		markup.Inline(rows...)
 		opts.ReplyMarkup = markup

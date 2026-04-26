@@ -19,7 +19,8 @@ bmft/
 ├── cmd/bot/                     # Точка входа
 │   ├── main.go                  # Инициализация, graceful shutdown
 │   ├── modules.go               # Создание модулей и pipeline
-│   └── handlers.go              # /start, /help, /version
+│   ├── handlers.go              # /start, /help, /version, /welcome
+│   └── wizards.go               # wrap*WithWizard — маршрутизация wizard/legacy
 │
 ├── internal/
 │   ├── config/                  # Загрузка конфигурации из .env

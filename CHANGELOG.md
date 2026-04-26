@@ -1,5 +1,46 @@
 # CHANGELOG
 
+## Refactoring 2026-04-25
+
+### Phase 8 — Аудит и гигиена проекта
+
+Полный аудит кодовой базы: удаление мёртвого кода, актуализация документации, гигиена проекта.
+
+- Удалены неиспользуемые структуры `LimiterMetadata` и `ReactionsMetadata` из `message_repository.go`
+- Внутренние типы пакетов `profanity` и `reactions` сделаны неэкспортируемыми
+  (`DictionarySource` → `dictionarySource`, `KeywordReaction` → `keywordReaction` и т.д.)
+- Терминальный вывод в скриптах переведён на английский (`scripts/prepare-debian-host.sh`)
+- `.gitignore`: добавлен комментарий про `bmft-dev` — стандартное имя для локальной сборки
+- Исправлены устаревшие docs:
+  - `ARCHITECTURE.md` — добавлен `wizards.go` в дерево проекта
+  - `COMMANDS_ACCESS.md` — `/chatstats` и `/topchat`: "за 30 дней" → "за сегодня"
+  - `DATABASE.md` — profanity action: `mute` → `delete_warn`, добавлена миграция 004
+  - `migrations/README.md` — версия 3 → 4, `bmft-test` → `bmft-dev`
+  - `QUICKSTART.md` — исправлена битая ссылка `guides/ROTATION.md` → `ROTATION.md`
+- `go mod tidy` — зависимости чисты
+
+### Phase 7 — Markdown → HTML миграция
+
+Полная миграция всех пользовательских сообщений с `ModeMarkdown` на `ModeHTML`.
+Экранирование пользовательского ввода через `html.EscapeString()`.
+
+- `limiter.go` — 6 мест: `/mystats`, `/getlimit`, `/setlimit`, `/setvip`, `/removevip`
+- `scheduler.go` — `/listtasks`: `task.TaskName` и `task.CronExpr` экранированы
+- `reactions.go` — `handleAddReaction`: `pattern`, `displayContent`, `description` экранированы
+- `filters.go` — `handleAddBan` (pattern), `handleListBans` (b.Pattern) экранированы
+- Ноль `ModeMarkdown` в проекте после миграции
+
+### Phase 6 — UX-cleanup
+
+Чистка UX: интерактивный /help, компактные wizard-шаги, тихий отказ для не-админов.
+
+- `admin_check.go` — `notifyAdminDenied()`: тихий reply + авто-удаление через 7 сек
+- `handlers.go` — `/help` на inline-кнопках (5 разделов, навигация без новых сообщений)
+- `reactions.go` — `/listreactions` компактный формат (2 строки + опц. параметры)
+- Wizard'ы: убран recap данных из промежуточных шагов (только текущий вопрос)
+- `filters.go` — `/setprofanity` legacy: "включен" → "включён", `<code>` для action
+- `handlers.go` — `/welcome off`: `⛔` → `✅` (welcome disabled — это успех)
+
 ## Refactoring 2026-04-20
 
 ### Phase 5 — Interactive wizards & inline actions

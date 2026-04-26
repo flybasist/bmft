@@ -136,7 +136,7 @@ func (w *setVIPWizard) start(c tele.Context) error {
 	return w.mgr.Start(c, wizardSetVIPName, initialData, func(state *State) error {
 		state.Step = stepVIPConfirm
 		text, markup := w.renderStep1(state)
-		sent, err := c.Bot().Send(c.Chat(), text, markup, &tele.SendOptions{ParseMode: tele.ModeHTML})
+		sent, err := c.Bot().Send(c.Chat(), text, &tele.SendOptions{ParseMode: tele.ModeHTML, ReplyMarkup: markup})
 		if err != nil {
 			return err
 		}
@@ -250,7 +250,7 @@ func (w *setVIPWizard) editToStep(c tele.Context, state *State, text string, mar
 		ID:   state.MessageID,
 		Chat: &tele.Chat{ID: state.Key.ChatID},
 	}
-	_, err := w.mgr.bot.Edit(editable, text, markup, &tele.SendOptions{ParseMode: tele.ModeHTML})
+	_, err := w.mgr.bot.Edit(editable, text, &tele.SendOptions{ParseMode: tele.ModeHTML, ReplyMarkup: markup})
 	if err != nil {
 		w.logger.Warn("setvip wizard: edit failed", zap.Error(err))
 	}

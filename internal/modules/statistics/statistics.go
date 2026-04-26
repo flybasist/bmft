@@ -178,7 +178,7 @@ func (m *StatisticsModule) RegisterCommands(bot *tele.Bot) {
 
 		msg += "💡 <i>Подсказка:</i> Статистика собирается автоматически для всех сообщений."
 
-		return c.Send(msg, &tele.SendOptions{ParseMode: tele.ModeHTML})
+		return core.SendWithTTL(c, msg, core.InfoResponseTTL, m.logger, &tele.SendOptions{ParseMode: tele.ModeHTML})
 	})
 
 	// /myweek — личная статистика за неделю
@@ -283,7 +283,7 @@ func (m *StatisticsModule) handleMyWeekStats(c tele.Context) error {
 
 	sb.WriteString(fmt.Sprintf("\n<b>Всего:</b> %d сообщений за 7 дней", total))
 
-	return c.Reply(sb.String(), &tele.SendOptions{ParseMode: tele.ModeHTML})
+	return core.ReplyWithTTL(c, sb.String(), core.InfoResponseTTL, m.logger, &tele.SendOptions{ParseMode: tele.ModeHTML})
 }
 
 // handleChatStats обрабатывает команду /chatstats.
@@ -346,7 +346,7 @@ func (m *StatisticsModule) handleChatStats(c tele.Context, date time.Time) error
 
 	sb.WriteString(fmt.Sprintf("\n<b>Всего:</b> %d сообщений", total))
 
-	return c.Reply(sb.String(), &tele.SendOptions{ParseMode: tele.ModeHTML})
+	return core.ReplyWithTTL(c, sb.String(), core.InfoResponseTTL, m.logger, &tele.SendOptions{ParseMode: tele.ModeHTML})
 }
 
 // handleTopChat обрабатывает команду /topchat.
@@ -409,5 +409,5 @@ func (m *StatisticsModule) handleTopChat(c tele.Context, date time.Time) error {
 			medal, i+1, username, userStat.MessageCount))
 	}
 
-	return c.Reply(sb.String(), &tele.SendOptions{ParseMode: tele.ModeHTML})
+	return core.ReplyWithTTL(c, sb.String(), core.InfoResponseTTL, m.logger, &tele.SendOptions{ParseMode: tele.ModeHTML})
 }

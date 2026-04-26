@@ -8,7 +8,7 @@
 
 set -e
 
-echo "🔧 Подготовка директорий для BMFT бота..."
+echo "Preparing directories for BMFT bot..."
 
 # Создаём структуру папок если её нет
 mkdir -p data/logs
@@ -19,10 +19,10 @@ mkdir -p migrations
 chown -R 1000:1000 data/logs
 chmod -R 755 data/logs
 
-echo "✅ Директории подготовлены:"
+echo "Directories prepared:"
 ls -la data/
 
 echo ""
-echo "Теперь можно запускать:"
+echo "Ready to start:"
 echo "  docker-compose -f docker-compose.env.yaml up -d"
 echo "  docker-compose -f docker-compose.bot.yaml up -d"
