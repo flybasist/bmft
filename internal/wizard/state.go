@@ -70,13 +70,14 @@ const DataThreadID = "_threadID"
 // Pipeline middleware видит флаг и поглощает сообщение.
 type State struct {
 	Key       StateKey
-	Wizard    string         // имя wizard'а: "welcome", "addtask", ...
-	Step      string         // текущий шаг (произвольная строка для wizard'а)
+	Wizard    string         // имя wizard'а/меню: "welcome", "addtask", "menu_stats", ...
+	Step      string         // текущий шаг/экран (произвольная строка)
 	Data      map[string]any // накопленные значения
-	MessageID int            // ID сообщения wizard'а в Telegram
+	MessageID int            // ID сообщения wizard'а/меню в Telegram
 	StartedAt time.Time
 	UpdatedAt time.Time
 	AwaitText bool        // ожидает текстовый ввод вместо callback
+	IsMenu    bool        // true = inline-меню (не wizard): другие правила Guard
 	timer     *time.Timer // idle-таймаут
 }
 

@@ -151,6 +151,7 @@ func run() error {
 	// ПЕРЕД statistics/limiter/reactions, чтобы поглощать wizard-ввод.
 	wizardMgr := wizard.NewManager(bot, db, adminChecker, logger)
 	wizardMgr.RegisterCancelHandler(bot)
+	wizardMgr.RegisterMenuHandlers(bot)
 
 	// Создаём все модули
 	modules, err := initModules(db, bot, logger, cfg, wizardMgr)
@@ -219,6 +220,9 @@ func run() error {
 	// Регистрируем базовые команды
 	registerCommands(bot, chatRepo, eventRepo, logger, botVersion, startWelcomeWizard)
 
+	// Регистрируем inline-меню (/help, /statistics, /limiter, /reactions, /scheduler).
+	registerMenuNavigation(bot, wizardMgr, modules, logger)
+
 	// Перерегистрируем /setprofanity на двухрежимный handler (wizard | legacy).
 	// initModules уже зарегистрировал legacy handler через
 	// modules.Reactions.RegisterAdminCommands; здесь мы перетираем endpoint
@@ -249,10 +253,9 @@ func run() error {
 	// только через legacy «/addreaction args...».
 	bot.Handle("/addreaction", wrapAddReactionWithWizard(modules.Reactions.HandleAddReaction, startAddReactionWizard))
 
-	// Inline-кнопки 🗑 в /listtasks, /listbans, /listreactions.
-	// AdminOnlyMiddleware покрывает ТОЛЬКО текстовые команды; callback-кнопки
-	// требуют отдельной проверки прав через core.AdminOnlyCallback, иначе любой
-	// пользователь, увидевший сообщение со списком, мог бы их нажать.
+	// Legacy inline-кнопки 🗑/▶ из старых сообщений (/listtasks, /listbans, /listreactions).
+	// Новые кнопки в inline-меню используют UniqueMenuDel* / UniqueMenuRun* (menus.go).
+	// Здесь оставляем только для обратной совместимости со старыми сообщениями.
 	bot.Handle(&tele.Btn{Unique: scheduler.UniqueDeleteTask},
 		core.AdminOnlyCallback(adminChecker, logger, modules.Scheduler.HandleDeleteTaskCallback))
 	bot.Handle(&tele.Btn{Unique: scheduler.UniqueRunTask},

@@ -289,18 +289,27 @@ func (m *Manager) armIdleTimer(state *State) {
 			return
 		}
 		m.store.remove(key)
-		m.logger.Debug("wizard expired by idle timeout",
-			zap.String("wizard", state.Wizard),
+
+		isMenu := state.IsMenu
+		m.logger.Debug("session expired by idle timeout",
+			zap.String("type", state.Wizard),
+			zap.Bool("is_menu", isMenu),
 			zap.Int64("chat_id", key.ChatID),
 			zap.Int64("user_id", key.UserID))
 
-		editable := &tele.Message{
-			ID:   state.MessageID,
-			Chat: &tele.Chat{ID: key.ChatID},
-		}
-		updated, err := m.bot.Edit(editable, "⏱ Wizard отменён по таймауту бездействия (5 минут).")
-		if err == nil && updated != nil {
-			core.ScheduleDelete(m.bot, updated, ConfirmTTL, m.logger)
+		if isMenu {
+			// Меню — просто удаляем сообщение.
+			m.deleteWizardMessage(&tele.Chat{ID: key.ChatID}, state.MessageID)
+		} else {
+			// Wizard — редактируем на текст таймаута и удаляем через ConfirmTTL.
+			editable := &tele.Message{
+				ID:   state.MessageID,
+				Chat: &tele.Chat{ID: key.ChatID},
+			}
+			updated, err := m.bot.Edit(editable, "⏱ Wizard отменён по таймауту бездействия (5 минут).")
+			if err == nil && updated != nil {
+				core.ScheduleDelete(m.bot, updated, ConfirmTTL, m.logger)
+			}
 		}
 	})
 }
