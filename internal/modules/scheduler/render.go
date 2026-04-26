@@ -65,6 +65,8 @@ func (m *SchedulerModule) RenderListTasks(chatID int64, threadID int) (string, [
 		text += fmt.Sprintf("<i>…и ещё %d задач</i>", len(tasks)-len(ids))
 	}
 
+	text += "\n💡 Добавить: /addtask\n▶ Запустить / 🗑 Удалить: кнопки ниже"
+
 	return text, ids, nil
 }
 

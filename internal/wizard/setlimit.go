@@ -175,7 +175,7 @@ func (w *setLimitWizard) renderStep1(state *State) (string, *tele.ReplyMarkup) {
 
 	markup := &tele.ReplyMarkup{}
 	rows := make([]tele.Row, 0, 5)
-	row := make([]tele.Btn, 0, 3)
+	var row []tele.Btn
 	for i, ct := range limitContentTypes {
 		row = append(row, tele.Btn{
 			Unique: uniqueLimitType,
@@ -184,7 +184,7 @@ func (w *setLimitWizard) renderStep1(state *State) (string, *tele.ReplyMarkup) {
 		})
 		if (i+1)%3 == 0 {
 			rows = append(rows, markup.Row(row...))
-			row = row[:0]
+			row = nil
 		}
 	}
 	if len(row) > 0 {

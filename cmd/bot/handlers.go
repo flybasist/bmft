@@ -19,7 +19,7 @@ import (
 // чат не оказался забит десятками сообщений-приветствий
 // (сами спамеры будут удалены сторонними анти-спам ботами раньше).
 // История захода всё равно видна в админке Telegram.
-const welcomeMessageTTL = 5 * time.Minute
+const welcomeMessageTTL = 60 * time.Second
 
 // registerCommands регистрирует все команды бота.
 // Хендлеры для базовых команд: /start, /help, /version.

@@ -6,7 +6,6 @@ import (
 	"go.uber.org/zap"
 	tele "gopkg.in/telebot.v3"
 
-	"github.com/flybasist/bmft/internal/core"
 	"github.com/flybasist/bmft/internal/modules/limiter"
 	"github.com/flybasist/bmft/internal/modules/reactions"
 	"github.com/flybasist/bmft/internal/modules/scheduler"
@@ -19,11 +18,12 @@ const menuName = "menu"
 
 // Экраны (значения state.Step).
 const (
-	screenMain       = "main"       // /help — корневое меню
-	screenStats      = "stats"      // /statistics
-	screenLimiter    = "limiter"    // /limiter
-	screenReactions  = "reactions"  // /reactions
-	screenScheduler  = "scheduler"  // /scheduler
+	screenMain      = "main"      // /help — корневое меню
+	screenStats     = "stats"     // /statistics
+	screenLimiter   = "limiter"   // /limiter
+	screenReactions = "reactions" // /reactions
+	screenScheduler = "scheduler" // /scheduler
+	screenWelcome   = "welcome"   // приветствие
 )
 
 // Экраны результатов (показывают данные + кнопка «Назад»).
@@ -36,8 +36,8 @@ const (
 	screenLimGetLimit = "lim_getlimit"
 	screenLimVIPs     = "lim_vips"
 
-	screenReactList     = "react_list"
-	screenReactBans     = "react_bans"
+	screenReactList      = "react_list"
+	screenReactBans      = "react_bans"
 	screenReactProfanity = "react_prof"
 
 	screenSchedList = "sched_list"
@@ -54,28 +54,31 @@ var (
 // Кнопки действий Statistics.
 var (
 	btnStatsMyWeek = tele.Btn{Unique: "m_st_myweek", Text: "📈 Моя неделя"}
-	btnStatsChatSt = tele.Btn{Unique: "m_st_chat", Text: "📊 Статистика чата"}
-	btnStatsTopCh  = tele.Btn{Unique: "m_st_top", Text: "🏆 Топ активных"}
+	btnStatsChatSt = tele.Btn{Unique: "m_st_chat", Text: "🔒 Статистика чата"}
+	btnStatsTopCh  = tele.Btn{Unique: "m_st_top", Text: "🔒 Топ активных"}
 )
 
 // Кнопки действий Limiter.
 var (
 	btnLimMyStats  = tele.Btn{Unique: "m_lm_my", Text: "📊 Мои лимиты"}
-	btnLimGetLimit = tele.Btn{Unique: "m_lm_chat", Text: "📋 Лимиты чата"}
-	btnLimVIPs     = tele.Btn{Unique: "m_lm_vip", Text: "👑 VIP-список"}
+	btnLimGetLimit = tele.Btn{Unique: "m_lm_chat", Text: "🔒 Лимиты чата"}
+	btnLimVIPs     = tele.Btn{Unique: "m_lm_vip", Text: "🔒 VIP-список"}
 )
 
 // Кнопки действий Reactions.
 var (
-	btnReactList     = tele.Btn{Unique: "m_re_list", Text: "📋 Реакции"}
-	btnReactBans     = tele.Btn{Unique: "m_re_bans", Text: "🚫 Фильтры"}
-	btnReactProfanity = tele.Btn{Unique: "m_re_prof", Text: "🔞 Мат-фильтр"}
+	btnReactList      = tele.Btn{Unique: "m_re_list", Text: "🔒 Реакции"}
+	btnReactBans      = tele.Btn{Unique: "m_re_bans", Text: "🔒 Фильтры"}
+	btnReactProfanity = tele.Btn{Unique: "m_re_prof", Text: "🔒 Мат-фильтр"}
 )
 
 // Кнопки действий Scheduler.
 var (
-	btnSchedList = tele.Btn{Unique: "m_sc_list", Text: "📋 Список задач"}
+	btnSchedList = tele.Btn{Unique: "m_sc_list", Text: "🔒 Список задач"}
 )
+
+// Кнопка навигации Welcome.
+var btnNavWelcome = tele.Btn{Unique: "m_nav_welc", Text: "👋 Приветствие"}
 
 // registerMenuNavigation регистрирует команды /help, /statistics, /limiter,
 // /reactions, /scheduler и callback'и навигации между экранами.
@@ -111,6 +114,7 @@ func registerMenuNavigation(bot *tele.Bot, mgr *wizard.Manager, modules *Modules
 		{&btnNavLimiter, screenLimiter},
 		{&btnNavReactions, screenReactions},
 		{&btnNavScheduler, screenScheduler},
+		{&btnNavWelcome, screenWelcome},
 	}
 	for _, nb := range navButtons {
 		nav := nb
@@ -271,7 +275,7 @@ func registerMenuNavigation(bot *tele.Bot, mgr *wizard.Manager, modules *Modules
 		if renderErr != nil {
 			text = "❌ " + renderErr.Error()
 		} else if text == "" {
-			text = "ℹ️ VIP-пользователей нет."
+			text = "ℹ️ VIP-пользователей нет.\n\n💡 Выдать VIP: /setvip (ответом на сообщение)"
 		}
 
 		m := &tele.ReplyMarkup{}
@@ -317,7 +321,7 @@ func registerMenuNavigation(bot *tele.Bot, mgr *wizard.Manager, modules *Modules
 		if renderErr != nil {
 			text = "❌ " + renderErr.Error()
 		} else if text == "" {
-			text = "ℹ️ VIP-пользователей нет."
+			text = "ℹ️ VIP-пользователей нет.\n\n💡 Выдать VIP: /setvip (ответом на сообщение)"
 		}
 
 		m := &tele.ReplyMarkup{}
@@ -348,7 +352,7 @@ func registerMenuNavigation(bot *tele.Bot, mgr *wizard.Manager, modules *Modules
 		if renderErr != nil {
 			text = "❌ " + renderErr.Error()
 		} else if text == "" {
-			text = "ℹ️ Реакции не настроены."
+			text = "ℹ️ Реакции не настроены.\n\n💡 Добавить: /addreaction"
 		}
 
 		mk := &tele.ReplyMarkup{}
@@ -382,7 +386,7 @@ func registerMenuNavigation(bot *tele.Bot, mgr *wizard.Manager, modules *Modules
 		if renderErr != nil {
 			text = "❌ " + renderErr.Error()
 		} else if text == "" {
-			text = "ℹ️ Фильтры не настроены."
+			text = "ℹ️ Фильтры не настроены.\n\n💡 Добавить: /addban"
 		}
 
 		mk := &tele.ReplyMarkup{}
@@ -416,7 +420,7 @@ func registerMenuNavigation(bot *tele.Bot, mgr *wizard.Manager, modules *Modules
 		if renderErr != nil {
 			text = "❌ " + renderErr.Error()
 		} else if text == "" {
-			text = "ℹ️ Фильтр мата не настроен."
+			text = "ℹ️ Фильтр мата не настроен.\n\n💡 Включить: /setprofanity"
 		}
 
 		state.Step = screenReactProfanity
@@ -453,7 +457,7 @@ func registerMenuNavigation(bot *tele.Bot, mgr *wizard.Manager, modules *Modules
 		if renderErr != nil {
 			text = "❌ " + renderErr.Error()
 		} else if text == "" {
-			text = "ℹ️ Реакции не настроены."
+			text = "ℹ️ Реакции не настроены.\n\n💡 Добавить: /addreaction"
 		}
 
 		mk := &tele.ReplyMarkup{}
@@ -502,7 +506,7 @@ func registerMenuNavigation(bot *tele.Bot, mgr *wizard.Manager, modules *Modules
 		if renderErr != nil {
 			text = "❌ " + renderErr.Error()
 		} else if text == "" {
-			text = "ℹ️ Фильтры не настроены."
+			text = "ℹ️ Фильтры не настроены.\n\n💡 Добавить: /addban"
 		}
 
 		mk := &tele.ReplyMarkup{}
@@ -537,7 +541,7 @@ func registerMenuNavigation(bot *tele.Bot, mgr *wizard.Manager, modules *Modules
 		if renderErr != nil {
 			text = "❌ " + renderErr.Error()
 		} else if text == "" {
-			text = "ℹ️ Задачи не настроены."
+			text = "ℹ️ Задачи не настроены.\n\n💡 Добавить: /addtask"
 		}
 
 		mk := &tele.ReplyMarkup{}
@@ -588,7 +592,7 @@ func registerMenuNavigation(bot *tele.Bot, mgr *wizard.Manager, modules *Modules
 		if renderErr != nil {
 			text = "❌ " + renderErr.Error()
 		} else if text == "" {
-			text = "ℹ️ Задачи не настроены."
+			text = "ℹ️ Задачи не настроены.\n\n💡 Добавить: /addtask"
 		}
 
 		mk := &tele.ReplyMarkup{}
@@ -635,7 +639,15 @@ func registerMenuNavigation(bot *tele.Bot, mgr *wizard.Manager, modules *Modules
 
 // openMenuScreen создаёт новую сессию меню и рисует указанный экран.
 func openMenuScreen(c tele.Context, mgr *wizard.Manager, modules *Modules, screen string) error {
-	return mgr.StartMenu(c, menuName, nil, func(state *wizard.State) error {
+	initialData := map[string]any{}
+	if sender := c.Sender(); sender != nil {
+		if sender.Username != "" {
+			initialData["owner"] = "@" + sender.Username
+		} else {
+			initialData["owner"] = sender.FirstName
+		}
+	}
+	return mgr.StartMenu(c, menuName, initialData, func(state *wizard.State) error {
 		state.Step = screen
 		text, markup := buildScreen(state)
 		msg, err := c.Bot().Send(c.Chat(), text, &tele.SendOptions{
@@ -667,6 +679,8 @@ func buildScreen(state *wizard.State) (string, *tele.ReplyMarkup) {
 		return buildReactionsScreen(state)
 	case screenScheduler:
 		return buildSchedulerScreen(state)
+	case screenWelcome:
+		return buildWelcomeScreen(state)
 	default:
 		return buildMainScreen(state)
 	}
@@ -674,27 +688,22 @@ func buildScreen(state *wizard.State) (string, *tele.ReplyMarkup) {
 
 // ── Главный экран (/help) ──────────────────────────────────────────────────
 
-func buildMainScreen(_ *wizard.State) (string, *tele.ReplyMarkup) {
-	text := `📖 <b>BMFT — главное меню</b>
-
-Выберите раздел:`
+func buildMainScreen(state *wizard.State) (string, *tele.ReplyMarkup) {
+	text := "📖 <b>BMFT — главное меню" + ownerSuffix(state) + "</b>\n\nВыберите раздел:"
 
 	m := &tele.ReplyMarkup{}
 	m.Inline(
 		m.Row(btnNavStats, btnNavLimiter),
 		m.Row(btnNavReactions, btnNavScheduler),
+		m.Row(btnNavWelcome),
 		m.Row(wizard.CloseButton()),
 	)
 	return text, m
 }
 
 // ── Статистика ─────────────────────────────────────────────────────────────
-// TODO: заглушки, будут заменены на реальные кнопки действий в Фазе 3.
-
-func buildStatsScreen(_ *wizard.State) (string, *tele.ReplyMarkup) {
-	text := `📊 <b>Статистика</b>
-
-Выберите действие:`
+func buildStatsScreen(state *wizard.State) (string, *tele.ReplyMarkup) {
+	text := "📊 <b>Статистика" + ownerSuffix(state) + "</b>\n\nВыберите действие:"
 
 	m := &tele.ReplyMarkup{}
 	m.Inline(
@@ -707,10 +716,13 @@ func buildStatsScreen(_ *wizard.State) (string, *tele.ReplyMarkup) {
 
 // ── Лимиты ─────────────────────────────────────────────────────────────────
 
-func buildLimiterScreen(_ *wizard.State) (string, *tele.ReplyMarkup) {
-	text := `🚦 <b>Лимиты</b>
-
-Выберите действие:`
+func buildLimiterScreen(state *wizard.State) (string, *tele.ReplyMarkup) {
+	text := "🚦 <b>Лимиты" + ownerSuffix(state) + "</b>\n\n" +
+		"Выберите действие:\n\n" +
+		"<i>⚙️ Настройка (команды):\n" +
+		"/setlimit — установить лимит\n" +
+		"💡 Ответьте на сообщение пользователя для персонального лимита\n" +
+		"/setvip — выдать VIP (ответом на сообщение)</i>"
 
 	m := &tele.ReplyMarkup{}
 	m.Inline(
@@ -723,10 +735,15 @@ func buildLimiterScreen(_ *wizard.State) (string, *tele.ReplyMarkup) {
 
 // ── Реакции ────────────────────────────────────────────────────────────────
 
-func buildReactionsScreen(_ *wizard.State) (string, *tele.ReplyMarkup) {
-	text := `🎯 <b>Реакции и фильтры</b>
-
-Выберите раздел:`
+func buildReactionsScreen(state *wizard.State) (string, *tele.ReplyMarkup) {
+	text := "🎯 <b>Реакции и фильтры" + ownerSuffix(state) + "</b>\n\n" +
+		"Выберите раздел:\n\n" +
+		"<i>⚙️ Настройка (команды):\n" +
+		"/addreaction — добавить автоответ\n" +
+		"💡 Для стикера/гифки/фото: ответьте на медиа командой /addreaction\n" +
+		"/addban — добавить запрещённое слово\n" +
+		"/setprofanity — включить мат-фильтр\n" +
+		"/removeprofanity — выключить мат-фильтр</i>"
 
 	m := &tele.ReplyMarkup{}
 	m.Inline(
@@ -739,10 +756,12 @@ func buildReactionsScreen(_ *wizard.State) (string, *tele.ReplyMarkup) {
 
 // ── Планировщик ────────────────────────────────────────────────────────────
 
-func buildSchedulerScreen(_ *wizard.State) (string, *tele.ReplyMarkup) {
-	text := `⏰ <b>Планировщик</b>
-
-Выберите действие:`
+func buildSchedulerScreen(state *wizard.State) (string, *tele.ReplyMarkup) {
+	text := "⏰ <b>Планировщик" + ownerSuffix(state) + "</b>\n\n" +
+		"Выберите действие:\n\n" +
+		"<i>⚙️ Настройка (команды):\n" +
+		"/addtask — добавить задачу\n" +
+		"💡 Для стикера/фото/видео: ответьте на медиа командой /addtask</i>"
 
 	m := &tele.ReplyMarkup{}
 	m.Inline(
@@ -750,6 +769,34 @@ func buildSchedulerScreen(_ *wizard.State) (string, *tele.ReplyMarkup) {
 		m.Row(wizard.BackButton(), wizard.CloseButton()),
 	)
 	return text, m
+}
+
+// ── Приветствие ────────────────────────────────────────────────────────────
+
+func buildWelcomeScreen(state *wizard.State) (string, *tele.ReplyMarkup) {
+	text := "👋 <b>Приветствие" + ownerSuffix(state) + `</b>
+
+Автоприветствие новых участников чата.
+
+<i>⚙️ Настройка (🔒 только для админов):
+/welcome — включить/выключить, настроить TTL (wizard с кнопками)
+/welcome` + " &lt;текст&gt;" + ` — задать текст приветствия</i>`
+
+	m := &tele.ReplyMarkup{}
+	m.Inline(
+		m.Row(wizard.BackButton(), wizard.CloseButton()),
+	)
+	return text, m
+}
+
+// ownerSuffix возвращает " (@user)" или "" — для подписи меню.
+func ownerSuffix(state *wizard.State) string {
+	if owner, ok := state.Data["owner"]; ok {
+		if s, ok2 := owner.(string); ok2 && s != "" {
+			return " · " + s
+		}
+	}
+	return ""
 }
 
 // ── Вспомогательные функции ────────────────────────────────────────────────
@@ -780,6 +827,3 @@ func getThreadIDFromState(state *wizard.State) int {
 
 // maxMenuButtons — максимальное кол-во inline-кнопок 🗑 в меню.
 const maxMenuButtons = 20
-
-// _ используется для подавления "unused import" при поэтапной разработке.
-var _ = core.InfoResponseTTL

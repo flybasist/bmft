@@ -8,7 +8,7 @@
 
 ALTER TABLE chats
     ADD COLUMN IF NOT EXISTS welcome_enabled BOOLEAN NOT NULL DEFAULT TRUE,
-    ADD COLUMN IF NOT EXISTS welcome_ttl_seconds INTEGER NOT NULL DEFAULT 300;
+    ADD COLUMN IF NOT EXISTS welcome_ttl_seconds INTEGER NOT NULL DEFAULT 60;
 
 UPDATE bot_settings SET bot_version = '1.2' WHERE id = 1;
 

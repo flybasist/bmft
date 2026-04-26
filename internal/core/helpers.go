@@ -58,22 +58,6 @@ func SendWithTTL(c telebot.Context, what interface{}, ttl time.Duration, logger 
 	return nil
 }
 
-// ReplyWithTTL отправляет reply на сообщение; в группах планирует удаление через ttl.
-// В личных чатах или при ttl ≤ 0 — обычный c.Reply без удаления.
-func ReplyWithTTL(c telebot.Context, what interface{}, ttl time.Duration, logger *zap.Logger, opts ...interface{}) error {
-	chat := c.Chat()
-	msg := c.Message()
-	if ttl <= 0 || chat == nil || (chat.Type != telebot.ChatGroup && chat.Type != telebot.ChatSuperGroup) || msg == nil {
-		return c.Reply(what, opts...)
-	}
-	sent, err := c.Bot().Reply(msg, what, opts...)
-	if err != nil {
-		return err
-	}
-	ScheduleDelete(c.Bot(), sent, ttl, logger)
-	return nil
-}
-
 // ParseQuotedTokens разбирает строку на токены с учётом двойных кавычек.
 // Примеры:
 //

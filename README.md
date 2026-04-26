@@ -1,32 +1,35 @@
 # BMFT — Bot Moderator For Telegram
 
-Модульный бот для модерации и автоматизации Telegram-чатов: лимиты, статистика, реакции, фильтр мата, задачи по расписанию. Админские команды поддерживают интерактивные wizard'ы (inline-кнопки) и кнопки 🗑 в списках. Поддерживает Telegram Forums (топики).
+Модульный бот для модерации и автоматизации Telegram-чатов.
+Поддерживает Telegram Forums (топики).
 
-> **Стек:** Go 1.25.5 · PostgreSQL 16+ · Long Polling. Актуальная версия — в [CHANGELOG.md](CHANGELOG.md).
+> **Стек:** Go 1.25.5 · PostgreSQL 16+ · Long Polling
+
+## Возможности
+
+- **Статистика** — активность пользователей и чата
+- **Лимиты** — ограничения на типы контента (стикеры, голосовые и т.д.)
+- **Реакции** — автоответы по ключевым словам + фильтр мата
+- **Планировщик** — задачи по расписанию (cron), включая медиа
+- **Приветствие** — автоприветствие новых участников с TTL
+
+Все действия доступны через `/help` — inline-меню с кнопками.
+Настройки — через wizard'ы (inline-кнопки, без ручного ввода команд).
 
 ## Быстрый старт
 
-- **Готовый бот:** добавьте [@bmft_bot](https://t.me/bmft_bot) в чат и выдайте права администратора. Дальше — `/help`.
-- **Self-hosted:** см. [docs/QUICKSTART.md](docs/QUICKSTART.md).
+1. Добавьте бота в чат и выдайте права администратора
+2. Нажмите `/help` — откроется меню с разделами
+3. Self-hosted: см. [docs/QUICKSTART.md](docs/QUICKSTART.md)
 
 ## Документация
 
-| Документ | Назначение |
-|----------|------------|
-| [docs/README.md](docs/README.md) | Индекс всей документации |
-| [docs/QUICKSTART.md](docs/QUICKSTART.md) | Установка self-hosted версии |
-| [docs/COMMANDS_ACCESS.md](docs/COMMANDS_ACCESS.md) | Справочник всех команд |
-| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Архитектура проекта |
-| [docs/modules/MODULES.md](docs/modules/MODULES.md) | Описание модулей |
-| [docs/architecture/DATABASE.md](docs/architecture/DATABASE.md) | Схема БД |
-| [docs/ROTATION.md](docs/ROTATION.md) | Ротация логов и данных |
-| [docs/BMFT_PRESENTATION.md](docs/BMFT_PRESENTATION.md) | Что это и зачем (для не-технарей) |
-| [docs/CREDITS.md](docs/CREDITS.md) | Атрибуция используемых ресурсов |
-| [CHANGELOG.md](CHANGELOG.md) | История изменений |
+Подробности — в [docs/README.md](docs/README.md).
+История изменений — в [CHANGELOG.md](CHANGELOG.md).
 
 ## Контакты
 
-**Автор:** Alexander Ognev (FlyBasist) — [@flybasist](https://t.me/flybasist) · [GitHub](https://github.com/flybasist) · flybasist92@gmail.com
+**Автор:** Alexander Ognev — [@FlyBasist](https://t.me/flybasist)
 
 ## Лицензия
 

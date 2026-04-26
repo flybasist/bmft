@@ -1,3 +1,0 @@
-     400 /Users/aleksandrognev/Documents/flybasist_dev/git/bmft/cmd/bot/handlers.go
-     179 /Users/aleksandrognev/Documents/flybasist_dev/git/bmft/cmd/bot/wizards.go
-     579 total

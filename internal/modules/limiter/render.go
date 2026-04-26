@@ -135,6 +135,9 @@ func (m *LimiterModule) RenderGetLimit(chatID int64, threadID int) (string, erro
 	if !hasLimits {
 		text += "✅ Лимиты не установлены. Все типы контента разрешены без ограничений.\n"
 	}
+
+	text += "\n\U0001f4a1 \u041d\u0430\u0441\u0442\u0440\u043e\u0438\u0442\u044c: /setlimit"
+
 	return text, nil
 }
 
@@ -171,6 +174,9 @@ func (m *LimiterModule) RenderListVIPs(chatID int64, threadID int, chat *tele.Ch
 		text += fmt.Sprintf("%d. %s\n   Причина: %s\n\n", i+1, displayName, html.EscapeString(vip.Reason))
 		userIDs = append(userIDs, vip.UserID)
 	}
+
+	text += "💡 Выдать VIP: /setvip (ответом на сообщение)\n🗑 Снять VIP: кнопки ниже"
+
 	return text, userIDs, nil
 }
 

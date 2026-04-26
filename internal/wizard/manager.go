@@ -82,6 +82,15 @@ func (m *Manager) Start(c tele.Context, wizard string, initialData map[string]an
 		return nil // нет смысла продолжать — некому отвечать
 	}
 
+	// Удаляем команду пользователя из чата (аналогично StartMenu).
+	if msg != nil {
+		if err := m.bot.Delete(msg); err != nil {
+			m.logger.Debug("failed to delete user command for wizard",
+				zap.Int("message_id", msg.ID),
+				zap.Error(err))
+		}
+	}
+
 	threadID := core.GetThreadIDFromMessage(m.db, msg)
 	key := StateKey{
 		ChatID: chat.ID,

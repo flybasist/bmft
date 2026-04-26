@@ -112,6 +112,8 @@ func (m *ReactionsModule) RenderListReactions(chatID int64, threadID int, maxBut
 		text += fmt.Sprintf("\n<i>…и ещё %d реакций</i>", len(reactions)-len(ids))
 	}
 
+	text += "\n\n💡 Добавить: /addreaction\n🗑 Удалить: кнопки ниже"
+
 	return text, ids, nil
 }
 
@@ -189,6 +191,8 @@ func (m *ReactionsModule) RenderListBans(chatID int64, threadID int, maxButtons 
 		text += fmt.Sprintf("\n<i>…и ещё %d фильтров</i>", len(bans)-len(ids))
 	}
 
+	text += "\n\n💡 Добавить: /addban\n🗑 Удалить: кнопки ниже"
+
 	return text, ids, nil
 }
 
@@ -215,6 +219,8 @@ func (m *ReactionsModule) RenderProfanityStatus(chatID int64, threadID int) (str
 	var wordCount int
 	_ = m.db.QueryRow("SELECT COUNT(*) FROM profanity_dictionary").Scan(&wordCount)
 	text += fmt.Sprintf("\nСлов в словаре: %d", wordCount)
+
+	text += "\n\n💡 Выключить: /removeprofanity"
 
 	return text, nil
 }
