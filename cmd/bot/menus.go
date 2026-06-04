@@ -251,8 +251,9 @@ func registerMenuNavigation(bot *tele.Bot, mgr *wizard.Manager, modules *Modules
 		}
 		chatID := state.Key.ChatID
 		threadID := getThreadIDFromState(state)
+		userID := state.Key.UserID
 
-		text, renderErr := modules.Limiter.RenderGetLimit(chatID, threadID)
+		text, renderErr := modules.Limiter.RenderGetLimit(chatID, threadID, userID)
 		if renderErr != nil {
 			text = "❌ " + renderErr.Error()
 		}

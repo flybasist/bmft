@@ -88,7 +88,7 @@ func (m *LimiterModule) RenderMyStats(chatID int64, threadID int, userID int64) 
 }
 
 // RenderGetLimit возвращает HTML-текст общих лимитов чата/топика.
-func (m *LimiterModule) RenderGetLimit(chatID int64, threadID int) (string, error) {
+func (m *LimiterModule) RenderGetLimit(chatID int64, threadID int, userID int64) (string, error) {
 	limits, err := m.contentLimitsRepo.GetLimits(chatID, threadID, nil)
 	if err != nil {
 		return "", fmt.Errorf("не удалось получить лимиты")
@@ -134,6 +134,13 @@ func (m *LimiterModule) RenderGetLimit(chatID int64, threadID int) (string, erro
 	}
 	if !hasLimits {
 		text += "✅ Лимиты не установлены. Все типы контента разрешены без ограничений.\n"
+	}
+
+	// Проверяем, есть ли у пользователя, запросившего меню, персональные лимиты.
+	// GetLimits с userID fallback'ится на общие лимиты, поэтому проверяем limitsUser.UserID != nil
+	limitsUser, _ := m.contentLimitsRepo.GetLimits(chatID, threadID, &userID)
+	if limitsUser != nil && limitsUser.UserID != nil {
+		text = "⚠️ <b>Внимание:</b> На вас действует персональный лимит (см. «Мои лимиты»)\n\n" + text
 	}
 
 	text += "\n\U0001f4a1 \u041d\u0430\u0441\u0442\u0440\u043e\u0438\u0442\u044c: /setlimit"

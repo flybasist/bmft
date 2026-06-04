@@ -168,6 +168,11 @@ func wrapModuleMiddleware(
 				return next(c) // пропускаем не-сообщения
 			}
 
+			// Не обрабатываем сообщения от самого бота (в том числе меню в callback-запросах)
+			if msg.Sender != nil && msg.Sender.ID == c.Bot().Me.ID {
+				return next(c)
+			}
+
 			// ThreadID вычисляется один раз и кешируется для всех модулей.
 			// Раньше каждый из 3 модулей вызывал GetThreadIDFromMessage — 3 SQL-запроса.
 			var threadID int
