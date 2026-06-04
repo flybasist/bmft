@@ -4,11 +4,12 @@
 
 ## Структура
 
-- `001_initial_schema.sql` — Полная актуальная схема v1.1.1 (для новых установок)
+- `001_initial_schema.sql` — Полная актуальная схема v1.2.1 (для новых установок)
 - `002_migration.sql` — Обновление v1.0 → v1.1 (bugfixes + консолидация модулей)
 - `003_migration.sql` — Обновление v1.1 → v1.1.1 (anti-spam hotfix)
 - `004_migration.sql` — Обновление v1.1.1 → v1.2 (wizard'ы, UX, HTML)
-- `schema_migrations` — Таблица отслеживания версий (текущая: 4)
+- `005_migration.sql` — Обновление v1.2 → v1.2.1 (багфикс меню и лимитов)
+- `schema_migrations` — Таблица отслеживания версий (текущая: 5)
 
 ## Как работает
 
@@ -46,7 +47,7 @@ ON CONFLICT (version) DO NOTHING;
 В `internal/migrations/migrations.go`:
 
 ```go
-const LatestSchemaVersion = 2  // было 1
+const LatestSchemaVersion = 5  // было 4
 ```
 
 ### 4. Обновите ExpectedSchema (если нужно)

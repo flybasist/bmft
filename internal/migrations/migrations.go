@@ -53,7 +53,7 @@ var ExpectedSchema = []ExpectedTable{
 // LatestSchemaVersion - текущая версия схемы базы данных
 // Увеличивайте эту константу при добавлении новых миграций.
 // Каждая новая версия = один файл NNN_migration.sql в папке migrations/.
-const LatestSchemaVersion = 4
+const LatestSchemaVersion = 5
 
 // RunMigrationsIfNeeded проверяет схему БД и выполняет миграции если требуется
 // Возвращает ошибку если схема несовместима или миграция не удалась

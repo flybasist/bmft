@@ -168,7 +168,12 @@ func wrapModuleMiddleware(
 				return next(c) // пропускаем не-сообщения
 			}
 
-			// Не обрабатываем сообщения от самого бота (в том числе меню в callback-запросах)
+			// Не обрабатываем callback-запросы (нажатия на inline-кнопки меню бота)
+			if c.Callback() != nil {
+				return next(c)
+			}
+
+			// Не обрабатываем сообщения от самого бота
 			if msg.Sender != nil && msg.Sender.ID == c.Bot().Me.ID {
 				return next(c)
 			}
