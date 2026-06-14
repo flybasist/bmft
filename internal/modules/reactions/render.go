@@ -20,7 +20,7 @@ const UniqueMenuDelBan = "m_rm_ban"
 // Пустая строка + nil = нет реакций.
 func (m *ReactionsModule) RenderListReactions(chatID int64, threadID int, maxButtons int) (string, []int64, error) {
 	rows, err := m.db.Query(`
-		SELECT id, thread_id, COALESCE(user_id, 0), pattern, response_type, response_content, description,
+		SELECT id, thread_id, COALESCE(user_id, 0), pattern, response_type, response_content, COALESCE(description, ''),
 			COALESCE(trigger_content_type, ''), cooldown, daily_limit, delete_on_limit, is_active
 		FROM keyword_reactions
 		WHERE chat_id = $1 AND (thread_id = $2 OR thread_id = 0)
@@ -191,7 +191,7 @@ func (m *ReactionsModule) RenderListBans(chatID int64, threadID int, maxButtons 
 		text += fmt.Sprintf("\n<i>…и ещё %d фильтров</i>", len(bans)-len(ids))
 	}
 
-	text += "\n\n💡 Добавить: /addban\n🗑 Удалить: кнопки ниже"
+	text += "\n\n💡 Запретить слово: /addban\n💡 Запретить инлайн-бота: /addviaban\n🗑 Удалить: кнопки ниже"
 
 	return text, ids, nil
 }

@@ -56,6 +56,7 @@ func (m *LimiterModule) RenderMyStats(chatID int64, threadID int, userID int64) 
 		{"📍", "Геолокация", "location", limits.LimitLocation},
 		{"👤", "Контакты", "contact", limits.LimitContact},
 		{"🔞", "Мат", "banned_words", limits.LimitBannedWords},
+		{"🤖", "Inline боты", "via_bot", limits.LimitVia},
 		{"🎥", "Кружочки", "video_note", limits.LimitVideoNote},
 	}
 
@@ -110,6 +111,7 @@ func (m *LimiterModule) RenderGetLimit(chatID int64, threadID int, userID int64)
 		{"📍", "Геолокация", limits.LimitLocation},
 		{"👤", "Контакты", limits.LimitContact},
 		{"🔞", "Мат", limits.LimitBannedWords},
+		{"🤖", "Inline боты", limits.LimitVia},
 		{"🎥", "Кружочки", limits.LimitVideoNote},
 	}
 

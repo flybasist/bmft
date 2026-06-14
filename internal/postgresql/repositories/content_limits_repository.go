@@ -38,6 +38,7 @@ type ContentLimits struct {
 	LimitLocation    int
 	LimitContact     int
 	LimitBannedWords int
+	LimitVia         int
 	WarningThreshold int
 }
 
@@ -54,7 +55,7 @@ func (r *ContentLimitsRepository) GetLimits(chatID int64, threadID int, userID *
 			limit_text, limit_photo, limit_video, limit_sticker,
 			limit_animation, limit_voice, limit_video_note, limit_audio,
 			limit_document, limit_location, limit_contact, limit_banned_words,
-			warning_threshold
+			limit_via, warning_threshold
 		FROM content_limits
 		WHERE chat_id = $1 AND thread_id = $2 AND user_id = $3
 		LIMIT 1
@@ -65,7 +66,7 @@ func (r *ContentLimitsRepository) GetLimits(chatID int64, threadID int, userID *
 		&limits.LimitText, &limits.LimitPhoto, &limits.LimitVideo, &limits.LimitSticker,
 		&limits.LimitAnimation, &limits.LimitVoice, &limits.LimitVideoNote, &limits.LimitAudio,
 		&limits.LimitDocument, &limits.LimitLocation, &limits.LimitContact, &limits.LimitBannedWords,
-		&limits.WarningThreshold,
+		&limits.LimitVia, &limits.WarningThreshold,
 	)
 
 	if err != sql.ErrNoRows {
@@ -82,7 +83,7 @@ func (r *ContentLimitsRepository) GetLimits(chatID int64, threadID int, userID *
 			limit_text, limit_photo, limit_video, limit_sticker,
 			limit_animation, limit_voice, limit_video_note, limit_audio,
 			limit_document, limit_location, limit_contact, limit_banned_words,
-			warning_threshold
+			limit_via, warning_threshold
 		FROM content_limits
 		WHERE chat_id = $1 AND thread_id = $2 AND user_id IS NULL
 		LIMIT 1
@@ -92,7 +93,7 @@ func (r *ContentLimitsRepository) GetLimits(chatID int64, threadID int, userID *
 		&limits.LimitText, &limits.LimitPhoto, &limits.LimitVideo, &limits.LimitSticker,
 		&limits.LimitAnimation, &limits.LimitVoice, &limits.LimitVideoNote, &limits.LimitAudio,
 		&limits.LimitDocument, &limits.LimitLocation, &limits.LimitContact, &limits.LimitBannedWords,
-		&limits.WarningThreshold,
+		&limits.LimitVia, &limits.WarningThreshold,
 	)
 
 	if err != sql.ErrNoRows {
@@ -109,7 +110,7 @@ func (r *ContentLimitsRepository) GetLimits(chatID int64, threadID int, userID *
 			&limits.LimitText, &limits.LimitPhoto, &limits.LimitVideo, &limits.LimitSticker,
 			&limits.LimitAnimation, &limits.LimitVoice, &limits.LimitVideoNote, &limits.LimitAudio,
 			&limits.LimitDocument, &limits.LimitLocation, &limits.LimitContact, &limits.LimitBannedWords,
-			&limits.WarningThreshold,
+			&limits.LimitVia, &limits.WarningThreshold,
 		)
 
 		if err != sql.ErrNoRows {
@@ -127,7 +128,7 @@ func (r *ContentLimitsRepository) GetLimits(chatID int64, threadID int, userID *
 			&limits.LimitText, &limits.LimitPhoto, &limits.LimitVideo, &limits.LimitSticker,
 			&limits.LimitAnimation, &limits.LimitVoice, &limits.LimitVideoNote, &limits.LimitAudio,
 			&limits.LimitDocument, &limits.LimitLocation, &limits.LimitContact, &limits.LimitBannedWords,
-			&limits.WarningThreshold,
+			&limits.LimitVia, &limits.WarningThreshold,
 		)
 
 		if err != sql.ErrNoRows {
@@ -176,6 +177,8 @@ func (r *ContentLimitsRepository) SetLimit(chatID int64, threadID int, userID *i
 		columnName = "limit_contact"
 	case "banned_words":
 		columnName = "limit_banned_words"
+	case "via", "via_bot":
+		columnName = "limit_via"
 	default:
 		return fmt.Errorf("unknown content type: %s", contentType)
 	}

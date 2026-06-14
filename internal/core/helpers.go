@@ -170,6 +170,9 @@ func GetThreadIDFromMessage(db *sql.DB, msg *telebot.Message) int {
 // Общая функция для определения типа контента.
 // Используется в модулях limiter и statistics.
 func DetectContentType(msg *telebot.Message) string {
+	if msg.Via != nil {
+		return "via_bot"
+	}
 	if msg.Photo != nil {
 		return "photo"
 	}

@@ -212,6 +212,14 @@ func (m *ReactionsModule) performFilterAction(ctx *core.MessageContext, reaction
 		// reply на удалённое вызывал ошибку Telegram API (message not found).
 		// ctx.Send автоматически добавляет ThreadID для форумов.
 		ctx.Send(fmt.Sprintf("🚫 %s, сообщение удалено за нарушение правил", core.DisplayName(ctx.Message.Sender)))
+	case "ban_via":
+		if err := ctx.DeleteMessage(); err != nil {
+			m.logger.Error("failed to delete via message", zap.Error(err))
+		}
+		// Отправляем кастомный комментарий админа (response_content).
+		if reaction.ResponseContent != "" {
+			ctx.Send(fmt.Sprintf("🚫 %s", reaction.ResponseContent))
+		}
 	}
 }
 

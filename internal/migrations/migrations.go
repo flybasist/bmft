@@ -30,7 +30,7 @@ var ExpectedSchema = []ExpectedTable{
 	{Name: "messages", Columns: []string{"id", "chat_id", "thread_id", "user_id", "message_id", "content_type", "chat_name", "metadata"}},
 
 	// Limiter Module
-	{Name: "content_limits", Columns: []string{"id", "chat_id", "thread_id", "limit_text", "limit_photo", "limit_banned_words"}},
+	{Name: "content_limits", Columns: []string{"id", "chat_id", "thread_id", "limit_text", "limit_photo", "limit_banned_words", "limit_via"}},
 
 	// Reactions Module (включая бывшие textfilter и profanityfilter)
 	{Name: "keyword_reactions", Columns: []string{"id", "chat_id", "thread_id", "pattern", "response_type", "response_content", "action", "is_active"}},
@@ -53,7 +53,7 @@ var ExpectedSchema = []ExpectedTable{
 // LatestSchemaVersion - текущая версия схемы базы данных
 // Увеличивайте эту константу при добавлении новых миграций.
 // Каждая новая версия = один файл NNN_migration.sql в папке migrations/.
-const LatestSchemaVersion = 5
+const LatestSchemaVersion = 6
 
 // RunMigrationsIfNeeded проверяет схему БД и выполняет миграции если требуется
 // Возвращает ошибку если схема несовместима или миграция не удалась

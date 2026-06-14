@@ -226,9 +226,10 @@ func (m *LimiterModule) handleSetLimit(c tele.Context) error {
 		"text": true, "photo": true, "video": true, "sticker": true,
 		"animation": true, "voice": true, "video_note": true, "audio": true,
 		"document": true, "location": true, "contact": true, "banned_words": true,
+		"via_bot": true, "via": true,
 	}
 	if !validContentTypes[contentType] {
-		return c.Send("❌ Неизвестный тип: " + contentType + "\n\nДопустимые: text, photo, video, sticker, animation, voice, video_note, audio, document, location, contact, banned_words")
+		return c.Send("❌ Неизвестный тип: " + contentType + "\n\nДопустимые: text, photo, video, sticker, animation, voice, video_note, audio, document, location, contact, banned_words, via_bot")
 	}
 
 	limitValue, err := strconv.Atoi(args[1])

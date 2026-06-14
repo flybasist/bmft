@@ -76,6 +76,7 @@ var limitContentTypes = []limitContentType{
 	{"location", "📍", "Локации"},
 	{"contact", "👤", "Контакты"},
 	{"banned_words", "🚫", "Запр.слова"},
+	{"via_bot", "🤖", "Inline-боты"},
 }
 
 // limitPresets — пресеты значений для шага 2. -1 и «Свой» добавляются отдельно.

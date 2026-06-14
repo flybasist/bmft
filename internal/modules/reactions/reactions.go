@@ -94,6 +94,9 @@ func (m *ReactionsModule) RegisterAdminCommands(bot *telebot.Bot) {
 	// Фильтр мата — создание и удаление
 	bot.Handle("/setprofanity", m.handleSetProfanity)
 	bot.Handle("/removeprofanity", m.handleRemoveProfanity)
+
+	// Запрет инлайн-ботов
+	bot.Handle("/addviaban", m.handleAddViaBan)
 }
 
 // HandleSetProfanity — публичная обёртка над handleSetProfanity.
@@ -173,7 +176,14 @@ func (m *ReactionsModule) OnMessage(ctx *core.MessageContext) error {
 		}
 
 		matched := false
-		if textToCheck != "" {
+		if reaction.Action == "ban_via" {
+			if msg.Via != nil {
+				viaName := "@" + msg.Via.Username
+				if strings.EqualFold(viaName, reaction.Pattern) || strings.EqualFold(msg.Via.Username, reaction.Pattern) {
+					matched = true
+				}
+			}
+		} else if textToCheck != "" {
 			if reaction.IsRegex {
 				re, err := regexp.Compile(reaction.Pattern)
 				if err != nil {
@@ -342,7 +352,7 @@ func (m *ReactionsModule) loadReactions(chatID int64, threadID int, userID int64
 	// 3. Общая реакция для топика (thread_id, user_id IS NULL)
 	// 4. Общая реакция для чата (thread_id=0, user_id IS NULL)
 	rows, err := m.db.Query(`
-		SELECT id, chat_id, thread_id, COALESCE(user_id, 0), pattern, response_type, response_content, description, COALESCE(trigger_content_type, ''), is_regex, cooldown, daily_limit, delete_on_limit, COALESCE(action, ''), is_active
+		SELECT id, chat_id, thread_id, COALESCE(user_id, 0), pattern, response_type, response_content, COALESCE(description, ''), COALESCE(trigger_content_type, ''), is_regex, cooldown, daily_limit, delete_on_limit, COALESCE(action, ''), is_active
 		FROM keyword_reactions
 		WHERE chat_id = $1 
 		  AND (thread_id = $2 OR thread_id = 0) 
@@ -759,4 +769,44 @@ func (m *ReactionsModule) HandleDeleteReactionCallback(c telebot.Context) error 
 		Text:      fmt.Sprintf("✅ Реакция %d удалена", reactionID),
 		ShowAlert: true,
 	})
+}
+
+// handleAddViaBan добавляет инлайн-бота в черный список (action = 'ban_via')
+func (m *ReactionsModule) handleAddViaBan(c telebot.Context) error {
+	chatID := c.Chat().ID
+	threadID := core.GetThreadID(m.db, c)
+
+	if err := m.chatRepo.EnsureExists(chatID); err != nil {
+		m.logger.Error("failed to ensure chat exists", zap.Error(err))
+	}
+
+	args := c.Args()
+	if len(args) < 2 {
+		return c.Send("Использование: /addviaban @botname Ваш кастомный комментарий\nПример: /addviaban @gif Использование гифок запрещено!")
+	}
+
+	botName := args[0]
+	if !strings.HasPrefix(botName, "@") {
+		botName = "@" + botName
+	}
+	responseContent := strings.Join(args[1:], " ")
+
+	_, err := m.db.Exec(`
+		INSERT INTO keyword_reactions (chat_id, thread_id, pattern, response_type, response_content, action, is_active)
+		VALUES ($1, $2, $3, 'text', $4, 'ban_via', true)
+	`, chatID, threadID, botName, responseContent)
+
+	if err != nil {
+		m.logger.Error("failed to add via ban", zap.Error(err))
+		return c.Send("❌ Не удалось заблокировать инлайн-бота")
+	}
+
+	var scopeMsg string
+	if threadID != 0 {
+		scopeMsg = "<b>в этом топике</b>"
+	} else {
+		scopeMsg = "<b>во всём чате</b>"
+	}
+
+	return c.Send(fmt.Sprintf("✅ Инлайн-бот %s теперь запрещен %s.\nПри использовании его сообщений, бот будет их удалять и отвечать:\n\n<i>%s</i>", html.EscapeString(botName), scopeMsg, html.EscapeString(responseContent)), &telebot.SendOptions{ParseMode: telebot.ModeHTML})
 }
